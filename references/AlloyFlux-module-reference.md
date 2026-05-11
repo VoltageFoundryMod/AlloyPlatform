@@ -1336,7 +1336,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 6. **Parameter smoothing** — one-pole LPF on all params in `updateControl()`
 - [x] 7. **Migrate to Pico 2 / RP2350** — update platformio.ini, I2S defines, TinyUSB; verify audio chain
 - [x] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
-- [ ] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
+- [x] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
 - [ ] 10. **SHAPE morph engine** — continuous polyBLEP or wavetable morph, anti-aliased
 - [ ] 11. **Drift engine** — per-voice phase drift, detune wander, stereo position animation
 - [ ] 12. **Chorus engine** — multi-tap BBD-inspired, stereo, modulation variance

@@ -61,6 +61,7 @@ static void generateBandLimitedSaw() {
 // Module includes
 // ---------------------------------------------------------------------------
 #include "debug.h"
+#include "dsp_shared.h"
 #include "params.h"
 #include "serial_console.h"
 
@@ -89,8 +90,19 @@ static float sVolume = 0.8f;
 extern volatile bool gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs = 0;
 volatile uint32_t gAudioOverruns = 0;
-
 #endif
+
+// ---------------------------------------------------------------------------
+// Inter-core shared state (Milestone 9) — see include/dsp_shared.h
+// ---------------------------------------------------------------------------
+DspParams gDsp    = {};
+mutex_t   gDspMutex;
+
+// Chorus I/O — written by updateAudio(), processed by loop1() at Milestone 12.
+volatile int32_t gChorusIn_L  = 0;
+volatile int32_t gChorusIn_R  = 0;
+volatile int32_t gChorusOut_L = 0;
+volatile int32_t gChorusOut_R = 0;
 
 // ---------------------------------------------------------------------------
 // Mozzi callbacks
@@ -98,6 +110,7 @@ volatile uint32_t gAudioOverruns = 0;
 
 void setup() {
     serialConsole_init();
+    mutex_init(&gDspMutex);
     generateBandLimitedSaw();
     startMozzi();
     v1_sin.setFreq(gBaseFreq);
@@ -121,6 +134,14 @@ void updateControl() {
     // One-pole smoothing — eliminates zipper noise on parameter changes
     sWaveform += (gWaveform - sWaveform) * 0.1f;
     sVolume += (gVolume - sVolume) * 0.1f;
+
+    // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
+    mutex_enter_blocking(&gDspMutex);
+    gDsp.freq1    = freq1;
+    gDsp.freq2    = freq2;
+    gDsp.waveform = sWaveform;
+    gDsp.volume   = sVolume;
+    mutex_exit(&gDspMutex);
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
     // Print audio ISR timing once every 5 s so it doesn't flood the console.
@@ -168,9 +189,27 @@ AudioOutput updateAudio() {
         gAudioOverruns++;
 #endif
 
+    // Feed chorus engine on Core 1 (Milestone 12) — passthrough until then.
+    gChorusIn_L = left;
+    gChorusIn_R = right;
+
     return StereoOutput::from16Bit(left, right);
 }
 
 void loop() {
     audioHook();
+}
+
+// ---------------------------------------------------------------------------
+// Core 1 — DSP offload (Milestone 9 foundation; chorus engine arrives at M12)
+// ---------------------------------------------------------------------------
+
+void setup1() {
+    // No Core 1 initialisation required until the chorus engine is added.
+}
+
+void loop1() {
+    // Chorus engine will run here (Milestone 12).
+    // DspParams p = dsp_params_read();
+    // processChorus(p, gChorusIn_L, gChorusIn_R, &gChorusOut_L, &gChorusOut_R);
 }
