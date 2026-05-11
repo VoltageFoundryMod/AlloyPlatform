@@ -437,6 +437,82 @@ Oscillators should:
 
 ---
 
+## Voice and Polyphony Architecture
+
+### Voice Slot Definition
+
+Each voice slot is one `ShapeOsc` instance — a single-phase oscillator that morphs
+continuously across all five waveforms. Voice slots are the fundamental building block
+of every mode.
+
+```txt
+Voice slot = 1 ShapeOsc instance
+           = 1 shared phase accumulator (32-bit)
+           + 5 wavetable pointers + pre-computed crossfade position
+           ≈ 24 bytes RAM
+```
+
+All active voice slots run simultaneously, every audio sample. Their outputs are
+summed and scaled before reaching the stereo output.
+
+### Per-Mode Slot Layout
+
+Modes differ only in how voice slots are pitched and panned — the synthesis engine
+(ShapeOsc morph, CURVE envelope, chorus) is identical across all modes.
+
+**PAIR** (default, 2 voices):
+```txt
+slot[0]  freq = ROOT − DETUNE/2   →  L output
+slot[1]  freq = ROOT + DETUNE/2   →  R output
+```
+
+**CHORD** (4 voices, Milestone 23):
+```txt
+slot[0]  ROOT + interval[0]  →  hard L
+slot[1]  ROOT + interval[1]  →  soft L
+slot[2]  ROOT + interval[2]  →  soft R
+slot[3]  ROOT + interval[3]  →  hard R
+
+Interval set from chord table; RELATION knob sweeps chord shape.
+All slots share the same SHAPE, CURVE, and MOTION settings.
+```
+
+**CLOUD** (4–8 voices, Milestone 22):
+```txt
+slot[0..7]  ROOT ± micro-detune (animated by MOTION)
+            stereo position drifts slowly per slot
+```
+
+### Polyphony from MIDI / I2C
+
+A voice allocator maps incoming note events to ROOT pitch:
+
+```txt
+MIDI Note On  (note=60)  ─┬───────────────────────────────┐
+I2C command   (note=67)  ─┤  voice allocator → set ROOT freq      │
+V/OCT + GATE            ─┼───────────────────────────────┤
+MIDI Note Off (note=60)  ─┘  → release (trigger CURVE release phase)
+
+PAIR mode:  one logical note fans to [ROOT] and [ROOT + RELATION interval]
+CHORD mode: one logical note fans to 4 calculated interval slots
+CLOUD mode: one logical note fans to N micro-detuned, drifting slots
+```
+
+### Summing and Normalisation
+
+With N active voice slots, sum and scale to prevent clipping:
+
+```cpp
+int32_t sum = 0;
+for (int i = 0; i < N; i++) sum += voices[i].next();
+sum /= N;  // normalise to ±32512 range
+```
+
+8-voice CLOUD and 2-voice PAIR produce identical output levels — consistent with
+Eurorack expectations.
+
+---
+
 ## Wave Morphing — SHAPE
 
 Instead of a waveform selector switch, Alloy Flux uses continuous waveform morphing.
@@ -455,7 +531,82 @@ Benefits:
 - no stepped waveform switching — everything is a blend
 - harmonic brightness increases from left to right
 
-> Development note: morphing between polyBLEP waveform types mid-cycle is the technically challenging part. Budget extra time for anti-aliasing validation across the morph range. Wavetable crossfade may be a cleaner implementation path.
+### Implementation — Wavetable Crossfade (Milestone 10)
+
+Five band-limited wavetables are generated at startup via additive synthesis with
+Lanczos sigma smoothing (same technique as the original saw table).
+`maxH = 37` at 32768 Hz, band-limited from 440 Hz upward.
+
+| SHAPE | Table        | Harmonics        | Amplitude law                |
+| ----- | ------------ | ---------------- | ---------------------------- |
+| 0.00  | Sine         | fundamental only | Mozzi constant array (flash) |
+| 0.25  | Triangle     | odd: 1, 3, 5, …  | σ · (−1)^((h−1)/2) / h²      |
+| 0.50  | Saw          | all: 1, 2, 3, …  | σ / h                        |
+| 0.75  | Pulse (50%)  | odd: 1, 3, 5, …  | σ / h                        |
+| 1.00  | Hollow (25%) | all: 1, 2, 3, …  | σ · sin(h·π/4) / h           |
+
+σ = Lanczos sigma: `sinc(h·π / (maxH+1))`, where h is the harmonic number.
+
+`ShapeOsc<UPDATE_RATE>` holds five table pointers and one phase accumulator:
+
+- `setFreq(f)` and `setShape(s)` called at control rate (128 Hz) from `updateControl()`
+- `next()` called at audio rate (32768 Hz) from `updateAudio()` — **no float ops**;
+  crossfade pair and blend factor are pre-computed in `setShape()`
+- Both adjacent tables are read at the **same phase** — no phase discontinuity
+  when SHAPE changes mid-note
+- `_blend` is `uint8_t` 0–255; integer crossfade is `(s0*(256-b) + s1*b) >> 8`
+
+---
+
+## Sub Oscillator — FATNESS
+
+The classic Juno sound is never just one waveform. The original Juno-106 sums a saw
+oscillator, a pulse oscillator (with PWM), and a sub oscillator (one or two octaves
+below, fixed square) through individual level sliders. The simultaneous presence of
+these layers — especially the sub — is what makes the Juno sound physically large.
+
+Alloy Flux captures this without requiring the player to manually balance multiple
+oscillator levels. A single **FATNESS** parameter controls how much of an octave-down
+square sub oscillator is blended into each voice:
+
+```txt
+FATNESS = 0.0  —  pure SHAPE morph, no sub
+FATNESS = 0.4  —  default: sub audible, adds body without dominating (Juno-ish)
+FATNESS = 1.0  —  sub at 50% of main level, very fat, reduce VOL to taste
+```
+
+### Sub Oscillator Characteristics
+
+- **Pitch**: always one octave below the voice’s ROOT frequency (`freq × 0.5`)
+- **Waveform**: fixed square (SHAPE = 0.75 in the 5-table spectrum) — never morphs
+- **Level**: 0 to 50% of main oscillator amplitude (FATNESS = 0.0 to 1.0)
+- **Per voice**: each voice (v1 L, v2 R) has its own independent sub oscillator
+- **SHAPE independence**: SHAPE knob changes the main voice character, sub is always square
+
+### FATNESS Hardware Interaction — Button Shift
+
+The panel has one SHAPE knob but two related parameters: SHAPE (main morph) and FATNESS
+(sub level). The single button acts as a **shift key**:
+
+```txt
+SHAPE knob alone         —  adjusts main oscillator morph (sine → hollow)
+[hold BUTTON] + SHAPE    —  adjusts FATNESS (sub octave level 0 → full)
+
+LED feedback while in shift mode: dim white fill on the shape LED
+```
+
+This is the same interaction pattern used on many modern Eurorack modules (e.g. Make
+Noise Maths alt-function via button hold). No extra panel hardware required.
+
+> Implementation note: the button-shift detection belongs in the UI state machine
+> (Milestone 30). For current development, `fat <0–1>` is the serial command.
+
+### Mixing and Clip Safety
+
+With sub at full level (FATNESS=1.0) and VOL=1.0, the combined signal can reach 150%
+of the ±32512 range. The firmware soft-clips to ±32512 before the volume stage, so
+behavior is graceful (saturation, not digital wraparound). At the default FATNESS=0.4
+and VOL=0.8 the total is safely within range at all times.
 
 ---
 
@@ -610,6 +761,9 @@ Continuous waveform morphing from sine → triangle → saw → pulse → hollow
 Associated jack: **SHAPE CV**
 
 When SHAPE CV is patched, SHAPE knob becomes attenuverter for that CV.
+
+**Button shift:** hold the panel button while turning SHAPE to adjust **FATNESS**
+(sub octave square level). LED dims white during shift mode.
 
 ### MOTION
 
@@ -1337,7 +1491,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 7. **Migrate to Pico 2 / RP2350** — update platformio.ini, I2S defines, TinyUSB; verify audio chain
 - [x] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
 - [x] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
-- [ ] 10. **SHAPE morph engine** — continuous polyBLEP or wavetable morph, anti-aliased
+- [x] 10. **SHAPE morph engine** — continuous wavetable crossfade: sine → triangle → saw → pulse → hollow pulse; all tables band-limited at startup; `ShapeOsc` replaces `Osc16` pair
 - [ ] 11. **Drift engine** — per-voice phase drift, detune wander, stereo position animation
 - [ ] 12. **Chorus engine** — multi-tap BBD-inspired, stereo, modulation variance
 - [ ] 13. **SPACE spatializer** — stereo width and placement per voice
@@ -1365,10 +1519,16 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 35. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
 
 
-## Project To Do List
+## Project Refinement
+
+### Software
+
+- [ ] Understand if the multiple voices should be mixed to the stereo output and if these voices should be used by the chord engine or the MIDI/I2C input
+- [ ] Define the command list which will span Serial control, MIDI CCs, Web USB/MIDI configurator and I2C — aim for consistent parameter names across all interfaces
+
+### Hardware
 
 - [ ] Evaluate adding CV inputs for all/most parameters
-- [ ] Define the command list which will span Serial control, MIDI CCs, Web USB/MIDI configurator and I2C — aim for consistent parameter names across all interfaces
 - [ ] Evaluate if will use the audio jack detection. Seems too complex to implement reliably with the mux and may not add much value. Could be reserved for future expansion if needed.
 - [ ] Evaluate adding an expansion module (2hp) for future features with additional inputs and outputs
 

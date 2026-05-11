@@ -24,10 +24,16 @@ static void cmd_detune(const char *args, Print &out) {
     out.println(gDetune, 2);
 }
 
-static void cmd_wave(const char *args, Print &out) {
-    gWaveform = constrain((float)atof(args), 0.0f, 1.0f);
-    out.print(F("wave -> "));
-    out.println(gWaveform, 3);
+static void cmd_shape(const char *args, Print &out) {
+    gShape = constrain((float)atof(args), 0.0f, 1.0f);
+    out.print(F("shape -> "));
+    out.println(gShape, 3);
+}
+
+static void cmd_fat(const char *args, Print &out) {
+    gFatness = constrain((float)atof(args), 0.0f, 1.0f);
+    out.print(F("fat -> "));
+    out.println(gFatness, 3);
 }
 
 static void cmd_vol(const char *args, Print &out) {
@@ -41,8 +47,10 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gBaseFreq, 2);
     out.print(F(" detune="));
     out.print(gDetune, 2);
-    out.print(F(" wave="));
-    out.print(gWaveform, 3);
+    out.print(F(" shape="));
+    out.print(gShape, 3);
+    out.print(F(" fat="));
+    out.print(gFatness, 3);
     out.print(F(" vol="));
     out.println(gVolume, 3);
 }
@@ -94,7 +102,8 @@ static void cmd_help(const char *args, Print &out);
 const CommandEntry kCommands[] = {
     {"pitch",  "<hz>   base frequency (20-8000 Hz)", cmd_pitch},
     {"detune", "<hz>   symmetric spread (0-200 Hz)", cmd_detune},
-    {"wave",   "<0-1>  waveform blend: 0=sine, 1=saw", cmd_wave},
+    {"shape", "<0-1>  waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
+    {"fat",   "<0-1>  sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
     {"vol",    "<0-1>  master volume", cmd_vol},
     {"status", "       print all current parameters", cmd_status},
     {"perf",   "       enable or disable CPU profiling printing", cmd_performance_print},

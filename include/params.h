@@ -13,7 +13,8 @@ extern float gBaseFreq; // Hz, voice 1 root pitch (20–8000)
 extern float gDetune;   // Hz, symmetric spread (v1 = base-d/2, v2 = base+d/2)
 
 // Timbre
-extern float gWaveform; // 0.0 = pure sine … 1.0 = pure saw
+extern float gShape;   // 0.0 = sine  0.25 = tri  0.50 = saw  0.75 = pulse  1.0 = hollow
+extern float gFatness; // 0.0 = no sub osc  …  1.0 = sub at 50% of main level
 
 // Level
 extern float gVolume; // 0.0 – 1.0 master output

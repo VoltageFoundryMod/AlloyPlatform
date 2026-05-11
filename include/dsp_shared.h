@@ -37,15 +37,16 @@
 // ---------------------------------------------------------------------------
 
 struct DspParams {
-    float freq1;    // voice 1 Hz, post-detune
-    float freq2;    // voice 2 Hz, post-detune
-    float waveform; // 0.0 = pure sine … 1.0 = pure saw
-    float volume;   // 0.0 – 1.0 master level
+    float freq1;   // voice 1 Hz, post-detune
+    float freq2;   // voice 2 Hz, post-detune
+    float shape;   // 0.0 = sine … 0.5 = saw … 1.0 = hollow pulse
+    float fatness; // 0.0 = no sub osc … 1.0 = sub at 50% of main level
+    float volume;  // 0.0 – 1.0 master level
 };
 
 // Defined in src/main.cpp
 extern DspParams gDsp;
-extern mutex_t   gDspMutex;
+extern mutex_t gDspMutex;
 
 // ---------------------------------------------------------------------------
 // Chorus I/O  (stubs until Milestone 12)

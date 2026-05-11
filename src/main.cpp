@@ -21,40 +21,96 @@
 // ---------------------------------------------------------------------------
 // Mozzi includes
 // ---------------------------------------------------------------------------
-#include "Osc16.h"
+#include "ShapeOsc.h"
 #include <Mozzi.h>
 #include <math.h>
 #include <tables/sin2048_int8.h>
 
 // ---------------------------------------------------------------------------
-// Band-limited rising saw — generated in setup() via additive synthesis.
-// Lanczos sigma factor on each harmonic eliminates Gibbs overshoot (~9%→<1%).
-// maxH = floor(AUDIO_RATE/2 / 440) ≈ 37: band-limited for 440 Hz and above.
+// Band-limited wavetables — all generated at startup via additive synthesis.
+// Lanczos sigma factor: sigma(h) = sinc(h*pi/(maxH+1)) kills Gibbs ringing.
+// maxH = floor(AUDIO_RATE/2 / 440) = 37 @ 32768 Hz — band-limited for 440 Hz+.
+//
+// SHAPE spectrum across the five tables (0.0 → 1.0):
+//   sine      triangle     saw     pulse(50%)   hollow(25%)
 // ---------------------------------------------------------------------------
-#define SAW_TABLE_CELLS 2048
-static int8_t gSawTable[SAW_TABLE_CELLS];
+static int8_t gTriTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int8_t gSawTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int8_t gSquareTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int8_t gNarrowPulseTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
 
-static void generateBandLimitedSaw() {
-    const int N = SAW_TABLE_CELLS;
-    const int maxH = (MOZZI_AUDIO_RATE / 2) / 440; // 37 @ 32768 Hz
-    static float buf[SAW_TABLE_CELLS];             // static: avoids 8 KB stack frame
+static void normaliseTable(const float *buf, int8_t *dst, int n) {
     float peak = 0.0f;
+    for (int i = 0; i < n; i++)
+        if (fabsf(buf[i]) > peak)
+            peak = fabsf(buf[i]);
+    if (peak < 1e-6f)
+        peak = 1.0f;
+    const float scale = 127.0f / peak;
+    for (int i = 0; i < n; i++)
+        dst[i] = (int8_t)(buf[i] * scale);
+}
+
+static void generateWavetables() {
+    static float buf[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS]; // static: avoids 8 KB stack frame
+    const int N = ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS;
+    const int maxH = (MOZZI_AUDIO_RATE / 2) / 440; // 37 @ 32768 Hz
+
+    // --- Triangle: odd harmonics, alternating sign, 1/h² rolloff ---
+    for (int i = 0; i < N; i++) {
+        const float phase = 2.0f * (float)M_PI * i / N;
+        float val = 0.0f;
+        for (int h = 1; h <= maxH; h += 2) {
+            const float x = (float)h * (float)M_PI / (maxH + 1);
+            const float sigma = sinf(x) / x;
+            const float sign = (((h - 1) / 2) & 1) ? -1.0f : 1.0f;
+            val += sigma * sign * sinf((float)h * phase) / ((float)h * h);
+        }
+        buf[i] = val;
+    }
+    normaliseTable(buf, gTriTable, N);
+
+    // --- Saw: all harmonics, 1/h rolloff ---
     for (int i = 0; i < N; i++) {
         const float phase = 2.0f * (float)M_PI * i / N;
         float val = 0.0f;
         for (int h = 1; h <= maxH; h++) {
-            // Lanczos sigma: sinc(h*pi/(maxH+1)) dampens upper harmonics
             const float x = (float)h * (float)M_PI / (maxH + 1);
             const float sigma = sinf(x) / x;
             val += sigma * sinf((float)h * phase) / (float)h;
         }
         buf[i] = val;
-        if (fabsf(val) > peak)
-            peak = fabsf(val);
     }
-    const float scale = 127.0f / peak;
-    for (int i = 0; i < N; i++)
-        gSawTable[i] = (int8_t)(buf[i] * scale);
+    normaliseTable(buf, gSawTable, N);
+
+    // --- Square / Pulse 50%: odd harmonics only, 1/h rolloff ---
+    for (int i = 0; i < N; i++) {
+        const float phase = 2.0f * (float)M_PI * i / N;
+        float val = 0.0f;
+        for (int h = 1; h <= maxH; h += 2) {
+            const float x = (float)h * (float)M_PI / (maxH + 1);
+            const float sigma = sinf(x) / x;
+            val += sigma * sinf((float)h * phase) / (float)h;
+        }
+        buf[i] = val;
+    }
+    normaliseTable(buf, gSquareTable, N);
+
+    // --- Hollow pulse 25% duty: all harmonics weighted by sin(h*pi/4)/h ---
+    // Every 4th harmonic (h=4,8,12...) is nulled; h=2,6,10 are phase-inverted.
+    // This gives the characteristic hollow/nasal 25%-duty-cycle tone.
+    for (int i = 0; i < N; i++) {
+        const float phase = 2.0f * (float)M_PI * i / N;
+        float val = 0.0f;
+        for (int h = 1; h <= maxH; h++) {
+            const float x = (float)h * (float)M_PI / (maxH + 1);
+            const float sigma = sinf(x) / x;
+            const float duty = sinf((float)h * (float)M_PI * 0.25f);
+            val += sigma * duty * sinf((float)h * phase) / (float)h;
+        }
+        buf[i] = val;
+    }
+    normaliseTable(buf, gNarrowPulseTable, N);
 }
 
 // ---------------------------------------------------------------------------
@@ -66,24 +122,30 @@ static void generateBandLimitedSaw() {
 #include "serial_console.h"
 
 // ---------------------------------------------------------------------------
-// Oscillators: Voice 1 (L) + Voice 2 (R), each a sine/saw pair
+// Oscillators: Voice 1 (L) + Voice 2 (R) — 5-shape morphing wavetable oscillators
+// Sub oscillators: one octave down, fixed square shape, level controlled by FATNESS
 // ---------------------------------------------------------------------------
-static Osc16<SIN2048_NUM_CELLS, MOZZI_AUDIO_RATE> v1_sin(SIN2048_DATA);
-static Osc16<SAW_TABLE_CELLS, MOZZI_AUDIO_RATE> v1_saw(gSawTable);
-static Osc16<SIN2048_NUM_CELLS, MOZZI_AUDIO_RATE> v2_sin(SIN2048_DATA);
-static Osc16<SAW_TABLE_CELLS, MOZZI_AUDIO_RATE> v2_saw(gSawTable);
+static ShapeOsc<MOZZI_AUDIO_RATE> v1(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
+static ShapeOsc<MOZZI_AUDIO_RATE> v2(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
+static ShapeOsc<MOZZI_AUDIO_RATE> subv1(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
+static ShapeOsc<MOZZI_AUDIO_RATE> subv2(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
 
 // ---------------------------------------------------------------------------
 // Shared synthesis parameters (declared extern in params.h)
 // ---------------------------------------------------------------------------
 float gBaseFreq = 440.0f;
 float gDetune = 0.0f;
-float gWaveform = 0.0f;
+float gShape = 0.0f;
+float gFatness = 0.4f; // default: sub audible but not boomy
 float gVolume = 0.8f;
 
 // Smoothed values — consumed by updateAudio(), updated in updateControl()
-static float sWaveform = 0.0f;
+static float sShape = 0.0f;
+static float sFatness = 0.4f;
 static float sVolume = 0.8f;
+// Pre-scaled integer sub weight for the audio hot path (0..128 = 0..50% of main).
+// Computed once per control cycle; 32-bit aligned so ISR reads are atomic.
+static int32_t sSubW = 51;
 
 // CPU profiling counters (Milestone 8) — compiled out when CPU_PROFILE is not set.
 #ifdef CPU_PROFILE
@@ -95,12 +157,12 @@ volatile uint32_t gAudioOverruns = 0;
 // ---------------------------------------------------------------------------
 // Inter-core shared state (Milestone 9) — see include/dsp_shared.h
 // ---------------------------------------------------------------------------
-DspParams gDsp    = {};
-mutex_t   gDspMutex;
+DspParams gDsp = {};
+mutex_t gDspMutex;
 
 // Chorus I/O — written by updateAudio(), processed by loop1() at Milestone 12.
-volatile int32_t gChorusIn_L  = 0;
-volatile int32_t gChorusIn_R  = 0;
+volatile int32_t gChorusIn_L = 0;
+volatile int32_t gChorusIn_R = 0;
 volatile int32_t gChorusOut_L = 0;
 volatile int32_t gChorusOut_R = 0;
 
@@ -111,12 +173,15 @@ volatile int32_t gChorusOut_R = 0;
 void setup() {
     serialConsole_init();
     mutex_init(&gDspMutex);
-    generateBandLimitedSaw();
+    generateWavetables();
     startMozzi();
-    v1_sin.setFreq(gBaseFreq);
-    v1_saw.setFreq(gBaseFreq);
-    v2_sin.setFreq(gBaseFreq);
-    v2_saw.setFreq(gBaseFreq);
+    v1.setFreq(gBaseFreq);
+    v2.setFreq(gBaseFreq);
+    // Sub oscillators: fixed square shape (0.75), one octave below main freq
+    subv1.setShape(0.75f);
+    subv2.setShape(0.75f);
+    subv1.setFreq(gBaseFreq * 0.5f);
+    subv2.setFreq(gBaseFreq * 0.5f);
     serialConsole_ready();
 }
 
@@ -126,21 +191,28 @@ void updateControl() {
     float freq1 = max(gBaseFreq - gDetune * 0.5f, 20.0f);
     float freq2 = max(gBaseFreq + gDetune * 0.5f, 20.0f);
 
-    v1_sin.setFreq(freq1);
-    v1_saw.setFreq(freq1);
-    v2_sin.setFreq(freq2);
-    v2_saw.setFreq(freq2);
+    v1.setFreq(freq1);
+    v2.setFreq(freq2);
+    subv1.setFreq(freq1 * 0.5f);
+    subv2.setFreq(freq2 * 0.5f);
 
     // One-pole smoothing — eliminates zipper noise on parameter changes
-    sWaveform += (gWaveform - sWaveform) * 0.1f;
+    sShape += (gShape - sShape) * 0.1f;
+    sFatness += (gFatness - sFatness) * 0.1f;
     sVolume += (gVolume - sVolume) * 0.1f;
+    v1.setShape(sShape);
+    v2.setShape(sShape);
+    // sSubW: 0..128 maps fatness 0..1 to sub contributing 0..50% of main amplitude.
+    // Written here (Core 0 control rate), read in updateAudio() ISR — atomic on M33.
+    sSubW = (int32_t)(sFatness * 128.0f);
 
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
-    gDsp.freq1    = freq1;
-    gDsp.freq2    = freq2;
-    gDsp.waveform = sWaveform;
-    gDsp.volume   = sVolume;
+    gDsp.freq1 = freq1;
+    gDsp.freq2 = freq2;
+    gDsp.shape = sShape;
+    gDsp.fatness = sFatness;
+    gDsp.volume = sVolume;
     mutex_exit(&gDspMutex);
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
@@ -168,19 +240,31 @@ AudioOutput updateAudio() {
     const uint32_t _t0 = time_us_32();
 #endif
 
-    // Blend sine and saw with full 16-bit precision throughout.
-    // Osc16::next() returns ≈±32512 (int16 range from interpolated int8 table).
-    // sinW + sawW == 256, so >>8 after the weighted sum normalises back to ±32512.
-    int32_t sawW = (int32_t)(sWaveform * 256.0f);
-    int32_t sinW = 256 - sawW;
+    // Main oscillators: full 5-shape morph
+    int32_t s1 = v1.next();
+    int32_t s2 = v2.next();
 
-    int32_t v1 = ((int32_t)v1_sin.next() * sinW + (int32_t)v1_saw.next() * sawW) >> 8;
-    int32_t v2 = ((int32_t)v2_sin.next() * sinW + (int32_t)v2_saw.next() * sawW) >> 8;
+    // Sub oscillators: fixed square (shape=0.75), one octave below, mixed at sSubW/256
+    // sSubW 0..128 → sub adds 0..50% of ±32512 range (matches Juno sub fader range)
+    int32_t sub1 = subv1.next();
+    int32_t sub2 = subv2.next();
+    int32_t m1 = s1 + ((sub1 * sSubW) >> 8);
+    int32_t m2 = s2 + ((sub2 * sSubW) >> 8);
+
+    // Soft clip: cap at ±32512 before volume scaling to prevent from16Bit wrap
+    if (m1 > 32512)
+        m1 = 32512;
+    else if (m1 < -32512)
+        m1 = -32512;
+    if (m2 > 32512)
+        m2 = 32512;
+    else if (m2 < -32512)
+        m2 = -32512;
 
     // Volume: scale 0..256, >>8 keeps result in ±32512
     int32_t volW = (int32_t)(sVolume * 256.0f);
-    int32_t left = (v1 * volW) >> 8;
-    int32_t right = (v2 * volW) >> 8;
+    int32_t left = (m1 * volW) >> 8;
+    int32_t right = (m2 * volW) >> 8;
 
 #ifdef CPU_PROFILE
     const uint32_t elapsed = time_us_32() - _t0;
