@@ -30,6 +30,11 @@
   - [FM Philosophy](#fm-philosophy)
   - [Drift and Motion System](#drift-and-motion-system)
   - [Chorus Philosophy](#chorus-philosophy)
+  - [CURVE Engine — Envelope and Amplitude](#curve-engine--envelope-and-amplitude)
+    - [Gate Sources](#gate-sources)
+    - [Envelope Shape](#envelope-shape)
+    - [VCA Placement — Before Chorus](#vca-placement--before-chorus)
+    - [Implementation Notes](#implementation-notes)
   - [Front Panel Controls](#front-panel-controls)
     - [ROOT](#root)
     - [RELATION *(signature control — largest knob)*](#relation-signature-control--largest-knob)
@@ -204,7 +209,7 @@ The RELATION knob is the signature control of the module. It is the most express
 
 | Peripheral | Usage                                                      |
 | ---------- | ---------------------------------------------------------- |
-| PIO 0      | I2S audio output to PCM5102A (GP0/GP1/GP2)                 |
+| PIO 0      | I2S audio output to PCM5102A (BCK=26, LCK=27, DATA=28)     |
 | PIO 1      | WS2812B LED data (GP7)                                     |
 | PIO 2      | Spare — future use                                         |
 | ADC GP26   | V/OCT pitch CV — direct, fast reads                        |
@@ -238,8 +243,8 @@ All pins accounted for. No pin used twice.
 | GP11 | 15       | Spare                 | —      | Future expansion                                      |
 | GP12 | 16       | Gate input            | In     | Note trigger — direct digital read                    |
 | GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later |
-| GP14 | 19       | Spare                 | —      | CPU profiling pin (timing toggle during development)  |
-| GP15 | 20       | Spare                 | —      | Future expansion                                      |
+| GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                           |
+| GP15 | 20       | I2C External          | —      | SCL 1 for I2C external comm                           |
 | GP16 | 21       | Spare                 | —      | Future expansion                                      |
 | GP17 | 22       | Spare                 | —      | Future expansion                                      |
 | GP18 | 24       | Spare                 | —      | Future expansion                                      |
@@ -270,6 +275,8 @@ Eurorack +12V ──→ ferrite bead + 100µF ─────────→ cle
 ```
 
 - Pico 2 runs from 3.3V via VSYS — cleaner for audio than 5V via VBUS
+- Check if MCP1700-3302 can supply enough current for both Pico 2 and PCM5102A + 74HC4067; if not, consider a higher current LDO or separate regulators
+- Check if better to use rail-to-rail op-amps to run from a separate 0-6V to provide full 0-5V headroom for the output
 - PCM5102A and 74HC4067 both on the same 3.3V LDO rail
 - Op-amps on ±12V directly for full Eurorack output swing
 - Add ferrite bead + 100µF electrolytic + 100nF ceramic on each rail before the circuit
@@ -306,6 +313,12 @@ MIDI TRS / USB MIDI / V/OCT + GATE
 │  Drift & Motion engine    │◄── MOTION CV (mux)
 │  phase drift / stereo     │
 │  animation / chorus mod   │
+└──────────┬────────────────┘
+           │
+┌──────────▼────────────────┐
+│  VCA / CURVE envelope     │◄── GATE jack / MIDI / I2C
+│  AR envelope, audio rate  │◄── CURVE knob (mux)
+│  pluck ↔ swell morph      │
 └──────────┬────────────────┘
            │
    ┌───────┴───────┐
@@ -504,6 +517,65 @@ The chorus system contributes to:
 - MOTION knob depth feeds directly into chorus modulation depth
 
 In STRING mode the chorus is the dominant synthesis element. In PAIR mode it provides subtle width. In CLOUD it contributes to ensemble density.
+
+---
+
+## CURVE Engine — Envelope and Amplitude
+
+CURVE implements a single-knob AR envelope generator and digital VCA. It provides basic articulation without requiring an external envelope and VCA — a single V/OCT + GATE patch produces a complete, playable voice.
+
+### Gate Sources
+
+The envelope is triggered identically by any of these sources — all are equivalent:
+
+- **GATE jack** (GP12) — direct digital input
+- **MIDI Note On / Note Off** — from TRS or USB MIDI
+- **I2C command** — from Teletype or other I2C controllers
+
+Gate high → attack phase begins. Gate low → release phase begins. A single `gGateHigh` volatile flag written by Core 0 and read by the audio path unifies all sources.
+
+### Envelope Shape
+
+A single AR (attack + release) envelope. CURVE morphs both attack and release time simultaneously:
+
+```txt
+fully CCW — pluck                      fully CW — swell
+
+  ▲                                      ▲
+  │█                                     │         ████████
+  │ █                                    │        █        █
+  │  ██                                  │       █          █
+  │    █████                             │      █            ████
+  └──────────────►                       └────────────────────────►
+   fast A, fast R                         slow A, sustain, slow R
+   gate length irrelevant                 gate = sustain duration
+```
+
+| CURVE position | Attack  | Release | Sustain behaviour                    |
+| -------------- | ------- | ------- | ------------------------------------ |
+| 0.0 (pluck)    | ~1 ms   | ~80 ms  | Decays regardless of gate length     |
+| 0.25           | ~10 ms  | ~150 ms | Brief sustain, gate starts to matter |
+| 0.5 (natural)  | ~50 ms  | ~300 ms | Sustains while gate is held          |
+| 0.75           | ~200 ms | ~500 ms | Sustains while gate is held          |
+| 1.0 (swell)    | ~800 ms | ~1 s    | Sustains while gate is held          |
+
+At the pluck extreme the amplitude decays even if the gate remains high — the envelope ignores gate length below approximately CURVE = 0.2. Above that the gate duration controls the sustain level, transitioning naturally to a full sustain+release model at CW.
+
+### VCA Placement — Before Chorus
+
+The digital VCA sits **before** the chorus in the signal chain. This is intentional and Juno-inspired: when the VCA closes, the chorus delay lines continue to drain, producing a natural shimmer tail — exactly the character that makes the Juno-60/106 chorus sound warm rather than abrupt.
+
+```txt
+Oscillators → Drift/Motion → [VCA — CURVE envelope] → Chorus → SPACE → Output
+```
+
+### Implementation Notes
+
+- Envelope runs at audio rate — computed each sample in `updateAudio()`
+- AR times mapped from CURVE knob value using exponential scaling (perceptually linear)
+- `gGateHigh` written atomically by Core 0 from all gate sources; read-only in audio path
+- Envelope value (0.0–1.0) multiplies the mixed oscillator signal before chorus input
+- CURVE also governs modulation response timing: faster CURVE values make drift and chorus react more instantly to new notes
 
 ---
 
@@ -940,6 +1012,7 @@ Shared state (volatile struct, mutex-protected):
 | Oscillator engine | 1    | ROOT voice — polyBLEP anti-aliased, SHAPE morphing    |
 | Relation engine   | 1    | RELATION voice — interval/detune/ratio per mode       |
 | Drift engine      | 1    | Per-voice phase drift, detune wander, timing variance |
+| CURVE / VCA       | 1    | AR envelope, audio-rate VCA, pluck↔swell morph        |
 | Chorus engine     | 1    | Multi-tap delay, BBD curves, stereo phase offsets     |
 | SPACE spatializer | 1    | Stereo width, voice placement, phase offset           |
 | Voice allocator   | 1    | Multi-voice management for CLOUD and CHORD modes      |
@@ -960,7 +1033,7 @@ Mozzi is used for the audio framework on both MCUs.
 #define MOZZI_AUDIO_CHANNELS MOZZI_STEREO
 #define MOZZI_AUDIO_BITS     16
 #define MOZZI_AUDIO_RATE     32768
-#define MOZZI_CONTROL_RATE   256          // higher rate with RP2350 headroom
+#define MOZZI_CONTROL_RATE   128          // higher rate with RP2350 headroom
 #define MOZZI_I2S_PIN_BCK    1            // GP1
 #define MOZZI_I2S_PIN_WS     2            // GP2
 #define MOZZI_I2S_PIN_DATA   0            // GP0
@@ -970,27 +1043,39 @@ Mozzi is used for the audio framework on both MCUs.
 ### Golden Rules
 
 ```cpp
-// ✅ Core 1 / updateAudio() — fast math only, no I/O
+// ✅ updateAudio() — audio ISR, fires on Core 0 via Mozzi timer
+// Fast math only. Reads shared params written by Core 0 updateControl().
+// Heavy DSP (chorus) can be offloaded to Core 1 via shared buffer.
 AudioOutput updateAudio() {
-    // read FM IN here — audio rate
-    int16_t fm   = adc_read_raw(27); // GP27 direct
-    int16_t left  = processVoices_L(fm);
-    int16_t right = processVoices_R(fm);
+    // FM IN read here — audio rate, direct ADC
+    int16_t fm    = mozziAnalogRead(27); // GP27 direct
+    int16_t mixed = processVoices(fm);   // oscillators + envelope VCA
+    // chorus result read from Core 1 shared buffer (one-cycle latency, inaudible)
+    int16_t left  = applySpace(chorusOut_L);
+    int16_t right = applySpace(chorusOut_R);
+    chorusIn_L = mixed; chorusIn_R = mixed; // feed Core 1 chorus
     return StereoOutput::from16Bit(left, right);
 }
 
-// ✅ Core 0 / updateControl() — all slow operations
+// ✅ updateControl() — control rate, also Core 0 via Mozzi
 void updateControl() {
     scanMux();          // 74HC4067 all channels
     updateJackStates(); // attenuverter logic
+    updateGateState();  // GP12 + MIDI + I2C → gGateHigh
     parseMIDI();        // non-blocking
     updateLEDs();       // WS2812B via PIO
     routeModulation();  // CV → DSP param mapping
 }
 
-// ❌ Never in updateAudio() / Core 1 audio path:
-// Serial, analogRead, Wire, SPI, delay, anything with latency
+// ✅ Core 1 — heavy DSP offload running continuously in loop1()
+// Reads chorusIn shared buffer, writes chorusOut. One audio-cycle latency.
+void loop1() { processChorus(); }
+
+// ❌ Never in updateAudio():
+// Serial, Wire, SPI, delay, analogRead, anything that blocks
 ```
+
+> **Note on Mozzi + dual core:** Mozzi's `updateAudio()` and `updateControl()` both run on Core 0 via a hardware timer ISR. Core 1 (`setup1()/loop1()`) is entirely independent and is used for offloading heavy DSP like the chorus engine. The "Core 1 = audio DSP" description in the architecture overview refers to this offload pattern — not to Mozzi moving its interrupt to Core 1.
 
 ### Parameter Smoothing
 
@@ -1167,7 +1252,7 @@ One audio-cycle chorus latency (~30µs) — completely inaudible. Effectively do
 
 ```ini
 [env:pico2]
-platform = raspberrypi
+platform = https://github.com/maxgerhardt/platform-raspberrypi.git
 board = rpipico2
 framework = arduino
 lib_deps =
@@ -1187,10 +1272,10 @@ Wire only what is needed to validate the audio chain.
 
 ```txt
 RPi Pico 2 (GP0–GP2 for I2S)
-├── D2 → PCM5102 BCK
-├── D3 → PCM5102 LRCLK
-├── D8 → PCM5102 DIN
-├── 3.3V → PCM5102 VCC + 74HC4067 VCC
+├── 26 → PCM5102 BCK
+├── 27 → PCM5102 LRCLK
+├── 28 → PCM5102 DIN
+├── 3.3V → PCM5102 VCC
 ├── GND → PCM5102 GND
 └── USB → PC (power + serial console)
 
@@ -1242,21 +1327,21 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 
 ## Development Milestones
 
-- [x] 1. **Sine wave out via PCM5102** — implemented via serial; board=adafruit_itsybitsy_m0 *(hardware test pending)*
-- [x] 2. **Saw + shape oscillator** — saw done; continuous shape morph to be added *(hardware test pending)*
-- [x] 3. **Serial pitch control** — `pitch 440` works; gated by `#define SERIAL_CONTROL` *(hardware test pending)*
-- [x] 4. **Two detuned voices, stereo mix** — PAIR mode foundation *(hardware test pending)*
-- [x] 5. **Output volume control** — `vol` via serial *(hardware test pending)*
-- [x] 6. **Parameter smoothing** — one-pole LPF on all params in `updateControl()` *(hardware test pending)*
-- [ ] 7. **Migrate to Pico 2 / RP2350** — update platformio.ini, I2S defines, TinyUSB; verify audio chain
-- [ ] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter (*hardware test pending*)
+- [x] 1. **Sine wave out via PCM5102** — implemented via serial; board=adafruit_itsybitsy_m0
+- [x] 2. **Saw + shape oscillator** — saw done; continuous shape morph to be added
+- [x] 3. **Serial pitch control** — `pitch 440` works; gated by `#define SERIAL_CONTROL`
+- [x] 4. **Two detuned voices, stereo mix** — PAIR mode foundation
+- [x] 5. **Output volume control** — `vol` via serial
+- [x] 6. **Parameter smoothing** — one-pole LPF on all params in `updateControl()`
+- [x] 7. **Migrate to Pico 2 / RP2350** — update platformio.ini, I2S defines, TinyUSB; verify audio chain
+- [ ] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
 - [ ] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
 - [ ] 10. **SHAPE morph engine** — continuous polyBLEP or wavetable morph, anti-aliased
 - [ ] 11. **Drift engine** — per-voice phase drift, detune wander, stereo position animation
 - [ ] 12. **Chorus engine** — multi-tap BBD-inspired, stereo, modulation variance
 - [ ] 13. **SPACE spatializer** — stereo width and placement per voice
 - [ ] 14. **MOTION control** — governs drift + chorus depth simultaneously
-- [ ] 15. **CURVE engine** — pluck ↔ swell articulation shaping
+- [ ] 15. **CURVE engine** — AR envelope (audio-rate) + digital VCA; CURVE knob morphs attack+release from pluck (~1ms/80ms) to swell (~800ms/1s); VCA placement before chorus for natural tail; gate sourced from GATE jack, MIDI Note On/Off, and I2C — unified via `gGateHigh` flag on Core 0
 - [ ] 16. **Mux wiring** — 74HC4067 connected, all 7 knobs + 4 slow CVs readable
 - [ ] 17. **Jack switch detection** — mux CH12–CH15, attenuverter mode switching
 - [ ] 18. **V/OCT input** — precision scaling, oversampling, hysteresis, GP26
@@ -1271,11 +1356,11 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 27. **USB MIDI** — TinyUSB MIDI device, note + CC + clock
 - [ ] 28. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
 - [ ] 29. **Button UI** — single button, mode cycle, double-tap, long-hold
-- [ ] 31. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
-- [ ] 32. **Panel design** — Design final graphics and layout
-- [ ] 33. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
-- [ ] 34. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
-- [ ] 35. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
+- [ ] 30. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
+- [ ] 31. **Panel design** — Design final graphics and layout
+- [ ] 32. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
+- [ ] 33. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
+- [ ] 34. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
 
 
 ## Project To Do List
@@ -1308,7 +1393,6 @@ Possible future firmware additions:
 ```txt
 FORMAT          14HP Eurorack
 MCU             Raspberry Pi Pico 2 — RP2350, dual Cortex-M33 @ 150MHz, 4MB flash
-                XIAO SAMD21 used for prototyping only
 DAC             PCM5102A — I2S, 16-bit, 112dB SNR, stereo
 MUX             74HC4067 — 16:1 analog, 7 knobs + 4 CVs + 4 jack switches + 1 spare
 
@@ -1351,4 +1435,3 @@ ARCHITECTURE    Dual core: Core 0 = control / UI / ADC / MIDI
 ---
 
 *Voltage Foundry Modular — Alloy Flux*
-*Last updated: May 2026 — firmware prototyping phase, SAMD21 protoboard active, Pico 2 migration next*
