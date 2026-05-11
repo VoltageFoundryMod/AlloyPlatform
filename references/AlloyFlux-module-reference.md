@@ -729,6 +729,7 @@ The RP2350 internal ADC is acceptable for pitch with careful implementation:
 - precision op-amp scaling stage before ADC
 - RC filter before ADC pin (10kΩ + 100nF = 1.6kHz cutoff, removes RF noise)
 - software calibration table (V/Oct calibration routine)
+- All CV should be accounted as floats from 0.0 to 1.0 in firmware after scaling and calibration for better resolution and consistency.
 
 Priority: **musical stability over raw response speed.** The pitch must not jitter — musical accuracy matters more than fast response.
 
@@ -1334,7 +1335,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 5. **Output volume control** — `vol` via serial
 - [x] 6. **Parameter smoothing** — one-pole LPF on all params in `updateControl()`
 - [x] 7. **Migrate to Pico 2 / RP2350** — update platformio.ini, I2S defines, TinyUSB; verify audio chain
-- [ ] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
+- [x] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
 - [ ] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
 - [ ] 10. **SHAPE morph engine** — continuous polyBLEP or wavetable morph, anti-aliased
 - [ ] 11. **Drift engine** — per-voice phase drift, detune wander, stereo position animation
@@ -1353,14 +1354,15 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
 - [ ] 26. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
-- [ ] 27. **USB MIDI** — TinyUSB MIDI device, note + CC + clock
-- [ ] 28. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
-- [ ] 29. **Button UI** — single button, mode cycle, double-tap, long-hold
-- [ ] 30. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
-- [ ] 31. **Panel design** — Design final graphics and layout
-- [ ] 32. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
-- [ ] 33. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
-- [ ] 34. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
+- [x] 27. **Improve command table** — consistent parameter names across Serial, MIDI CCs, Web USB, I2C as a look-up table rather than hardcoded if/else
+- [ ] 28. **USB MIDI** — TinyUSB MIDI device, note + CC + clock
+- [ ] 29. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
+- [ ] 30. **Button UI** — single button, mode cycle, double-tap, long-hold
+- [ ] 31. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
+- [ ] 32. **Panel design** — Design final graphics and layout
+- [ ] 33. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
+- [ ] 34. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
+- [ ] 35. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
 
 
 ## Project To Do List

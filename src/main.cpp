@@ -84,6 +84,12 @@ float gVolume = 0.8f;
 static float sWaveform = 0.0f;
 static float sVolume = 0.8f;
 
+// CPU profiling counters (Milestone 8) — compiled out when CPU_PROFILE is not set.
+#ifdef CPU_PROFILE
+volatile uint32_t gAudioElapsedUs = 0;
+volatile uint32_t gAudioOverruns = 0;
+#endif
+
 // ---------------------------------------------------------------------------
 // Mozzi callbacks
 // ---------------------------------------------------------------------------
@@ -113,9 +119,30 @@ void updateControl() {
     // One-pole smoothing — eliminates zipper noise on parameter changes
     sWaveform += (gWaveform - sWaveform) * 0.1f;
     sVolume += (gVolume - sVolume) * 0.1f;
+
+#if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
+    // Print audio ISR timing once every 5 s so it doesn't flood the console.
+    static uint32_t lastCpuReport = 0;
+    const uint32_t now = millis();
+    if (now - lastCpuReport >= 5000) {
+        lastCpuReport = now;
+        const uint32_t us = gAudioElapsedUs;
+        float headroom = (30.0f - (float)us) / 30.0f * 100.0f;
+        Serial.print(F("[cpu] "));
+        Serial.print(us);
+        Serial.print(F("us/30us  headroom "));
+        Serial.print(headroom, 1);
+        Serial.print(F("%  overruns "));
+        Serial.println(gAudioOverruns);
+    }
+#endif
 }
 
 AudioOutput updateAudio() {
+#ifdef CPU_PROFILE
+    const uint32_t _t0 = time_us_32();
+#endif
+
     // Blend sine and saw with full 16-bit precision throughout.
     // Osc16::next() returns ≈±32512 (int16 range from interpolated int8 table).
     // sinW + sawW == 256, so >>8 after the weighted sum normalises back to ±32512.
@@ -129,6 +156,13 @@ AudioOutput updateAudio() {
     int32_t volW = (int32_t)(sVolume * 256.0f);
     int32_t left = (v1 * volW) >> 8;
     int32_t right = (v2 * volW) >> 8;
+
+#ifdef CPU_PROFILE
+    const uint32_t elapsed = time_us_32() - _t0;
+    gAudioElapsedUs = elapsed;
+    if (elapsed > 30)
+        gAudioOverruns++;
+#endif
 
     return StereoOutput::from16Bit(left, right);
 }

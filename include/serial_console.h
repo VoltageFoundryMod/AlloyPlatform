@@ -3,23 +3,24 @@
 /**
  * Serial console — development REPL for real-time parameter changes.
  *
- * Compiled only when SERIAL_CONTROL is defined (set via platformio.ini
- * build_flags).  When the flag is absent the functions below become empty
- * inlines so call sites in main.cpp need no #ifdef guards.
+ * Compiled only when SERIAL_CONTROL is defined (platformio.ini build_flags).
+ * Stubs are provided so call sites in main.cpp need no #ifdef guards.
  *
- * Supported commands (newline-terminated):
- *   pitch <hz>   — set base frequency (20–8000 Hz)
- *   detune <hz>  — symmetric detune spread in Hz (0–200)
- *   wave  <0-1>  — waveform blend: 0 = sine, 1 = saw
- *   vol   <0-1>  — master volume
- *   status       — print all current parameter values
+ * Command dispatch is handled by commands.h / commands.cpp, which is shared
+ * with MIDI, I2C, and USB interfaces. Add commands there, not here.
+ *
+ * UX features:
+ *   - Device-side echo (set monitor_echo = false in platformio.ini)
+ *   - Backspace / DEL supported
+ *   - CR, LF, and CR+LF line endings all handled correctly (no double prompt)
+ *   - Empty Enter or '?' alone reprints the command list
  */
 
 #ifdef SERIAL_CONTROL
 
-void serialConsole_init();  // start serial, print banner
-void serialConsole_ready(); // print help + prompt (call after all init is done)
-void serialConsole_update();
+void serialConsole_init();   // start Serial, print banner
+void serialConsole_ready();  // print help + prompt (call after all init done)
+void serialConsole_update(); // call from updateControl() every control cycle
 
 #else
 
