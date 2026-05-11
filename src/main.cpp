@@ -116,8 +116,9 @@ static void generateWavetables() {
 // ---------------------------------------------------------------------------
 // Module includes
 // ---------------------------------------------------------------------------
-#include "debug.h"
+#include "CurveEngine.h"
 #include "DriftEngine.h"
+#include "debug.h"
 #include "dsp_shared.h"
 #include "params.h"
 #include "serial_console.h"
@@ -137,15 +138,21 @@ static ShapeOsc<MOZZI_AUDIO_RATE> subv2(SIN2048_DATA, gTriTable, gSawTable, gSqu
 float gBaseFreq = 440.0f;
 float gDetune = 0.0f;
 float gShape = 0.0f;
-float gFatness = 0.4f; // default: sub audible but not boomy
-float gMotion = 0.0f;      // 0.0 = static  …  1.0 = full drift
-float gDriftSpeed = 0.04f;  // one-pole glide coeff: 0.001–0.10
+float gFatness = 0.4f;              // default: sub audible but not boomy
+float gMotion = 0.0f;               // 0.0 = static  …  1.0 = full drift
+float gDriftSpeed = 0.04f;          // one-pole glide coeff: 0.001–0.10
+float gCurve = 0.5f;                // 0.0 = pluck, 0.5 = natural, 1.0 = swell
+float gCurveTime = 1.0f;            // overall envelope time scale (0.25–4.0)
+volatile bool gGateHigh = false;    // true while gate is asserted
+volatile bool gGatePatched = false; // false = drone (bypass VCA)
 float gVolume = 0.8f;
 
 // Smoothed values — consumed by updateAudio(), updated in updateControl()
 static float sShape = 0.0f;
 static float sFatness = 0.4f;
-static float sMotion = 0.0f;  // slower smoother for drift/chorus depth
+static float sMotion = 0.0f;    // slower smoother for drift/chorus depth
+static float sCurve = 0.5f;     // smoothed CURVE value for CurveEngine
+static float sCurveTime = 1.0f; // smoothed time scale
 static float sVolume = 0.8f;
 // Pre-scaled integer sub weight for the audio hot path (0..128 = 0..50% of main).
 // Computed once per control cycle; 32-bit aligned so ISR reads are atomic.
@@ -154,9 +161,16 @@ static int32_t sSubW = 51;
 // Drift engine: per-voice slow frequency random-walk (Milestone 11)
 static DriftEngine<2> gDrift;
 
+// Curve engine: AR envelope + VCA (Milestone 15)
+static CurveEngine<MOZZI_AUDIO_RATE> gCurveEng;
+
+// Trig pulse timer — set by cmd_trig, cleared in updateControl() when elapsed.
+// 0 means no trig pending.
+uint32_t sTrigReleaseAt = 0;
+
 // CPU profiling counters (Milestone 8) — compiled out when CPU_PROFILE is not set.
 #ifdef CPU_PROFILE
-extern volatile bool gPerformancePrintEnabled = false;
+volatile bool gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs = 0;
 volatile uint32_t gAudioOverruns = 0;
 #endif
@@ -195,11 +209,30 @@ void setup() {
 void updateControl() {
     serialConsole_update();
 
+    // Auto-release for cmd_trig: lower gate when the pulse duration has elapsed.
+    if (sTrigReleaseAt && millis() >= sTrigReleaseAt) {
+        gGateHigh = false;
+        sTrigReleaseAt = 0;
+    }
+
     // One-pole smoothing — eliminates zipper noise on parameter changes
-    sShape   += (gShape   - sShape)   * 0.1f;
+    sShape += (gShape - sShape) * 0.1f;
     sFatness += (gFatness - sFatness) * 0.1f;
-    sMotion  += (gMotion  - sMotion)  * 0.05f; // slower: drift/chorus ramps gracefully
-    sVolume  += (gVolume  - sVolume)  * 0.1f;
+    sMotion += (gMotion - sMotion) * 0.05f; // slower: drift/chorus ramps gracefully
+    sCurve += (gCurve - sCurve) * 0.1f;
+    sCurveTime += (gCurveTime - sCurveTime) * 0.1f;
+    sVolume += (gVolume - sVolume) * 0.1f;
+
+    // Update CURVE engine: recompute A/R coefficients and forward gate edges.
+    gCurveEng.setCurve(sCurve, sCurveTime);
+    {
+        static bool prevGate = false;
+        const bool curGate = gGateHigh;
+        if (curGate != prevGate) {
+            gCurveEng.setGate(curGate);
+            prevGate = curGate;
+        }
+    }
 
     // Apply per-voice drift offsets; sub oscillators track their main automatically.
     gDrift.setSpeed(gDriftSpeed);
@@ -219,12 +252,13 @@ void updateControl() {
 
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
-    gDsp.freq1   = freq1;
-    gDsp.freq2   = freq2;
-    gDsp.shape   = sShape;
+    gDsp.freq1 = freq1;
+    gDsp.freq2 = freq2;
+    gDsp.shape = sShape;
     gDsp.fatness = sFatness;
-    gDsp.motion  = sMotion;
-    gDsp.volume  = sVolume;
+    gDsp.motion = sMotion;
+    gDsp.curve = sCurve;
+    gDsp.volume = sVolume;
     mutex_exit(&gDspMutex);
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
@@ -273,10 +307,12 @@ AudioOutput updateAudio() {
     else if (m2 < -32512)
         m2 = -32512;
 
-    // Volume: scale 0..256, >>8 keeps result in ±32512
-    int32_t volW = (int32_t)(sVolume * 256.0f);
-    int32_t left = (m1 * volW) >> 8;
-    int32_t right = (m2 * volW) >> 8;
+    // CURVE envelope VCA (Milestone 15): bypassed in drone mode (no gate patched).
+    // Volume and envelope are combined into a single integer multiply for efficiency.
+    const float envLevel = gGatePatched ? gCurveEng.next() : 1.0f;
+    int32_t scale = (int32_t)(sVolume * envLevel * 256.0f);
+    int32_t left = (m1 * scale) >> 8;
+    int32_t right = (m2 * scale) >> 8;
 
 #ifdef CPU_PROFILE
     const uint32_t elapsed = time_us_32() - _t0;

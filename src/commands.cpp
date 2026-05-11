@@ -42,6 +42,42 @@ static void cmd_motion(const char *args, Print &out) {
     out.println(gMotion, 3);
 }
 
+static void cmd_curve(const char *args, Print &out) {
+    gCurve = constrain((float)atof(args), 0.0f, 1.0f);
+    out.print(F("curve -> "));
+    out.println(gCurve, 3);
+}
+
+static void cmd_curvetime(const char *args, Print &out) {
+    gCurveTime = constrain((float)atof(args), 0.25f, 4.0f);
+    out.print(F("curvetime -> "));
+    out.println(gCurveTime, 2);
+}
+
+static void cmd_gate(const char *args, Print &out) {
+    if (strcmp(args, "free") == 0) {
+        gGatePatched = false;
+        out.println(F("gate -> free (drone)"));
+    } else {
+        gGatePatched = true;
+        gGateHigh = (atoi(args) != 0);
+        out.print(F("gate -> "));
+        out.println(gGateHigh ? F("high") : F("low"));
+    }
+}
+
+extern uint32_t sTrigReleaseAt; // defined in main.cpp
+
+static void cmd_trig(const char *args, Print &out) {
+    const uint32_t dur = (*args != '\0') ? (uint32_t)atoi(args) : 100u;
+    gGatePatched = true;
+    gGateHigh = true;
+    sTrigReleaseAt = millis() + dur;
+    out.print(F("trig -> "));
+    out.print(dur);
+    out.println(F("ms"));
+}
+
 static void cmd_driftspeed(const char *args, Print &out) {
     gDriftSpeed = constrain((float)atof(args), 0.001f, 0.10f);
     out.print(F("driftspeed -> "));
@@ -67,6 +103,12 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gMotion, 3);
     out.print(F(" dspeed="));
     out.print(gDriftSpeed, 4);
+    out.print(F(" curve="));
+    out.print(gCurve, 3);
+    out.print(F(" ctime="));
+    out.print(gCurveTime, 2);
+    out.print(F(" gate="));
+    out.print(gGatePatched ? (gGateHigh ? F("high") : F("low")) : F("free"));
     out.print(F(" vol="));
     out.println(gVolume, 3);
 }
@@ -116,17 +158,21 @@ static void cmd_help(const char *args, Print &out);
 
 // clang-format off
 const CommandEntry kCommands[] = {
-    {"pitch",  "<hz>   base frequency (20-8000 Hz)", cmd_pitch},
-    {"detune", "<hz>   symmetric spread (0-200 Hz)", cmd_detune},
-    {"shape", "<0-1>  waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
-    {"fat",    "<0-1>  sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
-    {"motion",     "<0-1>     drift + animation depth: 0=static  1=full wander",      cmd_motion},
-    {"dspeed", "<0.001-0.1> drift glide speed: 0.001=glacial  0.025=default  0.1=fast", cmd_driftspeed},
-    {"vol",    "<0-1>  master volume", cmd_vol},
-    {"status", "       print all current parameters", cmd_status},
-    {"perf",   "       enable or disable CPU profiling printing", cmd_performance_print},
-    {"cpu",    "       audio ISR µs, headroom, overrun count", cmd_cpu},
-    {"help",   "       show this help", cmd_help},
+    {"pitch",     "<hz>        base frequency (20-8000 Hz)",                              cmd_pitch},
+    {"detune",    "<hz>        symmetric spread (0-200 Hz)",                              cmd_detune},
+    {"shape",     "<0-1>       waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
+    {"fat",       "<0-1>       sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
+    {"motion",    "<0-1>       drift + animation depth: 0=static  1=full wander",         cmd_motion},
+    {"dspeed",    "<0.001-0.1> drift glide speed: 0.001=glacial  0.04=default  0.1=fast", cmd_driftspeed},
+    {"curve",     "<0-1>       envelope shape: 0=pluck  0.5=natural  1=swell",            cmd_curve},
+    {"curvetime", "<0.25-4>    envelope time scale: 0.25=4x faster  1=default  4=4x slower", cmd_curvetime},
+    {"gate",      "<1|0|free>  gate: 1=high  0=low  free=drone (bypass envelope)",        cmd_gate},
+    {"trig",      "[ms]        trigger a note pulse (default 100ms gate)",                cmd_trig},
+    {"vol",       "<0-1>       master volume",                                             cmd_vol},
+    {"status",    "            print all current parameters",                              cmd_status},
+    {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
+    {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},
+    {"help",      "            show this help",                                            cmd_help},
 };
 // clang-format on
 

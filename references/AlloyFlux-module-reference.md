@@ -26,15 +26,27 @@
     - [CASCADE](#cascade)
     - [STRING](#string)
   - [Oscillator Architecture](#oscillator-architecture)
+  - [Voice and Polyphony Architecture](#voice-and-polyphony-architecture)
+    - [Voice Slot Definition](#voice-slot-definition)
+    - [Per-Mode Slot Layout](#per-mode-slot-layout)
+    - [Polyphony from MIDI / I2C](#polyphony-from-midi--i2c)
+    - [Summing and Normalisation](#summing-and-normalisation)
   - [Wave Morphing — SHAPE](#wave-morphing--shape)
+    - [Implementation — Wavetable Crossfade (Milestone 10)](#implementation--wavetable-crossfade-milestone-10)
+  - [Sub Oscillator — FATNESS](#sub-oscillator--fatness)
+    - [Sub Oscillator Characteristics](#sub-oscillator-characteristics)
+    - [FATNESS Hardware Interaction — Button Shift](#fatness-hardware-interaction--button-shift)
+    - [Mixing and Clip Safety](#mixing-and-clip-safety)
   - [FM Philosophy](#fm-philosophy)
   - [Drift and Motion System](#drift-and-motion-system)
+    - [Implementation — Frequency Drift (Milestone 11)](#implementation--frequency-drift-milestone-11)
   - [Chorus Philosophy](#chorus-philosophy)
   - [CURVE Engine — Envelope and Amplitude](#curve-engine--envelope-and-amplitude)
     - [Gate Sources](#gate-sources)
     - [Envelope Shape](#envelope-shape)
     - [VCA Placement — Before Chorus](#vca-placement--before-chorus)
     - [Implementation Notes](#implementation-notes)
+    - [Implementation — CurveEngine (Milestone 15)](#implementation--curveengine-milestone-15)
   - [Front Panel Controls](#front-panel-controls)
     - [ROOT](#root)
     - [RELATION *(signature control — largest knob)*](#relation-signature-control--largest-knob)
@@ -94,7 +106,9 @@
     - [Teletype I2C Integration](#teletype-i2c-integration)
     - [Web USB Configurator (future expansion)](#web-usb-configurator-future-expansion)
   - [Development Milestones](#development-milestones)
-  - [Project To Do List](#project-to-do-list)
+  - [Project Refinement](#project-refinement)
+    - [Software](#software)
+    - [Hardware](#hardware)
   - [Future Expansion](#future-expansion)
   - [Full Feature Summary](#full-feature-summary)
 
@@ -772,6 +786,43 @@ Oscillators → Drift/Motion → [VCA — CURVE envelope] → Chorus → SPACE �
 - `gGateHigh` written atomically by Core 0 from all gate sources; read-only in audio path
 - Envelope value (0.0–1.0) multiplies the mixed oscillator signal before chorus input
 - CURVE also governs modulation response timing: faster CURVE values make drift and chorus react more instantly to new notes
+
+### Implementation — CurveEngine (Milestone 15)
+
+`CurveEngine<SAMPLE_RATE>` template class in `include/CurveEngine.h`:
+
+| Parameter          | Value                              | Notes                                   |
+| ------------------ | ---------------------------------- | --------------------------------------- |
+| Attack range       | 1 ms – 800 ms                      | `0.001 + curve² × 0.799` s              |
+| Release range      | 80 ms – 1 000 ms                   | `0.080 + curve² × 0.920` s              |
+| Pluck threshold    | curve ≤ 0.2                        | auto-release at peak, gate hold ignored |
+| Coefficient method | `expf()` in `setCurve()` at 128 Hz | never called in audio ISR               |
+| `next()`           | one-pole multiply/add              | no expf, branch-minimal, safe in ISR    |
+
+**Gate patched behaviour** — controlled by `gGatePatched` (volatile bool, Core 0):
+- `false` (default): envelope fixed at 1.0 — module sounds continuously (drone/pad)
+- `true`: AR envelope active, triggered by rising/falling edges
+
+**Serial commands:**
+```
+curve <0–1>          — set envelope shape (0=pluck, 0.5=natural, 1=swell)
+curvetime <0.25–4>   — time scale: 0.25=4× faster  1.0=default  4.0=4× slower
+gate 1               — gate high (attack); sets gGatePatched=true
+gate 0               — gate low (release); sets gGatePatched=true
+gate free            — bypass envelope (drone mode)
+trig [ms]            — one-shot gate pulse (default 100 ms)
+```
+
+**`curvetime` scaling** — range 0.25–4.0, log-symmetric around 1.0 (the identity point). For the M30 hardware knob the conversion will be:
+```c
+gCurveTime = powf(4.0f, (knob - 0.5f) * 2.0f);
+// knob=0.0 → 0.25×  knob=0.5 → 1.0×  knob=1.0 → 4.0×
+```
+This gives equal perceptual resolution at all speeds — the same physical travel doubles or halves the time regardless of position.
+
+**Signal chain position:** oscillators → drift → soft-clip → **[VCA — CURVE envelope]** → chorus (M12) → output
+
+Future gate sources: GP12 jack (M19), MIDI Note On/Off (M26/M28), I2C (Teletype).
 
 ---
 
@@ -1513,6 +1564,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - Chord shape table editing (custom intervals per slot)
 - LFO custom wavetable upload
 - Envelope configuration (attack/release curves)
+- Control how Motion and Space knobs control parameters and it's curves (e.g. assign Motion to only drift, or only chorus or mix, or both with different curves)
 - Preset backup and restore via USB
 - MIDI CC mapping (assign CCs to parameters)
 - MIDI channel selection (fixed or omni)
@@ -1541,7 +1593,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 12. **Chorus engine** — multi-tap BBD-inspired, stereo, modulation variance
 - [ ] 13. **SPACE spatializer** — stereo width and placement per voice
 - [ ] 14. **MOTION control** — governs drift + chorus depth simultaneously
-- [ ] 15. **CURVE engine** — AR envelope (audio-rate) + digital VCA; CURVE knob morphs attack+release from pluck (~1ms/80ms) to swell (~800ms/1s); VCA placement before chorus for natural tail; gate sourced from GATE jack, MIDI Note On/Off, and I2C — unified via `gGateHigh` flag on Core 0
+- [x] 15. **CURVE engine** — AR envelope (audio-rate) + digital VCA; `CurveEngine<SAMPLE_RATE>` template; CURVE morphs attack (1ms–800ms) + release (80ms–1s); pluck mode auto-releases at peak (curve≤0.2); `gGatePatched=false` = drone bypass; serial `gate 1/0/free` + `curve <0–1>`
 - [ ] 16. **Mux wiring** — 74HC4067 connected, all 7 knobs + 4 slow CVs readable
 - [ ] 17. **Jack switch detection** — mux CH12–CH15, attenuverter mode switching
 - [ ] 18. **V/OCT input** — precision scaling, oversampling, hysteresis, GP26
@@ -1562,6 +1614,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 33. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
 - [ ] 34. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
 - [ ] 35. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
+- [ ] 36. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 
 
 ## Project Refinement

@@ -42,6 +42,7 @@ struct DspParams {
     float shape;   // 0.0 = sine … 0.5 = saw … 1.0 = hollow pulse
     float fatness; // 0.0 = no sub osc … 1.0 = sub at 50% of main level
     float motion;  // 0.0 = static … 1.0 = full drift + chorus depth
+    float curve;   // 0.0 = pluck … 1.0 = swell (for chorus tail awareness)
     float volume;  // 0.0 – 1.0 master level
 };
 

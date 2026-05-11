@@ -20,6 +20,12 @@ extern float gFatness; // 0.0 = no sub osc  …  1.0 = sub at 50% of main level
 extern float gMotion;     // 0.0 = static  …  1.0 = full drift + chorus depth
 extern float gDriftSpeed; // one-pole glide coeff: 0.001 (slow) … 0.10 (fast), default 0.025
 
+// Envelope / VCA (Milestone 15)
+extern float gCurve;               // 0.0 = pluck … 1.0 = swell
+extern float gCurveTime;           // envelope time scale: 0.25=4×faster  1.0=default  4.0=4×slower
+extern volatile bool gGateHigh;    // true while gate is asserted (attack phase)
+extern volatile bool gGatePatched; // false = drone (bypass VCA); true = AR envelope active
+
 // Level
 extern float gVolume; // 0.0 – 1.0 master output
 
