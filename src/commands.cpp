@@ -18,6 +18,38 @@ static void cmd_pitch(const char *args, Print &out) {
     out.println(gBaseFreq, 2);
 }
 
+static void cmd_note(const char *args, Print &out) {
+    // Simple note name parser: letter (A-G), optional accidental (# or b), octave number.
+    // C4 = 261.63 Hz, A4 = 440 Hz, etc.
+    if (strlen(args) < 2 || strlen(args) > 4) {
+        out.println(F("invalid note format"));
+        return;
+    }
+    char letter = args[0];
+    int semitone = 0;
+    if (letter >= 'A' && letter <= 'G') {
+        semitone = letter - 'C';
+        if (semitone < 0)
+            semitone += 7; // wrap around so C=0, D=2, E=4, F=5, G=7
+    } else {
+        out.println(F("invalid note letter"));
+        return;
+    }
+    int idx = 1;
+    if (args[idx] == '#' || args[idx] == 'b') {
+        semitone += (args[idx] == '#') ? 1 : -1;
+        idx++;
+    }
+    int octave = atoi(&args[idx]);
+    float freq = 16.35f * powf(2.0f, octave + semitone / 12.0f);
+    gBaseFreq = constrain(freq, 20.0f, 8000.0f);
+    out.print(F("note -> "));
+    out.print(args);
+    out.print(F(" ("));
+    out.print(gBaseFreq, 2);
+    out.println(F(" Hz)"));
+}
+
 static void cmd_detune(const char *args, Print &out) {
     gDetune = constrain((float)atof(args), 0.0f, 200.0f);
     out.print(F("detune -> "));
@@ -84,6 +116,45 @@ static void cmd_driftspeed(const char *args, Print &out) {
     out.println(gDriftSpeed, 4);
 }
 
+static void cmd_rel(const char *args, Print &out) {
+    gRelation = constrain((float)atof(args), 0.0f, 24.0f);
+    out.print(F("rel -> "));
+    out.print(gRelation, 1);
+    out.println(F(" st"));
+}
+
+static void cmd_mode(const char *args, Print &out) {
+    const struct {
+        const char *name;
+        VoiceMode mode;
+        bool active;
+    } modes[] = {
+        {"pair", VoiceMode::PAIR, true},
+        {"cloud", VoiceMode::CLOUD, false},
+        {"chord", VoiceMode::CHORD, false},
+        {"cascade", VoiceMode::CASCADE, false},
+        {"string", VoiceMode::STRING, false},
+    };
+    for (uint8_t i = 0; i < 5; i++) {
+        if (strcasecmp(args, modes[i].name) == 0) {
+            if (!modes[i].active) {
+                out.print(F("mode -> "));
+                out.print(modes[i].name);
+                out.println(F(" (not yet active)"));
+                // Still store it so it shows in status for planning purposes
+            } else {
+                out.print(F("mode -> "));
+                out.println(modes[i].name);
+            }
+            gVoiceMode = modes[i].mode;
+            return;
+        }
+    }
+    out.println(F("usage: mode <pair|cloud|chord|cascade|string>"));
+    out.print(F("active modes: pair  current: "));
+    out.println(voiceModeName(gVoiceMode));
+}
+
 static void cmd_chorus(const char *args, Print &out) {
     if (strcmp(args, "off") == 0 || strcmp(args, "0") == 0) {
         gChorusMode = ChorusMode::OFF;
@@ -117,6 +188,10 @@ static void cmd_space(const char *args, Print &out) {
 static void cmd_status(const char * /*args*/, Print &out) {
     out.print(F("pitch="));
     out.print(gBaseFreq, 2);
+    out.print(F(" mode="));
+    out.print(voiceModeName(gVoiceMode));
+    out.print(F(" rel="));
+    out.print(gRelation, 3);
     out.print(F(" detune="));
     out.print(gDetune, 2);
     out.print(F(" shape="));
@@ -200,7 +275,10 @@ static void cmd_help(const char *args, Print &out);
 // clang-format off
 const CommandEntry kCommands[] = {
     {"pitch",     "<hz>        base frequency (20-8000 Hz)",                              cmd_pitch},
-    {"detune",    "<hz>        symmetric spread (0-200 Hz)",                              cmd_detune},
+    {"note",      "<note>      note name (e.g., C4, A#3)",                                cmd_note},
+    {"mode",      "<pair|cloud|chord|cascade|string>  voice mode (default: pair)",        cmd_mode},
+    {"rel",       "<0-24>      RELATION semitones: 0=unison  7=fifth  12=octave  24=2oct",  cmd_rel},
+    {"detune",    "<hz>        symmetric fine spread (0-200 Hz)",                         cmd_detune},
     {"shape",     "<0-1>       waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
     {"fat",       "<0-1>       sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
     {"motion",    "<0-1>       drift + chorus depth: 0=dry/static  1=full",              cmd_motion},

@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15** (PAIR mode, serial console, drift, chorus, stereo width, envelope/VCA)
+> **Firmware status: M1–M15 + M21** (PAIR mode, serial console, RELATION interval engine, drift, chorus, stereo width, envelope/VCA)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -16,6 +16,9 @@
     - [Pitch and Tuning](#pitch-and-tuning)
       - [`pitch <hz>` — Base frequency](#pitch-hz--base-frequency)
       - [`detune <hz>` — Stereo spread](#detune-hz--stereo-spread)
+    - [RELATION — Voice Interval](#relation--voice-interval)
+      - [`rel <0–24>` — Voice 2 interval](#rel-024--voice-2-interval)
+      - [`mode <pair|cloud|chord|cascade|string>` — Voice mode](#mode-paircloudchordcascadestring--voice-mode)
     - [SHAPE — Waveform](#shape--waveform)
       - [`shape <0–1>` — Waveform morph](#shape-01--waveform-morph)
     - [FATNESS — Sub Oscillator](#fatness--sub-oscillator)
@@ -106,7 +109,7 @@ gate 1
 
 Range: 20–8000 Hz
 
-Sets the root pitch of both voices. Both voices share this pitch; RELATION (detune) spreads them apart.
+Sets the root pitch of both voices. Both voices share this pitch; RELATION spreads them apart.
 
 ```txt
 pitch 220         # A3
@@ -139,6 +142,54 @@ detune 8          # warm ensemble, ~8 Hz beating rate
 detune 20         # xylophone-thick spread
 detune 50         # wide stereo, clearly two pitches
 ```
+
+---
+
+### RELATION — Voice Interval
+
+RELATION controls the harmonic relationship between the two voices. In PAIR mode it sets the pitch of voice 2 as a continuous interval above ROOT, from unison to two octaves.
+
+#### `rel <0–24>` — Voice 2 interval
+
+Range: 0.0–24.0 (semitones; fractional values allowed for micro-intervals)
+
+Sets voice 2 pitch as semitones above ROOT: `ratio = 2^(rel / 12)`. Works on top of any `detune` fine-spread.
+
+| Value | Interval       | Example at A4 (440 Hz)            |
+| ----- | -------------- | --------------------------------- |
+| 0     | Unison         | 440 Hz (both voices, chorus body) |
+| 3     | Minor third    | 523 Hz                            |
+| 4     | Major third    | 554 Hz                            |
+| 5     | Perfect fourth | 587 Hz                            |
+| 7     | Perfect fifth  | 659 Hz                            |
+| 10    | Major seventh  | 739 Hz                            |
+| 12    | Octave         | 880 Hz                            |
+| 24    | Two octaves    | 1760 Hz                           |
+
+```txt
+rel 0             # unison — chorus and drift colour the stereo field
+rel 7             # perfect fifth — open, stable harmony
+rel 12            # octave — doubling, thickens fundamental
+rel 4             # major third — bright, tense harmony
+rel 3             # minor third — melancholic
+rel 7.5           # micro-interval between fifth and tritone
+```
+
+> Combine `rel` with `detune` for intervals with micro-tuned width: `rel 7` + `detune 4` = a slightly detuned fifth, classic thick synth sound.
+
+#### `mode <pair|cloud|chord|cascade|string>` — Voice mode
+
+Default: `pair`
+
+Selects the synthesis personality. Only `pair` is currently active.
+
+| Mode      | Description                                         | Status       |
+| --------- | --------------------------------------------------- | ------------ |
+| `pair`    | ROOT + RELATION dual voice — interval + fine detune | Active (M21) |
+| `cloud`   | Multi-voice detuned ensemble                        | Future (M22) |
+| `chord`   | 4-voice chord stack from interval table             | Future (M23) |
+| `cascade` | Restrained FM oscillator interaction                | Future (M24) |
+| `string`  | Vintage string machine ensemble                     | Future (M25) |
 
 ---
 
@@ -543,7 +594,10 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | Command             | Range         | Description                                                    |
 | ------------------- | ------------- | -------------------------------------------------------------- |
 | `pitch <hz>`        | 20–8000       | Base frequency                                                 |
-| `detune <hz>`       | 0–200         | Symmetric stereo spread between voices                         |
+| `note <name>`       | —             | Set pitch by note name (C4, A#3, etc.)                         |
+| `mode <name>`       | pair/…        | Voice mode (only pair active — M21)                            |
+| `rel <0–24>`        | 0–24 st       | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)      |
+| `detune <hz>`       | 0–200         | Symmetric fine spread between voices                           |
 | `shape <0–1>`       | 0–1           | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow          |
 | `fat <0–1>`         | 0–1           | Sub oscillator level (0=off, 1=50% of main)                    |
 | `motion <0–1>`      | 0–1           | Frequency drift + chorus depth (0=dry/static, 1=full)          |
@@ -567,7 +621,9 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | Parameter   | Default | Notes                             |
 | ----------- | ------- | --------------------------------- |
 | `pitch`     | 440 Hz  | A4                                |
-| `detune`    | 0 Hz    | No spread                         |
+| `mode`      | pair    |                                   |
+| `rel`       | 0.0     | Unison (voice 2 at ROOT)          |
+| `detune`    | 0 Hz    | No fine spread                    |
 | `shape`     | 0.0     | Sine                              |
 | `fat`       | 0.4     | Sub slightly audible              |
 | `motion`    | 0.0     | Static                            |

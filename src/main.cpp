@@ -24,6 +24,7 @@
 #include "ChorusEngine.h"
 #include "ShapeOsc.h"
 #include "SpaceEngine.h"
+#include "VoiceMode.h"
 #include <Mozzi.h>
 #include <math.h>
 #include <tables/sin2048_int8.h>
@@ -140,13 +141,15 @@ static ShapeOsc<MOZZI_AUDIO_RATE> subv2(SIN2048_DATA, gTriTable, gSawTable, gSqu
 float gBaseFreq = 440.0f;
 float gDetune = 0.0f;
 float gShape = 0.0f;
-float gFatness = 0.4f;              // default: sub audible but not boomy
-float gMotion = 0.0f;               // 0.0 = static  …  1.0 = full drift
-float gDriftSpeed = 0.04f;          // one-pole glide coeff: 0.001–0.10
-float gCurve = 0.5f;                // 0.0 = pluck, 0.5 = natural, 1.0 = swell
-float gCurveTime = 1.0f;            // overall envelope time scale (0.25–4.0)
-volatile bool gGateHigh = false;    // true while gate is asserted
-volatile bool gGatePatched = false; // false = drone (bypass VCA)
+float gFatness = 0.4f;                  // default: sub audible but not boomy
+float gMotion = 0.0f;                   // 0.0 = static  …  1.0 = full drift
+float gDriftSpeed = 0.04f;              // one-pole glide coeff: 0.001–0.10
+VoiceMode gVoiceMode = VoiceMode::PAIR; // synthesis personality (default: PAIR)
+float gRelation = 0.0f;                 // 0.0 = unison, 1.0 = +2 octaves (PAIR mode)
+float gCurve = 0.5f;                    // 0.0 = pluck, 0.5 = natural, 1.0 = swell
+float gCurveTime = 1.0f;                // overall envelope time scale (0.25–4.0)
+volatile bool gGateHigh = false;        // true while gate is asserted
+volatile bool gGatePatched = false;     // false = drone (bypass VCA)
 float gVolume = 0.8f;
 ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
 float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = full stereo
@@ -159,6 +162,7 @@ static float sCurve = 0.5f;     // smoothed CURVE value for CurveEngine
 static float sCurveTime = 1.0f; // smoothed time scale
 static float sVolume = 0.8f;
 static float sSpace = 1.0f;
+static float sRelation = 0.0f; // smoothed interval ratio input
 // Pre-scaled integer sub weight for the audio hot path (0..128 = 0..50% of main).
 // Computed once per control cycle; 32-bit aligned so ISR reads are atomic.
 static int32_t sSubW = 51;
@@ -235,6 +239,7 @@ void updateControl() {
     sCurveTime += (gCurveTime - sCurveTime) * 0.1f;
     sVolume += (gVolume - sVolume) * 0.1f;
     sSpace += (gSpace - sSpace) * 0.1f;
+    sRelation += (gRelation - sRelation) * 0.1f;
 
     // Update CURVE engine: recompute A/R coefficients and forward gate edges.
     gCurveEng.setCurve(sCurve, sCurveTime);
@@ -248,10 +253,28 @@ void updateControl() {
     }
 
     // Apply per-voice drift offsets; sub oscillators track their main automatically.
+    // PAIR mode: voice 2 is offset by gRelation semitones above ROOT (0=unison, 12=octave).
+    // gDetune adds a symmetric Hz fine-spread on both voices.
+    // powf() only recomputed when sRelation changes meaningfully; never called in the ISR.
     gDrift.setSpeed(gDriftSpeed);
     gDrift.update(sMotion);
-    float freq1 = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
-    float freq2 = max(gBaseFreq + gDetune * 0.5f + gDrift.offset(1), 20.0f);
+    float freq1, freq2;
+    switch (gVoiceMode) {
+    case VoiceMode::PAIR:
+    default: {
+        // ratio = 2^(semitones/12) — standard equal-temperament semitone-to-ratio
+        // Cache result — powf is expensive on first call (flash miss); recompute only on change.
+        static float cachedRelation = -1.0f;
+        static float cachedRatio2 = 1.0f;
+        if (fabsf(sRelation - cachedRelation) > 0.005f) {
+            cachedRatio2 = powf(2.0f, sRelation / 12.0f);
+            cachedRelation = sRelation;
+        }
+        freq1 = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
+        freq2 = max(gBaseFreq * cachedRatio2 + gDetune * 0.5f + gDrift.offset(1), 20.0f);
+        break;
+    }
+    }
 
     v1.setFreq(freq1);
     v2.setFreq(freq2);

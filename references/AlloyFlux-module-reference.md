@@ -479,12 +479,14 @@ Modes differ only in how voice slots are pitched and panned — the synthesis en
 (ShapeOsc morph, CURVE envelope, chorus) is identical across all modes.
 
 **PAIR** (default, 2 voices):
+
 ```txt
 slot[0]  freq = ROOT − DETUNE/2   →  L output
 slot[1]  freq = ROOT + DETUNE/2   →  R output
 ```
 
 **CHORD** (4 voices, Milestone 23):
+
 ```txt
 slot[0]  ROOT + interval[0]  →  hard L
 slot[1]  ROOT + interval[1]  →  soft L
@@ -496,6 +498,7 @@ All slots share the same SHAPE, CURVE, and MOTION settings.
 ```
 
 **CLOUD** (4–8 voices, Milestone 22):
+
 ```txt
 slot[0..7]  ROOT ± micro-detune (animated by MOTION)
             stereo position drifts slowly per slot
@@ -670,7 +673,8 @@ control rate (128 Hz). Each voice has its own LCG pseudo-random state so drift
 patterns are always independent.
 
 **Per-voice state:**
-```
+
+```txt
 _freqOffset  float   current Hz offset applied to voice's nominal pitch
 _freqTarget  float   Hz target the voice is slowly gliding toward
 _timer       uint8_t ticks until a new random target is selected
@@ -678,6 +682,7 @@ _seed        uint32_t LCG state (Numerical Recipes multiplier)
 ```
 
 **Each control tick:**
+
 1. `_freqOffset` is one-pole smoothed toward `_freqTarget` (τ ≈ 0.31 s @ 128 Hz)
 2. `_timer` counts down; when it reaches 0:
    - a new wait of 32–127 ticks (0.25–1.0 s) is chosen randomly
@@ -692,6 +697,7 @@ _seed        uint32_t LCG state (Numerical Recipes multiplier)
 | Timer range   | 32–127 ticks | Time between new targets (0.25–1.0 s)  |
 
 **Integration in `updateControl()`:**
+
 ```cpp
 // 1. Apply drift offsets to nominal pitch before setFreq()
 float freq1 = max(gBaseFreq - gDetune*0.5f + gDrift.offset(0), 20.0f);
@@ -704,6 +710,7 @@ gDrift.update(sMotion);
 Sub oscillators always track `freq × 0.5`, so drift is consistent across the full voice.
 
 **Future drift layers** (added incrementally as complexity grows):
+
 - Stereo position drift — slow L/R pan variation per voice (multi-voice modes)
 - Chorus modulation variance — LFO rate jitter in the chorus engine (Milestone 12)
 - Detune drift — the DETUNE amount itself wanders slightly at high MOTION
@@ -762,9 +769,11 @@ In STRING mode the chorus is the dominant synthesis element. In PAIR mode it pro
 **ISR safety** — `init()` called in Core 0 `setup()` before `startMozzi()`, so delay buffers are zeroed and phasors seeded before the first ISR fires. Overrun counter is zeroed at end of `setup()` to exclude Mozzi’s startup DMA/PIO initialisation artifacts.
 
 **Signal chain:**
-```
+
+```txt
 Osc → Drift → soft-clip → VCA (CURVE) → [Chorus, Core 0 ISR] → [SPACE] → Output
 ```
+
 VCA before chorus is intentional (Juno-60 topology): envelope close lets chorus delay lines drain naturally — shimmer tail rather than abrupt cut.
 
 ---
@@ -793,7 +802,8 @@ With AlloyFlux's stereo topology — voice 1 → L, voice 2 → R, independent c
 | State       | none — stateless static method, no init required |                                                                      |
 
 **Signal chain with SPACE:**
-```
+
+```txt
 Osc → Drift → soft-clip → VCA (CURVE) → Chorus → [SPACE, Core 0 ISR] → Output
 ```
 
@@ -871,11 +881,13 @@ Oscillators → Drift/Motion → [VCA — CURVE envelope] → Chorus → SPACE �
 | `next()`           | one-pole multiply/add              | no expf, branch-minimal, safe in ISR    |
 
 **Gate patched behaviour** — controlled by `gGatePatched` (volatile bool, Core 0):
+
 - `false` (default): envelope fixed at 1.0 — module sounds continuously (drone/pad)
 - `true`: AR envelope active, triggered by rising/falling edges
 
 **Serial commands:**
-```
+
+```txt
 curve <0–1>          — set envelope shape (0=pluck, 0.5=natural, 1=swell)
 curvetime <0.25–4>   — time scale: 0.25=4× faster  1.0=default  4.0=4× slower
 gate 1               — gate high (attack); sets gGatePatched=true
@@ -885,10 +897,12 @@ trig [ms]            — one-shot gate pulse (default 100 ms)
 ```
 
 **`curvetime` scaling** — range 0.25–4.0, log-symmetric around 1.0 (the identity point). For the M30 hardware knob the conversion will be:
+
 ```c
 gCurveTime = powf(4.0f, (knob - 0.5f) * 2.0f);
 // knob=0.0 → 0.25×  knob=0.5 → 1.0×  knob=1.0 → 4.0×
 ```
+
 This gives equal perceptual resolution at all speeds — the same physical travel doubles or halves the time regardless of position.
 
 **Signal chain position:** oscillators → drift → soft-clip → **[VCA — CURVE envelope]** → chorus (M12) → output
@@ -1526,14 +1540,14 @@ Approximate costs at 32768Hz, 150MHz. Always verify with Method 2.
 
 | Configuration        | Est. µs | Headroom | Status |
 | -------------------- | ------- | -------- | ------ |
-| PAIR, no chorus      | ~6 µs   | ~80%     | ✅      |
-| PAIR + chorus        | ~13 µs  | ~57%     | ✅      |
-| CLOUD (4 voices)     | ~14 µs  | ~54%     | ✅      |
-| CLOUD + chorus       | ~21 µs  | ~31%     | ✅      |
-| CHORD (4 voices)     | ~14 µs  | ~54%     | ✅      |
-| STRING (all engines) | ~24 µs  | ~21%     | ✅ ⚠️    |
-| 8 voices + chorus C0 | ~34 µs  | −11%     | ❌      |
-| 8 voices + chorus C1 | ~21 µs  | ~31%     | ✅      |
+| PAIR, no chorus      | ~6 µs   | ~80%     | ✅     |
+| PAIR + chorus        | ~13 µs  | ~57%     | ✅     |
+| CLOUD (4 voices)     | ~14 µs  | ~54%     | ✅     |
+| CLOUD + chorus       | ~21 µs  | ~31%     | ✅     |
+| CHORD (4 voices)     | ~14 µs  | ~54%     | ✅     |
+| STRING (all engines) | ~24 µs  | ~21%     | ✅ ⚠️  |
+| 8 voices + chorus C0 | ~34 µs  | −11%     | ❌     |
+| 8 voices + chorus C1 | ~21 µs  | ~31%     | ✅     |
 
 ### Dual Core Offload Strategy
 
@@ -1692,7 +1706,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 18. **V/OCT input** — precision scaling, oversampling, hysteresis, GP26
 - [ ] 19. **Gate input** — GP12, CURVE-shaped articulation trigger
 - [ ] 20. **V/Oct calibration** — two-point routine via button hold on power-up
-- [ ] 21. **RELATION engine** — interval, detune, spread — PAIR mode complete
+- [x] 21. **RELATION engine** — `gRelation` (0–1) maps voice 2 to 0–+24 semitones above ROOT via `powf(2, rel×2)` in `updateControl()`; `gDetune` retained as Hz fine-spread; `VoiceMode` enum (PAIR/CLOUD/CHORD/CASCADE/STRING) with `mode` serial command; only PAIR active; framework ready for M22–M25
 - [ ] 22. **CLOUD mode** — multi-voice ensemble, animated stereo positioning
 - [ ] 23. **CHORD mode** — interval table, REL CV morph through chord shapes
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
@@ -1788,4 +1802,5 @@ ARCHITECTURE    Dual core: Core 0 = control / UI / ADC / MIDI
 
 ---
 
-*Voltage Foundry Modular — Alloy Flux*
+Voltage Foundry Modular — Alloy Flux
+2026

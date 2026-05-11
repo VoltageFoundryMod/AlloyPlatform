@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ChorusEngine.h" // ChorusMode enum
+#include "VoiceMode.h"    // VoiceMode enum
 
 /**
  * Shared synthesis parameters — defined in main.cpp.
@@ -12,7 +13,11 @@
 
 // Voice pitch & detune
 extern float gBaseFreq; // Hz, voice 1 root pitch (20–8000)
-extern float gDetune;   // Hz, symmetric spread (v1 = base-d/2, v2 = base+d/2)
+extern float gDetune;   // Hz, symmetric fine spread (v1 = base−d/2, v2 = base+d/2)
+
+// Voice mode and RELATION
+extern VoiceMode gVoiceMode; // synthesis personality (default: PAIR)
+extern float gRelation;      // semitones above ROOT for voice 2: 0=unison, 7=fifth, 12=octave, 24=max (PAIR mode)
 
 // Timbre
 extern float gShape;   // 0.0 = sine  0.25 = tri  0.50 = saw  0.75 = pulse  1.0 = hollow
