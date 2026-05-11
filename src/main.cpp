@@ -117,6 +117,7 @@ static void generateWavetables() {
 // Module includes
 // ---------------------------------------------------------------------------
 #include "debug.h"
+#include "DriftEngine.h"
 #include "dsp_shared.h"
 #include "params.h"
 #include "serial_console.h"
@@ -137,15 +138,21 @@ float gBaseFreq = 440.0f;
 float gDetune = 0.0f;
 float gShape = 0.0f;
 float gFatness = 0.4f; // default: sub audible but not boomy
+float gMotion = 0.0f;      // 0.0 = static  …  1.0 = full drift
+float gDriftSpeed = 0.04f;  // one-pole glide coeff: 0.001–0.10
 float gVolume = 0.8f;
 
 // Smoothed values — consumed by updateAudio(), updated in updateControl()
 static float sShape = 0.0f;
 static float sFatness = 0.4f;
+static float sMotion = 0.0f;  // slower smoother for drift/chorus depth
 static float sVolume = 0.8f;
 // Pre-scaled integer sub weight for the audio hot path (0..128 = 0..50% of main).
 // Computed once per control cycle; 32-bit aligned so ISR reads are atomic.
 static int32_t sSubW = 51;
+
+// Drift engine: per-voice slow frequency random-walk (Milestone 11)
+static DriftEngine<2> gDrift;
 
 // CPU profiling counters (Milestone 8) — compiled out when CPU_PROFILE is not set.
 #ifdef CPU_PROFILE
@@ -188,18 +195,22 @@ void setup() {
 void updateControl() {
     serialConsole_update();
 
-    float freq1 = max(gBaseFreq - gDetune * 0.5f, 20.0f);
-    float freq2 = max(gBaseFreq + gDetune * 0.5f, 20.0f);
+    // One-pole smoothing — eliminates zipper noise on parameter changes
+    sShape   += (gShape   - sShape)   * 0.1f;
+    sFatness += (gFatness - sFatness) * 0.1f;
+    sMotion  += (gMotion  - sMotion)  * 0.05f; // slower: drift/chorus ramps gracefully
+    sVolume  += (gVolume  - sVolume)  * 0.1f;
+
+    // Apply per-voice drift offsets; sub oscillators track their main automatically.
+    gDrift.setSpeed(gDriftSpeed);
+    gDrift.update(sMotion);
+    float freq1 = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
+    float freq2 = max(gBaseFreq + gDetune * 0.5f + gDrift.offset(1), 20.0f);
 
     v1.setFreq(freq1);
     v2.setFreq(freq2);
     subv1.setFreq(freq1 * 0.5f);
     subv2.setFreq(freq2 * 0.5f);
-
-    // One-pole smoothing — eliminates zipper noise on parameter changes
-    sShape += (gShape - sShape) * 0.1f;
-    sFatness += (gFatness - sFatness) * 0.1f;
-    sVolume += (gVolume - sVolume) * 0.1f;
     v1.setShape(sShape);
     v2.setShape(sShape);
     // sSubW: 0..128 maps fatness 0..1 to sub contributing 0..50% of main amplitude.
@@ -208,11 +219,12 @@ void updateControl() {
 
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
-    gDsp.freq1 = freq1;
-    gDsp.freq2 = freq2;
-    gDsp.shape = sShape;
+    gDsp.freq1   = freq1;
+    gDsp.freq2   = freq2;
+    gDsp.shape   = sShape;
     gDsp.fatness = sFatness;
-    gDsp.volume = sVolume;
+    gDsp.motion  = sMotion;
+    gDsp.volume  = sVolume;
     mutex_exit(&gDspMutex);
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)

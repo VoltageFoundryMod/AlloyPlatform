@@ -36,6 +36,18 @@ static void cmd_fat(const char *args, Print &out) {
     out.println(gFatness, 3);
 }
 
+static void cmd_motion(const char *args, Print &out) {
+    gMotion = constrain((float)atof(args), 0.0f, 1.0f);
+    out.print(F("motion -> "));
+    out.println(gMotion, 3);
+}
+
+static void cmd_driftspeed(const char *args, Print &out) {
+    gDriftSpeed = constrain((float)atof(args), 0.001f, 0.10f);
+    out.print(F("driftspeed -> "));
+    out.println(gDriftSpeed, 4);
+}
+
 static void cmd_vol(const char *args, Print &out) {
     gVolume = constrain((float)atof(args), 0.0f, 1.0f);
     out.print(F("vol -> "));
@@ -51,6 +63,10 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gShape, 3);
     out.print(F(" fat="));
     out.print(gFatness, 3);
+    out.print(F(" motion="));
+    out.print(gMotion, 3);
+    out.print(F(" dspeed="));
+    out.print(gDriftSpeed, 4);
     out.print(F(" vol="));
     out.println(gVolume, 3);
 }
@@ -103,7 +119,9 @@ const CommandEntry kCommands[] = {
     {"pitch",  "<hz>   base frequency (20-8000 Hz)", cmd_pitch},
     {"detune", "<hz>   symmetric spread (0-200 Hz)", cmd_detune},
     {"shape", "<0-1>  waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
-    {"fat",   "<0-1>  sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
+    {"fat",    "<0-1>  sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
+    {"motion",     "<0-1>     drift + animation depth: 0=static  1=full wander",      cmd_motion},
+    {"dspeed", "<0.001-0.1> drift glide speed: 0.001=glacial  0.025=default  0.1=fast", cmd_driftspeed},
     {"vol",    "<0-1>  master volume", cmd_vol},
     {"status", "       print all current parameters", cmd_status},
     {"perf",   "       enable or disable CPU profiling printing", cmd_performance_print},

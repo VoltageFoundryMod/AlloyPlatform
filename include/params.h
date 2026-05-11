@@ -16,6 +16,10 @@ extern float gDetune;   // Hz, symmetric spread (v1 = base-d/2, v2 = base+d/2)
 extern float gShape;   // 0.0 = sine  0.25 = tri  0.50 = saw  0.75 = pulse  1.0 = hollow
 extern float gFatness; // 0.0 = no sub osc  …  1.0 = sub at 50% of main level
 
+// Animation
+extern float gMotion;     // 0.0 = static  …  1.0 = full drift + chorus depth
+extern float gDriftSpeed; // one-pole glide coeff: 0.001 (slow) … 0.10 (fast), default 0.025
+
 // Level
 extern float gVolume; // 0.0 – 1.0 master output
 

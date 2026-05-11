@@ -645,6 +645,51 @@ The MOTION knob controls the overall depth of all drift and animation. At zero, 
 
 **MOTION CV** allows external control of animation depth — an envelope into MOTION gives notes that bloom and settle organically.
 
+### Implementation — Frequency Drift (Milestone 11)
+
+`DriftEngine<N_VOICES>` is a template class that runs independently per voice at
+control rate (128 Hz). Each voice has its own LCG pseudo-random state so drift
+patterns are always independent.
+
+**Per-voice state:**
+```
+_freqOffset  float   current Hz offset applied to voice's nominal pitch
+_freqTarget  float   Hz target the voice is slowly gliding toward
+_timer       uint8_t ticks until a new random target is selected
+_seed        uint32_t LCG state (Numerical Recipes multiplier)
+```
+
+**Each control tick:**
+1. `_freqOffset` is one-pole smoothed toward `_freqTarget` (τ ≈ 0.31 s @ 128 Hz)
+2. `_timer` counts down; when it reaches 0:
+   - a new wait of 32–127 ticks (0.25–1.0 s) is chosen randomly
+   - a new `_freqTarget` in `±MOTION · kMaxDriftHz` is chosen randomly
+
+**Parameters:**
+
+| Constant      | Value        | Meaning                                |
+| ------------- | ------------ | -------------------------------------- |
+| `kMaxDriftHz` | 2.5 Hz       | Maximum wander per voice at MOTION=1.0 |
+| `kDriftSpeed` | 0.025        | One-pole LP coefficient (τ ≈ 0.31 s)   |
+| Timer range   | 32–127 ticks | Time between new targets (0.25–1.0 s)  |
+
+**Integration in `updateControl()`:**
+```cpp
+// 1. Apply drift offsets to nominal pitch before setFreq()
+float freq1 = max(gBaseFreq - gDetune*0.5f + gDrift.offset(0), 20.0f);
+float freq2 = max(gBaseFreq + gDetune*0.5f + gDrift.offset(1), 20.0f);
+
+// 2. Advance engine (picks new targets, updates offsets)
+gDrift.update(sMotion);
+```
+
+Sub oscillators always track `freq × 0.5`, so drift is consistent across the full voice.
+
+**Future drift layers** (added incrementally as complexity grows):
+- Stereo position drift — slow L/R pan variation per voice (multi-voice modes)
+- Chorus modulation variance — LFO rate jitter in the chorus engine (Milestone 12)
+- Detune drift — the DETUNE amount itself wanders slightly at high MOTION
+
 ---
 
 ## Chorus Philosophy
@@ -1492,7 +1537,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
 - [x] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
 - [x] 10. **SHAPE morph engine** — continuous wavetable crossfade: sine → triangle → saw → pulse → hollow pulse; all tables band-limited at startup; `ShapeOsc` replaces `Osc16` pair
-- [ ] 11. **Drift engine** — per-voice phase drift, detune wander, stereo position animation
+- [x] 11. **Drift engine** — per-voice LCG random-walk frequency drift; `DriftEngine<N>` template; MOTION scales amplitude 0–±2.5 Hz; one-pole glide between targets
 - [ ] 12. **Chorus engine** — multi-tap BBD-inspired, stereo, modulation variance
 - [ ] 13. **SPACE spatializer** — stereo width and placement per voice
 - [ ] 14. **MOTION control** — governs drift + chorus depth simultaneously

@@ -37,10 +37,11 @@
 // ---------------------------------------------------------------------------
 
 struct DspParams {
-    float freq1;   // voice 1 Hz, post-detune
-    float freq2;   // voice 2 Hz, post-detune
+    float freq1;   // voice 1 Hz, post-detune, post-drift
+    float freq2;   // voice 2 Hz, post-detune, post-drift
     float shape;   // 0.0 = sine … 0.5 = saw … 1.0 = hollow pulse
     float fatness; // 0.0 = no sub osc … 1.0 = sub at 50% of main level
+    float motion;  // 0.0 = static … 1.0 = full drift + chorus depth
     float volume;  // 0.0 – 1.0 master level
 };
 
