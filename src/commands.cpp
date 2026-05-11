@@ -47,7 +47,24 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.println(gVolume, 3);
 }
 
-static void cmd_cpu(const char * /*args*/, Print &out) {
+static void cmd_performance_print(const char *args, Print &out) {
+#ifdef CPU_PROFILE
+    if (strcmp(args, "on") == 0) {
+        gPerformancePrintEnabled = true;
+        out.println(F("CPU profiling print enabled"));
+    } else if (strcmp(args, "off") == 0) {
+        gPerformancePrintEnabled = false;
+        out.println(F("CPU profiling print disabled"));
+    } else {
+        out.println(F("usage: performance on|off"));
+    }
+#else
+    out.println(F("CPU_PROFILE not active — add -DCPU_PROFILE to build_flags"));
+#endif
+}
+
+static void
+cmd_cpu(const char * /*args*/, Print &out) {
 #ifdef CPU_PROFILE
     const uint32_t us = gAudioElapsedUs;
     const uint32_t over = gAudioOverruns;
@@ -73,15 +90,18 @@ static void cmd_help(const char *args, Print &out);
 // Columns: name | help text shown in listing | handler
 // ---------------------------------------------------------------------------
 
+// clang-format off
 const CommandEntry kCommands[] = {
-    {"pitch", "<hz>   base frequency (20-8000 Hz)", cmd_pitch},
+    {"pitch",  "<hz>   base frequency (20-8000 Hz)", cmd_pitch},
     {"detune", "<hz>   symmetric spread (0-200 Hz)", cmd_detune},
-    {"wave", "<0-1>  waveform blend: 0=sine, 1=saw", cmd_wave},
-    {"vol", "<0-1>  master volume", cmd_vol},
+    {"wave",   "<0-1>  waveform blend: 0=sine, 1=saw", cmd_wave},
+    {"vol",    "<0-1>  master volume", cmd_vol},
     {"status", "       print all current parameters", cmd_status},
-    {"cpu", "       audio ISR µs, headroom, overrun count", cmd_cpu},
-    {"help", "       show this help", cmd_help},
+    {"perf",   "       enable or disable CPU profiling printing", cmd_performance_print},
+    {"cpu",    "       audio ISR µs, headroom, overrun count", cmd_cpu},
+    {"help",   "       show this help", cmd_help},
 };
+// clang-format on
 
 const uint8_t kCommandCount =
     (uint8_t)(sizeof(kCommands) / sizeof(kCommands[0]));

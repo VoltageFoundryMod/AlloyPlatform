@@ -86,8 +86,10 @@ static float sVolume = 0.8f;
 
 // CPU profiling counters (Milestone 8) — compiled out when CPU_PROFILE is not set.
 #ifdef CPU_PROFILE
+extern volatile bool gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs = 0;
 volatile uint32_t gAudioOverruns = 0;
+
 #endif
 
 // ---------------------------------------------------------------------------
@@ -127,13 +129,15 @@ void updateControl() {
     if (now - lastCpuReport >= 5000) {
         lastCpuReport = now;
         const uint32_t us = gAudioElapsedUs;
-        float headroom = (30.0f - (float)us) / 30.0f * 100.0f;
-        Serial.print(F("[cpu] "));
-        Serial.print(us);
-        Serial.print(F("us/30us  headroom "));
-        Serial.print(headroom, 1);
-        Serial.print(F("%  overruns "));
-        Serial.println(gAudioOverruns);
+        if (gPerformancePrintEnabled) {
+            float headroom = (30.0f - (float)us) / 30.0f * 100.0f;
+            Serial.print(F("[cpu] "));
+            Serial.print(us);
+            Serial.print(F("us/30us  headroom "));
+            Serial.print(headroom, 1);
+            Serial.print(F("%  overruns "));
+            Serial.println(gAudioOverruns);
+        }
     }
 #endif
 }

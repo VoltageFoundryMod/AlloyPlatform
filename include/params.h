@@ -22,6 +22,7 @@ extern float gVolume; // 0.0 – 1.0 master output
 // gAudioElapsedUs : µs spent inside the last updateAudio() call
 // gAudioOverruns  : calls that exceeded the 30µs audio budget
 #ifdef CPU_PROFILE
+extern volatile bool gPerformancePrintEnabled; // set by cmd_performance_print, read by updateAudio()
 extern volatile uint32_t gAudioElapsedUs;
 extern volatile uint32_t gAudioOverruns;
 #endif
