@@ -25,6 +25,9 @@ extern float gDriftSpeed; // one-pole glide coeff: 0.001 (slow) … 0.10 (fast),
 // Chorus
 extern ChorusMode gChorusMode; // OFF / I / II / I_II  (default: I_II)
 
+// Space
+extern float gSpace; // stereo width: 0.0 = mono, 1.0 = identity, 2.0 = hyper-wide (default: 1.0)
+
 // Envelope / VCA (Milestone 15)
 extern float gCurve;               // 0.0 = pluck … 1.0 = swell
 extern float gCurveTime;           // envelope time scale: 0.25=4×faster  1.0=default  4.0=4×slower

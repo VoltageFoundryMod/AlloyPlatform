@@ -108,6 +108,12 @@ static void cmd_vol(const char *args, Print &out) {
     out.println(gVolume, 3);
 }
 
+static void cmd_space(const char *args, Print &out) {
+    gSpace = constrain((float)atof(args), 0.0f, 2.0f);
+    out.print(F("space -> "));
+    out.println(gSpace, 3);
+}
+
 static void cmd_status(const char * /*args*/, Print &out) {
     out.print(F("pitch="));
     out.print(gBaseFreq, 2);
@@ -143,7 +149,9 @@ static void cmd_status(const char * /*args*/, Print &out) {
         break;
     }
     out.print(F(" vol="));
-    out.println(gVolume, 3);
+    out.print(gVolume, 3);
+    out.print(F(" space="));
+    out.println(gSpace, 3);
 }
 
 static void cmd_performance_print(const char *args, Print &out) {
@@ -203,6 +211,7 @@ const CommandEntry kCommands[] = {
     {"gate",      "<1|0|free>  gate: 1=high  0=low  free=drone (bypass envelope)",        cmd_gate},
     {"trig",      "[ms]        trigger a note pulse (default 100ms gate)",                cmd_trig},
     {"vol",       "<0-1>       master volume",                                             cmd_vol},
+    {"space",     "<0-2>       stereo width: 0=mono  1=full stereo  2=hyper-wide (default: 1)", cmd_space},
     {"status",    "            print all current parameters",                              cmd_status},
     {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
     {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},

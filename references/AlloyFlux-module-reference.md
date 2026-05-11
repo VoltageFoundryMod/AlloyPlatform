@@ -759,9 +759,41 @@ In STRING mode the chorus is the dominant synthesis element. In PAIR mode it pro
 
 **Signal chain:**
 ```
-Osc → Drift → soft-clip → VCA (CURVE) → [Chorus, Core 0 ISR] → Output
+Osc → Drift → soft-clip → VCA (CURVE) → [Chorus, Core 0 ISR] → [SPACE] → Output
 ```
 VCA before chorus is intentional (Juno-60 topology): envelope close lets chorus delay lines drain naturally — shimmer tail rather than abrupt cut.
+
+---
+
+## SPACE Engine — Stereo Width
+
+SPACE maps a single `space` parameter (0–1) to a mid-side stereo width processor. At `space 1` (default) the signal passes through unchanged; reducing it narrows the field toward mono centre at `space 0`.
+
+With AlloyFlux's stereo topology — voice 1 → L, voice 2 → R, independent chorus LFOs per channel — SPACE controls how far apart those two voices sit in the mix. This is particularly useful when the output feeds a mono chain, or when you want the module to sit more centrally in a dense patch.
+
+| `space` | L output               | R output               | Character                     |
+| ------- | ---------------------- | ---------------------- | ----------------------------- |
+| 0.0     | (L+R)/2 (mono)         | (L+R)/2 (mono)         | Voices fully summed to centre |
+| 0.5     | mid + side×0.5         | mid − side×0.5         | Narrowed stereo field         |
+| 1.0     | L unchanged (identity) | R unchanged (identity) | Full stereo (default)         |
+
+### Implementation — SpaceEngine (Milestone 13)
+
+`SpaceEngine` stateless utility class in `include/SpaceEngine.h`, called after chorus in Core 0 `updateAudio()` ISR. The bypass guard (`sSpace < 0.995f`) skips the 6-op path entirely at the default setting.
+
+| Parameter   | Value                                            | Notes                                                                |
+| ----------- | ------------------------------------------------ | -------------------------------------------------------------------- |
+| Algorithm   | mid-side                                         | `mid=(L+R)>>1`, `side=(L−R)>>1`, `outL=mid+side×w`                   |
+| Width range | 0.0–2.0                                          | 0=mono, 1=identity (default), 2=hyper-wide; output clamped to ±32512 |
+| ISR cost    | ~6 integer ops (skipped at default w=1.0)        |                                                                      |
+| State       | none — stateless static method, no init required |                                                                      |
+
+**Signal chain with SPACE:**
+```
+Osc → Drift → soft-clip → VCA (CURVE) → Chorus → [SPACE, Core 0 ISR] → Output
+```
+
+**Motion and SPACE** — `gChorusDepth = sMotion` already handles M14: the MOTION knob (or `motion` command) simultaneously drives drift amplitude and chorus depth. SPACE is independent and complements MOTION — wide + full motion = expansive; narrow + motion = animated but centred.
 
 ---
 
@@ -907,6 +939,9 @@ Associated jack: **MOTION CV**
 
 When MOTION CV is patched, MOTION knob becomes attenuverter for that CV.
 
+**Button shift:** hold the panel button while turning MOTION to adjust **DRIFTSPEED**
+(drift glide rate — how quickly each voice steps toward a new random target).
+
 ### FM
 
 Controls oscillator interaction depth. In most modes this sets the amount of RELATION → ROOT frequency modulation. Soft-clipped and musically scaled.
@@ -923,6 +958,9 @@ Envelope and response shaping. Controls the transient character of each note.
 
 Also affects modulation response timing and internal envelope curves. Gives Alloy Flux basic articulation without an external envelope + VCA.
 
+**Button shift:** hold the panel button while turning CURVE to adjust **CURVETIME**
+(overall envelope time scale — compresses or stretches both A and R uniformly).
+
 ### SPACE
 
 Stereo and dimensional control. Sets the width, spread, and positional placement of voices in the stereo field.
@@ -935,6 +973,22 @@ In STRING mode SPACE has the strongest effect — it governs the perceived width
 Associated jack: **SPACE CV**
 
 When SPACE CV is patched, SPACE knob becomes attenuverter for that CV.
+
+**Button shift:** hold the panel button while turning SPACE to adjust **VOL**
+(master output volume). LED dims white during shift mode.
+
+### Shift Function Summary
+
+All shift functions use the same gesture: **hold the panel button** while turning the knob. LED indicator dims white to signal shift mode is active. Releasing the button exits shift mode.
+
+| Knob  | Primary function          | Shift function (hold button) |
+| ----- | ------------------------- | ---------------------------- |
+| SHAPE | Waveform morph (sine→hollow) | FATNESS — sub oscillator level |
+| MOTN  | Drift + chorus depth      | DRIFTSPEED — drift glide rate  |
+| CURVE | Envelope shape (pluck→swell) | CURVETIME — envelope time scale |
+| SPACE | Stereo width              | VOL — master output volume     |
+
+ROOT, RELATION, and FM knobs have no shift function — they occupy the full knob travel for precision.
 
 ---
 
@@ -1626,8 +1680,8 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 10. **SHAPE morph engine** — continuous wavetable crossfade: sine → triangle → saw → pulse → hollow pulse; all tables band-limited at startup; `ShapeOsc` replaces `Osc16` pair
 - [x] 11. **Drift engine** — per-voice LCG random-walk frequency drift; `DriftEngine<N>` template; MOTION scales amplitude 0–±2.5 Hz; one-pole glide between targets
 - [x] 12. **Chorus engine** — BBD-inspired stereo chorus on Core 0 ISR; phasor LFO (no trig in hot path); dual LFOs 0.513 Hz / 0.618 Hz, 90° offset; depth driven by MOTION; `ChorusMode` OFF/I/II/I+II; `chorus` serial command; overrun counter cleared after Mozzi init
-- [ ] 13. **SPACE spatializer** — stereo width and placement per voice
-- [ ] 14. **MOTION control** — governs drift + chorus depth simultaneously
+- [x] 13. **SPACE spatializer** — stereo width and placement per voice
+- [x] 14. **MOTION control** — governs drift + chorus depth simultaneously
 - [x] 15. **CURVE engine** — AR envelope (audio-rate) + digital VCA; `CurveEngine<SAMPLE_RATE>` template; CURVE morphs attack (1ms–800ms) + release (80ms–1s); pluck mode auto-releases at peak (curve≤0.2); `gGatePatched=false` = drone bypass; serial `gate 1/0/free` + `curve <0–1>`
 - [ ] 16. **Mux wiring** — 74HC4067 connected, all 7 knobs + 4 slow CVs readable
 - [ ] 17. **Jack switch detection** — mux CH12–CH15, attenuverter mode switching

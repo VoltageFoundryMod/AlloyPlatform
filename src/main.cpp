@@ -23,6 +23,7 @@
 // ---------------------------------------------------------------------------
 #include "ChorusEngine.h"
 #include "ShapeOsc.h"
+#include "SpaceEngine.h"
 #include <Mozzi.h>
 #include <math.h>
 #include <tables/sin2048_int8.h>
@@ -148,6 +149,7 @@ volatile bool gGateHigh = false;    // true while gate is asserted
 volatile bool gGatePatched = false; // false = drone (bypass VCA)
 float gVolume = 0.8f;
 ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
+float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = full stereo
 
 // Smoothed values — consumed by updateAudio(), updated in updateControl()
 static float sShape = 0.0f;
@@ -156,6 +158,7 @@ static float sMotion = 0.0f;    // slower smoother for drift/chorus depth
 static float sCurve = 0.5f;     // smoothed CURVE value for CurveEngine
 static float sCurveTime = 1.0f; // smoothed time scale
 static float sVolume = 0.8f;
+static float sSpace = 1.0f;
 // Pre-scaled integer sub weight for the audio hot path (0..128 = 0..50% of main).
 // Computed once per control cycle; 32-bit aligned so ISR reads are atomic.
 static int32_t sSubW = 51;
@@ -231,6 +234,7 @@ void updateControl() {
     sCurve += (gCurve - sCurve) * 0.1f;
     sCurveTime += (gCurveTime - sCurveTime) * 0.1f;
     sVolume += (gVolume - sVolume) * 0.1f;
+    sSpace += (gSpace - sSpace) * 0.1f;
 
     // Update CURVE engine: recompute A/R coefficients and forward gate edges.
     gCurveEng.setCurve(sCurve, sCurveTime);
@@ -331,6 +335,15 @@ AudioOutput updateAudio() {
     // single 32-bit aligned reads are atomic on Cortex-M33, no mutex needed.
     int32_t outL, outR;
     gChorus.process(left, right, gChorusDepth, gChorusMode, &outL, &outR);
+
+    // SPACE — mid-side stereo width (Milestone 13). sSpace=1.0 is identity.
+    // 0.0=mono, 1.0=identity, 2.0=hyper-wide. Bypass guard skips processing at ~1.0.
+    if (sSpace < 0.995f || sSpace > 1.005f) {
+        int32_t spaceL, spaceR;
+        SpaceEngine::process(outL, outR, sSpace, &spaceL, &spaceR);
+        outL = spaceL;
+        outR = spaceR;
+    }
 
 #ifdef CPU_PROFILE
     const uint32_t elapsed = time_us_32() - _t0;
