@@ -14,6 +14,7 @@
  *   - Backspace / DEL supported
  *   - CR, LF, and CR+LF line endings all handled correctly (no double prompt)
  *   - Empty Enter or '?' alone reprints the command list
+ *   - Arrow UP / DOWN navigate command history (last 5 commands)
  */
 
 #ifdef SERIAL_CONTROL
