@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21** (PAIR mode, serial console, RELATION interval engine, drift, chorus, stereo width, envelope/VCA)
+> **Firmware status: M1–M15 + M21 + M28 + M29** (PAIR mode, serial console, RELATION interval engine, drift, chorus, stereo width, envelope/VCA, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -34,6 +34,11 @@
       - [`curvetime <0.25–4>` — Envelope time scale](#curvetime-0254--envelope-time-scale)
     - [Volume](#volume)
       - [`vol <0–1>` — Master volume](#vol-01--master-volume)
+  - [MIDI Control](#midi-control)
+    - [`midichan <1–16|omni>` — MIDI receive channel](#midichan-116omni--midi-receive-channel)
+    - [USB MIDI CC Map](#usb-midi-cc-map)
+  - [Config Persistence](#config-persistence)
+    - [`config save` / `config load` / `config reset`](#config-save--config-load--config-reset)
   - [Knob Shift Functions](#knob-shift-functions)
   - [Gate and Envelope Modes](#gate-and-envelope-modes)
     - [Drone mode (default)](#drone-mode-default)
@@ -403,6 +408,80 @@ gate 0
 
 ---
 
+## MIDI Control
+
+Alloy Flux appears as a standard USB MIDI device — no drivers needed. Connect via USB and use any DAW, MIDI controller, or browser-based tool (Chrome/Edge support Web MIDI via `navigator.requestMIDIAccess`).
+
+**Note On / Note Off** set the root pitch and trigger the gate (monophonic, last-note priority). Sending Note On also arms the envelope if it was in drone mode.
+
+### `midichan <1–16|omni>` — MIDI receive channel
+
+Default: `omni` (responds to all channels)
+
+```txt
+midichan 1        # listen only on channel 1 (most DAW default)
+midichan 10       # channel 10 (drums convention — not recommended)
+midichan omni     # back to all channels (default)
+```
+
+Combine with DAW multi-instrument routing to run multiple AlloyFlux modules on separate channels.
+
+### USB MIDI CC Map
+
+All continuous parameters are reachable via MIDI CC. Assignments follow GM/MMA conventions where a standard meaning exists.
+
+| CC  | GM/MMA name         | AlloyFlux parameter | Range          |
+| --- | ------------------- | ------------------- | -------------- |
+| 1   | Modulation Wheel    | `motion`            | 0–1           |
+| 7   | Channel Volume      | `vol`               | 0–1           |
+| 64  | Sustain Pedal       | `gate` (hold)       | ≥64=on, <64=off |
+| 71  | Resonance / Timbre  | `curve`             | 0–1           |
+| 72  | Release Time        | `curvetime`         | 0.25–4         |
+| 73  | Attack Time         | `dspeed`            | 0.001–0.1     |
+| 74  | Brightness          | `shape`             | 0–1           |
+| 91  | Reverb Send Depth   | `space`             | 0–2           |
+| 92  | Tremolo Send Depth  | `detune`            | 0–200 Hz      |
+| 93  | Chorus Send Depth   | `fat`               | 0–1           |
+| 94  | Celeste / Variation | `rel`               | 0–24 semitones |
+| 123 | All Notes Off       | panic               | —              |
+
+Program Change messages 1–5 select voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING).
+
+The CC table is defined in a single file (`src/param_map.cpp`) shared by all transports — future hardware TRS MIDI and I2C will use the same mapping automatically.
+
+---
+
+## Config Persistence
+
+### `config save` / `config load` / `config reset`
+
+Saves and restores all parameters to flash using the RP2350 EEPROM emulation library (wear-levelled, safe for thousands of cycles).
+
+```txt
+config save       # write current parameters to flash
+config load       # restore last saved parameters
+config reset      # wipe stored config (defaults used on next boot)
+```
+
+**Flash protection:** saves are rate-limited to one every 10 seconds. If the parameters haven’t changed since the last save, no write occurs (dirty check). The response tells you which case applied:
+
+```txt
+> config save
+config saved
+
+> config save
+config unchanged — no write needed
+
+> config save
+config save throttled — wait 10s between saves
+```
+
+On boot, parameters are loaded automatically if a valid saved config exists. If the firmware version changes, the stored config is silently discarded and compile-time defaults are used.
+
+> **Wear estimate:** at the 10 s rate limit, flash rated at 100,000 erase cycles ≈ 31 years of continuous saving. The wear-levelling circular buffer multiplies this further.
+
+---
+
 ### Volume
 
 #### `vol <0–1>` — Master volume
@@ -485,7 +564,7 @@ gate 0
 `status` prints all current parameters in a single line:
 
 ```txt
-pitch=220.00 detune=4.00 shape=0.250 fat=0.400 motion=0.400 dspeed=0.0400 curve=0.500 ctime=1.00 gate=free chorus=I+II vol=0.800 space=1.000
+pitch=220.00 detune=4.00 shape=0.250 fat=0.400 motion=0.400 dspeed=0.0400 curve=0.500 ctime=1.00 gate=free chorus=I+II vol=0.800 space=1.000 midichan=omni
 ```
 
 ---
@@ -609,6 +688,8 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | `gate <1\|0\|free>` | —             | Gate high / low / bypass (drone)                               |
 | `trig [ms]`         | —             | One-shot gate pulse (default 100 ms)                           |
 | `vol <0–1>`         | 0–1           | Master volume                                                  |
+| `midichan <n\|omni>` | 1–16, omni    | MIDI receive channel (default: omni)                           |
+| `config <cmd>`      | save/load/reset | Persist / restore / wipe all parameters to flash              |
 | `status`            | —             | Print all current parameters                                   |
 | `cpu`               | —             | Audio ISR timing and headroom                                  |
 | `perf on\|off`      | —             | Auto CPU reporting every 5 s                                   |
@@ -634,3 +715,6 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | `curvetime` | 1.0     | Normal speed                      |
 | `gate`      | free    | Drone, envelope bypassed          |
 | `vol`       | 0.8     |                                   |
+| `midichan`  | omni    | All MIDI channels                 |
+
+> All parameters marked above are automatically restored on boot if `config save` has been used.

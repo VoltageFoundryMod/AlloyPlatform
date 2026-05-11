@@ -1,4 +1,5 @@
 #include "commands.h"
+#include "config_store.h"
 #include "params.h"
 #include <Arduino.h>
 #include <stdlib.h>
@@ -226,7 +227,12 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(F(" vol="));
     out.print(gVolume, 3);
     out.print(F(" space="));
-    out.println(gSpace, 3);
+    out.print(gSpace, 3);
+    out.print(F(" midichan="));
+    if (gMidiChannel == 0)
+        out.println(F("omni"));
+    else
+        out.println(gMidiChannel);
 }
 
 static void cmd_performance_print(const char *args, Print &out) {
@@ -262,6 +268,48 @@ cmd_cpu(const char * /*args*/, Print &out) {
 #endif
 }
 
+static void cmd_midichan(const char *args, Print &out) {
+    if (strcmp(args, "omni") == 0 || strcmp(args, "0") == 0) {
+        gMidiChannel = 0;
+        out.println(F("midichan -> omni (all channels)"));
+    } else {
+        int ch = atoi(args);
+        if (ch < 1 || ch > 16) {
+            out.println(F("usage: midichan <1-16|omni>"));
+            return;
+        }
+        gMidiChannel = (uint8_t)ch;
+        out.print(F("midichan -> "));
+        out.println(ch);
+    }
+}
+
+static void cmd_config(const char *args, Print &out) {
+    if (strcmp(args, "save") == 0) {
+        switch (configStore_save()) {
+        case ConfigSaveResult::SAVED:
+            out.println(F("config saved"));
+            break;
+        case ConfigSaveResult::UNCHANGED:
+            out.println(F("config unchanged — no write needed"));
+            break;
+        case ConfigSaveResult::THROTTLED:
+            out.println(F("config save throttled — wait 10s between saves"));
+            break;
+        }
+    } else if (strcmp(args, "load") == 0) {
+        if (configStore_load())
+            out.println(F("config loaded"));
+        else
+            out.println(F("no saved config — using defaults"));
+    } else if (strcmp(args, "reset") == 0) {
+        configStore_reset();
+        out.println(F("config wiped — defaults active on next boot"));
+    } else {
+        out.println(F("usage: config <save|load|reset>"));
+    }
+}
+
 // Forward declaration — cmd_help calls commands_printHelp which needs the table,
 // and the table needs cmd_help.  Define cmd_help after the table is declared.
 static void cmd_help(const char *args, Print &out);
@@ -290,6 +338,8 @@ const CommandEntry kCommands[] = {
     {"trig",      "[ms]        trigger a note pulse (default 100ms gate)",                cmd_trig},
     {"vol",       "<0-1>       master volume",                                             cmd_vol},
     {"space",     "<0-2>       stereo width: 0=mono  1=full stereo  2=hyper-wide (default: 1)", cmd_space},
+    {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
+    {"config",    "<save|load|reset>  persist/restore all parameters to flash",          cmd_config},
     {"status",    "            print all current parameters",                              cmd_status},
     {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
     {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},

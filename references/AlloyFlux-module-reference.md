@@ -1228,18 +1228,31 @@ Both active simultaneously. Last-received source wins.
 
 ### Supported Messages
 
-| Message        | Action                                                            |
-| -------------- | ----------------------------------------------------------------- |
-| Note On        | Set ROOT pitch + trigger GATE, voice allocation                   |
-| Note Off       | Release articulation                                              |
-| Pitch Bend     | ±2 semitones (configurable via calibration routine)               |
-| CC 1 Mod Wheel | MOTION depth                                                      |
-| CC 74          | SHAPE morph                                                       |
-| CC 91          | SPACE width                                                       |
-| CC 94          | RELATION depth                                                    |
-| CC 123         | All Notes Off (panic)                                             |
-| Clock 0xF8     | MOTION sync to MIDI clock                                         |
-| Program Change | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING) |
+| Message         | Action                                                             |
+| --------------- | ------------------------------------------------------------------ |
+| Note On         | Set ROOT pitch + trigger GATE (monophonic, last-note priority)     |
+| Note Off        | Release articulation                                               |
+| Pitch Bend      | ±2 semitones (configurable via calibration routine)                |
+| CC 1 Mod Wheel  | `motion` — drift + chorus depth (0–1)                            |
+| CC 7 Volume     | `vol` — master output level (0–1)                                 |
+| CC 64 Sustain   | `gate` — hold (≥64=on, <64=off)                                    |
+| CC 71 Timbre    | `curve` — envelope shape (0–1)                                    |
+| CC 72 Release   | `curvetime` — envelope time scale (0.25–4)                        |
+| CC 73 Attack    | `dspeed` — drift glide speed (0.001–0.1)                         |
+| CC 74 Brightness| `shape` — waveform morph (0–1)                                    |
+| CC 91 Reverb    | `space` — stereo width (0–2)                                      |
+| CC 92 Tremolo   | `detune` — symmetric fine spread (0–200 Hz)                        |
+| CC 93 Chorus    | `fat` — sub oscillator level (0–1)                                |
+| CC 94 Celeste   | `rel` — RELATION semitones above ROOT (0–24)                      |
+| CC 123          | All Notes Off / panic                                              |
+| Clock 0xF8      | MOTION sync to MIDI clock                                          |
+| Program Change  | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING) |
+
+All CC assignments are defined in `include/param_map.h` / `src/param_map.cpp` — a single shared table iterated by all transports. Adding a new parameter requires one row in that file only.
+
+### MIDI Channel
+
+Default: omni (responds to all channels). Configure via serial: `midichan 3` or `midichan omni`. Channel filter applies to Note On/Off, CC, and Program Change. Persisted to flash with `config save`.
 
 ---
 
@@ -1706,15 +1719,16 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 18. **V/OCT input** — precision scaling, oversampling, hysteresis, GP26
 - [ ] 19. **Gate input** — GP12, CURVE-shaped articulation trigger
 - [ ] 20. **V/Oct calibration** — two-point routine via button hold on power-up
-- [x] 21. **RELATION engine** — `gRelation` (0–1) maps voice 2 to 0–+24 semitones above ROOT via `powf(2, rel×2)` in `updateControl()`; `gDetune` retained as Hz fine-spread; `VoiceMode` enum (PAIR/CLOUD/CHORD/CASCADE/STRING) with `mode` serial command; only PAIR active; framework ready for M22–M25
+- [x] 21. **RELATION engine** — `gRelation` (semitones 0–24) maps voice 2 via `powf(2, rel/12)` in `updateControl()`; `gDetune` retained as Hz fine-spread; `VoiceMode` enum (PAIR/CLOUD/CHORD/CASCADE/STRING) with `mode` serial command; only PAIR active; framework ready for M22–M25
 - [ ] 22. **CLOUD mode** — multi-voice ensemble, animated stereo positioning
 - [ ] 23. **CHORD mode** — interval table, REL CV morph through chord shapes
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
 - [ ] 26. **Post Effects Section** — global chorus, stereo line delay (limited dut to amount of RAM), multimode filter, reverb (plate/spring - Schroeder or Dattorro networks), Karplus-Strong Resonator
 - [ ] 27. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
-- [x] 28. **Improve command table** — consistent parameter names across Serial, MIDI CCs, Web USB, I2C as a look-up table rather than hardcoded if/else
-- [ ] 29. **USB MIDI** — TinyUSB MIDI device, note + CC + clock
+- [x] 28. **Central param/CC dispatch table** — `include/param_map.h` + `src/param_map.cpp`; `CCParam` struct with `{cc, valMin, valMax, *target, name}`; `paramMap_dispatchCC()` shared by all transports; 10 parameters mapped (CC 1/7/71/72/73/74/91/92/93/94); `onControlChange` in USB MIDI reduced to 3 lines + specials (CC 64 sustain, CC 123 panic)
+- [x] 29. **USB MIDI + MIDI channel config** — `Adafruit_USBD_MIDI` + `MIDI Library` via `-DUSE_TINYUSB`; composite CDC+MIDI device (serial console + MIDI coexist on same USB); Note On/Off → `gBaseFreq`/`gGateHigh` (monophonic, last-note priority); full CC map via `paramMap_dispatchCC`; Program Change 1–5 → VoiceMode; `usbMidi_init()` before `Serial.begin()` with `TinyUSBDevice.mounted()` wait; Web MIDI compatible (Chrome/Edge via `navigator.requestMIDIAccess`); `gMidiChannel` (0=omni, 1–16) set via `midichan` serial command; channel filter in all MIDI callbacks
+- [x] 29b. **Flash config persistence** — `include/config_store.h` / `src/config_store.cpp`; Earle Philhower EEPROM emulation (wear-levelled circular buffer); `AlloyConfig` struct covers all 15 synthesis + MIDI parameters; `configStore_load()` in `setup()` auto-restores on boot; `config save|load|reset` serial commands; three-layer flash protection: dirty check (memcmp), 10 s rate limit, magic+version invalidation on struct change; 4-slot layout for future preset expansion (`kMaxPresets=4`)
 - [ ] 30. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
 - [ ] 31. **Button UI** — single button, mode cycle, double-tap, long-hold
 - [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
@@ -1723,6 +1737,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 35. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
 - [ ] 36. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
+- [ ] 38. **Expand voice count and polyphony** - Enable multiple voices so polyphony is possible in all modes, not just CLOUD and CHORD. Evaluate CPU load and optimize as needed.
 
 
 ## Project Refinement
@@ -1730,7 +1745,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 ### Software
 
 - [ ] Understand if the multiple voices should be mixed to the stereo output and if these voices should be used by the chord engine or the MIDI/I2C input
-- [ ] Define the command list which will span Serial control, MIDI CCs, Web USB/MIDI configurator and I2C — aim for consistent parameter names across all interfaces
+- [x] Define the command list which will span Serial control, MIDI CCs, Web USB/MIDI configurator and I2C — aim for consistent parameter names across all interfaces; **done: `param_map.h` single CC table shared by all transports**
 
 ### Hardware
 

@@ -42,6 +42,9 @@ extern volatile bool gGatePatched; // false = drone (bypass VCA); true = AR enve
 // Level
 extern float gVolume; // 0.0 – 1.0 master output
 
+// MIDI configuration
+extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel
+
 // CPU profiling — defined in main.cpp, only present when CPU_PROFILE is set.
 // gAudioElapsedUs : µs spent inside the last updateAudio() call
 // gAudioOverruns  : calls that exceeded the 30µs audio budget

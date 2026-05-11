@@ -25,6 +25,8 @@
 #include "ShapeOsc.h"
 #include "SpaceEngine.h"
 #include "VoiceMode.h"
+#include "config_store.h"
+#include "usb_midi.h"
 #include <Mozzi.h>
 #include <math.h>
 #include <tables/sin2048_int8.h>
@@ -153,6 +155,7 @@ volatile bool gGatePatched = false;     // false = drone (bypass VCA)
 float gVolume = 0.8f;
 ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
 float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = full stereo
+uint8_t gMidiChannel = 0;                  // 0 = omni, 1–16 = specific MIDI channel
 
 // Smoothed values — consumed by updateAudio(), updated in updateControl()
 static float sShape = 0.0f;
@@ -202,7 +205,17 @@ volatile float gChorusDepth = 0.0f;
 // ---------------------------------------------------------------------------
 
 void setup() {
+    // USB MIDI must be registered before Serial.begin() so both CDC and MIDI
+    // appear in the same USB descriptor on first host enumeration.
+    // Adafruit_USBD_MIDI::begin() triggers a disconnect/reconnect; the
+    // serialConsole_init() wait loop below catches that reconnect cleanly.
+#ifdef USE_TINYUSB
+    usbMidi_init();
+#endif
     serialConsole_init();
+    // Load persisted config from flash before Mozzi starts so all gXxx
+    // globals are at their saved values when the first updateControl() runs.
+    configStore_load(); // silently uses compile-time defaults if no valid config found
     mutex_init(&gDspMutex);
     generateWavetables();
     gChorus.init(); // must run before startMozzi() to fill delay buffers before first ISR
@@ -224,6 +237,9 @@ void setup() {
 
 void updateControl() {
     serialConsole_update();
+#ifdef USE_TINYUSB
+    usbMidi_update();
+#endif
 
     // Auto-release for cmd_trig: lower gate when the pulse duration has elapsed.
     if (sTrigReleaseAt && millis() >= sTrigReleaseAt) {
