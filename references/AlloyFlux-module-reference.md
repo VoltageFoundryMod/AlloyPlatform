@@ -41,6 +41,9 @@
   - [Drift and Motion System](#drift-and-motion-system)
     - [Implementation — Frequency Drift (Milestone 11)](#implementation--frequency-drift-milestone-11)
   - [Chorus Philosophy](#chorus-philosophy)
+    - [Implementation — ChorusEngine (Milestone 12)](#implementation--chorusengine-milestone-12)
+  - [SPACE Engine — Stereo Width](#space-engine--stereo-width)
+    - [Implementation — SpaceEngine (Milestone 13)](#implementation--spaceengine-milestone-13)
   - [CURVE Engine — Envelope and Amplitude](#curve-engine--envelope-and-amplitude)
     - [Gate Sources](#gate-sources)
     - [Envelope Shape](#envelope-shape)
@@ -55,6 +58,7 @@
     - [FM](#fm)
     - [CURVE](#curve)
     - [SPACE](#space)
+    - [Shift Function Summary](#shift-function-summary)
   - [Panel Layout — 14HP](#panel-layout--14hp)
   - [Jack Assignment](#jack-assignment)
     - [Input Row 1 — Primary Inputs](#input-row-1--primary-inputs)
@@ -981,12 +985,12 @@ When SPACE CV is patched, SPACE knob becomes attenuverter for that CV.
 
 All shift functions use the same gesture: **hold the panel button** while turning the knob. LED indicator dims white to signal shift mode is active. Releasing the button exits shift mode.
 
-| Knob  | Primary function          | Shift function (hold button) |
-| ----- | ------------------------- | ---------------------------- |
-| SHAPE | Waveform morph (sine→hollow) | FATNESS — sub oscillator level |
-| MOTN  | Drift + chorus depth      | DRIFTSPEED — drift glide rate  |
+| Knob  | Primary function             | Shift function (hold button)    |
+| ----- | ---------------------------- | ------------------------------- |
+| SHAPE | Waveform morph (sine→hollow) | FATNESS — sub oscillator level  |
+| MOTN  | Drift + chorus depth         | DRIFTSPEED — drift glide rate   |
 | CURVE | Envelope shape (pluck→swell) | CURVETIME — envelope time scale |
-| SPACE | Stereo width              | VOL — master output volume     |
+| SPACE | Stereo width                 | VOL — master output volume      |
 
 ROOT, RELATION, and FM knobs have no shift function — they occupy the full knob travel for precision.
 
