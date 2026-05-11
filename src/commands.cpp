@@ -84,6 +84,24 @@ static void cmd_driftspeed(const char *args, Print &out) {
     out.println(gDriftSpeed, 4);
 }
 
+static void cmd_chorus(const char *args, Print &out) {
+    if (strcmp(args, "off") == 0 || strcmp(args, "0") == 0) {
+        gChorusMode = ChorusMode::OFF;
+        out.println(F("chorus -> off"));
+    } else if (strcmp(args, "I") == 0 || strcmp(args, "1") == 0) {
+        gChorusMode = ChorusMode::I;
+        out.println(F("chorus -> I (slow, 0.51 Hz)"));
+    } else if (strcmp(args, "II") == 0 || strcmp(args, "2") == 0) {
+        gChorusMode = ChorusMode::II;
+        out.println(F("chorus -> II (fast, 0.62 Hz)"));
+    } else if (strcmp(args, "I+II") == 0 || strcmp(args, "3") == 0) {
+        gChorusMode = ChorusMode::I_II;
+        out.println(F("chorus -> I+II (L=slow, R=fast)"));
+    } else {
+        out.println(F("usage: chorus <off|I|II|I+II>"));
+    }
+}
+
 static void cmd_vol(const char *args, Print &out) {
     gVolume = constrain((float)atof(args), 0.0f, 1.0f);
     out.print(F("vol -> "));
@@ -109,6 +127,21 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gCurveTime, 2);
     out.print(F(" gate="));
     out.print(gGatePatched ? (gGateHigh ? F("high") : F("low")) : F("free"));
+    out.print(F(" chorus="));
+    switch (gChorusMode) {
+    case ChorusMode::OFF:
+        out.print(F("off"));
+        break;
+    case ChorusMode::I:
+        out.print(F("I"));
+        break;
+    case ChorusMode::II:
+        out.print(F("II"));
+        break;
+    case ChorusMode::I_II:
+        out.print(F("I+II"));
+        break;
+    }
     out.print(F(" vol="));
     out.println(gVolume, 3);
 }
@@ -162,8 +195,9 @@ const CommandEntry kCommands[] = {
     {"detune",    "<hz>        symmetric spread (0-200 Hz)",                              cmd_detune},
     {"shape",     "<0-1>       waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
     {"fat",       "<0-1>       sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
-    {"motion",    "<0-1>       drift + animation depth: 0=static  1=full wander",         cmd_motion},
+    {"motion",    "<0-1>       drift + chorus depth: 0=dry/static  1=full",              cmd_motion},
     {"dspeed",    "<0.001-0.1> drift glide speed: 0.001=glacial  0.04=default  0.1=fast", cmd_driftspeed},
+    {"chorus",    "<off|I|II|I+II>  Juno chorus mode (default: I+II)",                   cmd_chorus},
     {"curve",     "<0-1>       envelope shape: 0=pluck  0.5=natural  1=swell",            cmd_curve},
     {"curvetime", "<0.25-4>    envelope time scale: 0.25=4x faster  1=default  4=4x slower", cmd_curvetime},
     {"gate",      "<1|0|free>  gate: 1=high  0=low  free=drone (bypass envelope)",        cmd_gate},

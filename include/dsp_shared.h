@@ -22,13 +22,12 @@
  *   both on Core 0 (no concurrent execution, only preemption between them,
  *   and 32-bit aligned float reads/writes are atomic on Cortex-M33).
  *
- * CHORUS I/O (Milestone 12)
- * -------------------------
- * updateAudio() writes gChorusIn_{L,R} after mixing, and reads gChorusOut_{L,R}
- * as the final output.  loop1() reads In, runs the BBD-inspired chorus, writes
- * Out.  One-sample latency is inaudible at 32768 Hz.
- * Volatile assignment is sufficient — 32-bit aligned stores are atomic on
- * Cortex-M33; an occasional stale sample is inaudible.
+ * CHORUS (Milestone 12)
+ * ----------------------
+ * ChorusEngine runs directly in Core 0 updateAudio() ISR using a phasor LFO
+ * (no trig calls in the hot path).  gChorusDepth (volatile float) is written
+ * by updateControl() at 128 Hz and read atomically by the ISR.
+ * No inter-core buffers or counters are needed.
  */
 
 // ---------------------------------------------------------------------------
@@ -51,13 +50,11 @@ extern DspParams gDsp;
 extern mutex_t gDspMutex;
 
 // ---------------------------------------------------------------------------
-// Chorus I/O  (stubs until Milestone 12)
+// Chorus depth — written by Core 0 updateControl() at 128 Hz, read by ISR.
+// Single 32-bit float, aligned: atomic read on Cortex-M33, no mutex needed.
 // ---------------------------------------------------------------------------
 
-extern volatile int32_t gChorusIn_L;
-extern volatile int32_t gChorusIn_R;
-extern volatile int32_t gChorusOut_L;
-extern volatile int32_t gChorusOut_R;
+extern volatile float gChorusDepth;
 
 // ---------------------------------------------------------------------------
 // Read helper — any core, always safe

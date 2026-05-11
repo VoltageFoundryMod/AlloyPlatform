@@ -728,6 +728,41 @@ The chorus system contributes to:
 
 In STRING mode the chorus is the dominant synthesis element. In PAIR mode it provides subtle width. In CLOUD it contributes to ensemble density.
 
+### Implementation — ChorusEngine (Milestone 12)
+
+`ChorusEngine<SAMPLE_RATE>` template class in `include/ChorusEngine.h`, running in **Core 0 `updateAudio()` ISR** (~50 cycles, no trig in hot path).
+
+| Parameter      | Value                        | Notes                                    |
+| -------------- | ---------------------------- | ---------------------------------------- |
+| Center delay   | 7 ms = 229 samples           | BBD-range, audible chorus character      |
+| LFO mod depth  | ±3 ms = ±98 samples          | max read delay ~327 samples              |
+| Buffer size    | 1024 samples = 31 ms         | 8 KB BSS (two int32 buffers)             |
+| LFO rate L     | 0.513 Hz                     | slightly asymmetric for organic spread   |
+| LFO rate R     | 0.618 Hz                     | golden-ratio spacing above L             |
+| LFO phase init | L=0°, R=90°                  | maximum L/R independence                 |
+| LFO algorithm  | quadrature phasor recurrence | 4 multiplies/sample, no sinf/cosf in ISR |
+| Mix law        | `wet = depth × 0.6`          | depth=1.0 → 40% dry + 60% wet            |
+| Interpolation  | linear (fractional delay)    | warble-free at all modulation depths     |
+
+**Chorus modes (`ChorusMode` enum, `chorus` serial command):**
+
+| Mode   | LFO L           | LFO R           | Character                                                        |
+| ------ | --------------- | --------------- | ---------------------------------------------------------------- |
+| `off`  | —               | —               | Dry pass-through; phasors keep running for glitch-free re-enable |
+| `I`    | slow (0.513 Hz) | slow (0.513 Hz) | Subtle width, Juno type I character                              |
+| `II`   | fast (0.618 Hz) | fast (0.618 Hz) | Deeper warble, Juno type II character                            |
+| `I+II` | slow (0.513 Hz) | fast (0.618 Hz) | Maximum stereo spread, default                                   |
+
+**Depth control** — `gChorusDepth` (volatile float), written atomically by `updateControl()` at 128 Hz, read directly in ISR. No mutex or barrier needed — 32-bit aligned float reads are atomic on Cortex-M33.
+
+**ISR safety** — `init()` called in Core 0 `setup()` before `startMozzi()`, so delay buffers are zeroed and phasors seeded before the first ISR fires. Overrun counter is zeroed at end of `setup()` to exclude Mozzi’s startup DMA/PIO initialisation artifacts.
+
+**Signal chain:**
+```
+Osc → Drift → soft-clip → VCA (CURVE) → [Chorus, Core 0 ISR] → Output
+```
+VCA before chorus is intentional (Juno-60 topology): envelope close lets chorus delay lines drain naturally — shimmer tail rather than abrupt cut.
+
 ---
 
 ## CURVE Engine — Envelope and Amplitude
@@ -1590,7 +1625,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
 - [x] 10. **SHAPE morph engine** — continuous wavetable crossfade: sine → triangle → saw → pulse → hollow pulse; all tables band-limited at startup; `ShapeOsc` replaces `Osc16` pair
 - [x] 11. **Drift engine** — per-voice LCG random-walk frequency drift; `DriftEngine<N>` template; MOTION scales amplitude 0–±2.5 Hz; one-pole glide between targets
-- [ ] 12. **Chorus engine** — multi-tap BBD-inspired, stereo, modulation variance
+- [x] 12. **Chorus engine** — BBD-inspired stereo chorus on Core 0 ISR; phasor LFO (no trig in hot path); dual LFOs 0.513 Hz / 0.618 Hz, 90° offset; depth driven by MOTION; `ChorusMode` OFF/I/II/I+II; `chorus` serial command; overrun counter cleared after Mozzi init
 - [ ] 13. **SPACE spatializer** — stereo width and placement per voice
 - [ ] 14. **MOTION control** — governs drift + chorus depth simultaneously
 - [x] 15. **CURVE engine** — AR envelope (audio-rate) + digital VCA; `CurveEngine<SAMPLE_RATE>` template; CURVE morphs attack (1ms–800ms) + release (80ms–1s); pluck mode auto-releases at peak (curve≤0.2); `gGatePatched=false` = drone bypass; serial `gate 1/0/free` + `curve <0–1>`
@@ -1604,17 +1639,18 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 23. **CHORD mode** — interval table, REL CV morph through chord shapes
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
-- [ ] 26. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
-- [x] 27. **Improve command table** — consistent parameter names across Serial, MIDI CCs, Web USB, I2C as a look-up table rather than hardcoded if/else
-- [ ] 28. **USB MIDI** — TinyUSB MIDI device, note + CC + clock
-- [ ] 29. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
-- [ ] 30. **Button UI** — single button, mode cycle, double-tap, long-hold
-- [ ] 31. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
-- [ ] 32. **Panel design** — Design final graphics and layout
-- [ ] 33. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
-- [ ] 34. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
-- [ ] 35. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
-- [ ] 36. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
+- [ ] 26. **Post Effects Section** — global chorus, stereo line delay (limited dut to amount of RAM), multimode filter, reverb (plate/spring - Schroeder or Dattorro networks), Karplus-Strong Resonator
+- [ ] 27. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
+- [x] 28. **Improve command table** — consistent parameter names across Serial, MIDI CCs, Web USB, I2C as a look-up table rather than hardcoded if/else
+- [ ] 29. **USB MIDI** — TinyUSB MIDI device, note + CC + clock
+- [ ] 30. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
+- [ ] 31. **Button UI** — single button, mode cycle, double-tap, long-hold
+- [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
+- [ ] 33. **Panel design** — Design final graphics and layout
+- [ ] 34. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
+- [ ] 35. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
+- [ ] 36. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
+- [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 
 
 ## Project Refinement

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ChorusEngine.h" // ChorusMode enum
+
 /**
  * Shared synthesis parameters — defined in main.cpp.
  *
@@ -19,6 +21,9 @@ extern float gFatness; // 0.0 = no sub osc  …  1.0 = sub at 50% of main level
 // Animation
 extern float gMotion;     // 0.0 = static  …  1.0 = full drift + chorus depth
 extern float gDriftSpeed; // one-pole glide coeff: 0.001 (slow) … 0.10 (fast), default 0.025
+
+// Chorus
+extern ChorusMode gChorusMode; // OFF / I / II / I_II  (default: I_II)
 
 // Envelope / VCA (Milestone 15)
 extern float gCurve;               // 0.0 = pluck … 1.0 = swell

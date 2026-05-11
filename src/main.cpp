@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 // Mozzi includes
 // ---------------------------------------------------------------------------
+#include "ChorusEngine.h"
 #include "ShapeOsc.h"
 #include <Mozzi.h>
 #include <math.h>
@@ -146,6 +147,7 @@ float gCurveTime = 1.0f;            // overall envelope time scale (0.25–4.0)
 volatile bool gGateHigh = false;    // true while gate is asserted
 volatile bool gGatePatched = false; // false = drone (bypass VCA)
 float gVolume = 0.8f;
+ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
 
 // Smoothed values — consumed by updateAudio(), updated in updateControl()
 static float sShape = 0.0f;
@@ -164,6 +166,10 @@ static DriftEngine<2> gDrift;
 // Curve engine: AR envelope + VCA (Milestone 15)
 static CurveEngine<MOZZI_AUDIO_RATE> gCurveEng;
 
+// Chorus engine: phasor-LFO BBD-inspired stereo chorus (Milestone 12).
+// Declared here so updateAudio() can call it; 8 KB delay buffers live in BSS.
+static ChorusEngine<MOZZI_AUDIO_RATE> gChorus;
+
 // Trig pulse timer — set by cmd_trig, cleared in updateControl() when elapsed.
 // 0 means no trig pending.
 uint32_t sTrigReleaseAt = 0;
@@ -181,11 +187,8 @@ volatile uint32_t gAudioOverruns = 0;
 DspParams gDsp = {};
 mutex_t gDspMutex;
 
-// Chorus I/O — written by updateAudio(), processed by loop1() at Milestone 12.
-volatile int32_t gChorusIn_L = 0;
-volatile int32_t gChorusIn_R = 0;
-volatile int32_t gChorusOut_L = 0;
-volatile int32_t gChorusOut_R = 0;
+// Chorus depth — written by updateControl() at 128 Hz, read atomically by ISR.
+volatile float gChorusDepth = 0.0f;
 
 // ---------------------------------------------------------------------------
 // Mozzi callbacks
@@ -195,6 +198,7 @@ void setup() {
     serialConsole_init();
     mutex_init(&gDspMutex);
     generateWavetables();
+    gChorus.init(); // must run before startMozzi() to fill delay buffers before first ISR
     startMozzi();
     v1.setFreq(gBaseFreq);
     v2.setFreq(gBaseFreq);
@@ -204,6 +208,11 @@ void setup() {
     subv1.setFreq(gBaseFreq * 0.5f);
     subv2.setFreq(gBaseFreq * 0.5f);
     serialConsole_ready();
+#ifdef CPU_PROFILE
+    // Clear any overruns that occurred during Mozzi's startup DMA/PIO init —
+    // they are not representative of steady-state audio performance.
+    gAudioOverruns = 0;
+#endif
 }
 
 void updateControl() {
@@ -249,6 +258,9 @@ void updateControl() {
     // sSubW: 0..128 maps fatness 0..1 to sub contributing 0..50% of main amplitude.
     // Written here (Core 0 control rate), read in updateAudio() ISR — atomic on M33.
     sSubW = (int32_t)(sFatness * 128.0f);
+
+    // Chorus depth — single float, atomic on M33, no mutex needed.
+    gChorusDepth = sMotion;
 
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
@@ -314,6 +326,12 @@ AudioOutput updateAudio() {
     int32_t left = (m1 * scale) >> 8;
     int32_t right = (m2 * scale) >> 8;
 
+    // Chorus — runs here in Core 0 ISR using phasor LFO (~50 cycles, no trig).
+    // gChorusDepth and gChorusMode are written by updateControl() at 128 Hz;
+    // single 32-bit aligned reads are atomic on Cortex-M33, no mutex needed.
+    int32_t outL, outR;
+    gChorus.process(left, right, gChorusDepth, gChorusMode, &outL, &outR);
+
 #ifdef CPU_PROFILE
     const uint32_t elapsed = time_us_32() - _t0;
     gAudioElapsedUs = elapsed;
@@ -321,11 +339,7 @@ AudioOutput updateAudio() {
         gAudioOverruns++;
 #endif
 
-    // Feed chorus engine on Core 1 (Milestone 12) — passthrough until then.
-    gChorusIn_L = left;
-    gChorusIn_R = right;
-
-    return StereoOutput::from16Bit(left, right);
+    return StereoOutput::from16Bit(outL, outR);
 }
 
 void loop() {
@@ -333,15 +347,15 @@ void loop() {
 }
 
 // ---------------------------------------------------------------------------
-// Core 1 — DSP offload (Milestone 9 foundation; chorus engine arrives at M12)
+// Core 1 — reserved for future DSP offload (reverb, filter — M26+)
 // ---------------------------------------------------------------------------
 
 void setup1() {
-    // No Core 1 initialisation required until the chorus engine is added.
+    // Core 1 reserved for future DSP offload (reverb, filter — M26+).
+    // Chorus runs on Core 0 ISR; nothing needed here yet.
 }
 
 void loop1() {
-    // Chorus engine will run here (Milestone 12).
-    // DspParams p = dsp_params_read();
-    // processChorus(p, gChorusIn_L, gChorusIn_R, &gChorusOut_L, &gChorusOut_R);
+    // Nothing here until a heavier DSP engine warrants offload.
+    tight_loop_contents();
 }
