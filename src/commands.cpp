@@ -30,10 +30,10 @@ static void cmd_note(const char *args, Print &out) {
     }
     char letter = args[0];
     int semitone = 0;
+    // chromatic semitone offsets from C for A B C D E F G
+    static const int8_t kNoteMap[] = {9, 11, 0, 2, 4, 5, 7};
     if (letter >= 'A' && letter <= 'G') {
-        semitone = letter - 'C';
-        if (semitone < 0)
-            semitone += 7; // wrap around so C=0, D=2, E=4, F=5, G=7
+        semitone = kNoteMap[letter - 'A'];
     } else {
         out.println(F("invalid note letter"));
         return;
@@ -44,7 +44,7 @@ static void cmd_note(const char *args, Print &out) {
         idx++;
     }
     int octave = atoi(&args[idx]);
-    float freq = 16.35f * powf(2.0f, octave + semitone / 12.0f);
+    float freq = 16.3516f * powf(2.0f, octave + semitone / 12.0f);
     gBaseFreq = constrain(freq, 20.0f, 8000.0f);
     out.print(F("note -> "));
     out.print(args);

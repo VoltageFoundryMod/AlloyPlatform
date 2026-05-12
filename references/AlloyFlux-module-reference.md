@@ -1003,8 +1003,8 @@ This avoids the artifact that forced chorus back to Core 0: chorus is in-line (b
 
 | Implementation | Status | Notes |
 |----------------|--------|-------|
-| `NullReverb`   | Active (M26 stub) | Outputs zeros, zero CPU |
-| `DattorroReverb` | M26b | Lush plate, floating tails |
+| `NullReverb`   | Stub (bypassed) | Outputs zeros, zero CPU |
+| `DattorroReverb` | **Active (M26b)** | Lush plate, float delay lines, WFE/SEV inter-core sync, FTZ enabled on both cores |
 | Spring / Hall / Room | Future | Same interface |
 
 ```
@@ -1792,6 +1792,7 @@ Parsed in `updateControl()` — non-blocking. Gated behind `#define SERIAL_CONTR
 
 ```txt
 pitch 440            → ROOT frequency (Hz)
+note A4              → ROOT frequency by note name (A4=440 Hz, C4=261.63 Hz, etc.)
 relation 0.3         → RELATION position (0.0–1.0)
 shape 0.5            → SHAPE morph (0=sine, 1=hollow pulse)
 motion 0.4           → MOTION depth (0.0–1.0)
@@ -1845,7 +1846,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 7. **Migrate to Pico 2 / RP2350** — update platformio.ini, I2S defines, TinyUSB; verify audio chain
 - [x] 8. **Implement the Performance Metrics** — CPU profiling via Method 2, audio glitch counter, and idle load meter
 - [x] 9. **Dual core split** — Core 0 = control, Core 1 = DSP; shared param struct + mutex
-- [x] 10. **SHAPE morph engine** — continuous wavetable crossfade: sine → triangle → saw → pulse → hollow pulse; all tables band-limited at startup; `ShapeOsc` replaces `Osc16` pair
+- [x] 10. **SHAPE morph engine** — continuous wavetable crossfade: sine → triangle → saw → pulse → hollow pulse; all tables band-limited at startup via additive synthesis + Lanczos sigma smoothing; `ShapeOsc` replaces `Osc16` pair; wavetables stored as `int16_t` (±32767, −96dBFS noise floor) — upgraded from `int8_t` (±127, −48dBFS)
 - [x] 11. **Drift engine** — per-voice LCG random-walk frequency drift; `DriftEngine<N>` template; MOTION scales amplitude 0–±2.5 Hz; one-pole glide between targets
 - [x] 12. **Chorus engine** — BBD-inspired stereo chorus on Core 0 ISR; phasor LFO (no trig in hot path); dual LFOs 0.513 Hz / 0.618 Hz, 90° offset; depth driven by MOTION; `ChorusMode` OFF/I/II/I+II; `chorus` serial command; overrun counter cleared after Mozzi init
 - [x] 13. **SPACE spatializer** — stereo width and placement per voice
@@ -1862,7 +1863,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
 - [x] 26a. **Post Effects Section — Filter + Chain + Core 1 infra** — Cytomic TVA-SVF stereo filter (LP/HP/BP/NOTCH/OFF); `FilterEngine` with trig-free audio-rate path; `FxOrder` 2-flag reorderable chain (4 orderings: filter pre/post-chorus × delay pre/post-reverb); `ReverbEngine` abstract base + `NullReverb` stub running on Core 1 via volatile int32 inter-core slots (no mutex, additive 1-frame latency, artifact-free); `DelayEngine` static 26KB buffers + pass-through stub; `filter`, `fxorder`, `reverb`, `delay` serial commands; `-DDELAY_MAX_MS=200` compile flag; RAM 92KB (17.7%), Flash 117KB (2.8%)
-- [ ] 26b. **Dattorro plate reverb** — replace `NullReverb` with full Dattorro network on Core 1
+- [x] 26b. **Dattorro plate reverb** — `DattorroReverb` class on Core 1; Dattorro 1997 plate topology; float delay lines (eliminates Q15 quantisation noise); correct cross-coupling (D8→left, D6→right); modulated APFs with LFO ±8 samples; one-pole damping at end of long delays; FTZ (Flush-to-Zero) on both cores' FPUs; `gRevSampleSeq` counter + `__sev()`/`__wfe()` — Core 1 sleeps between samples, zero bus contention when reverb disabled; `reverb on/off/mix/size/damping` serial commands; RAM 235KB (44.9%)
 - [ ] 26c. **Delay ring buffer** — implement ping-pong ring buffer + fractional read + cross-feed routing in `DelayEngine`
 - [ ] 26d. **Post Effects** — global chorus, Karplus-Strong Resonator (original M26 remainder)
 - [ ] 27. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
