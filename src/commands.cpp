@@ -132,7 +132,7 @@ static void cmd_mode(const char *args, Print &out) {
     } modes[] = {
         {"pair", VoiceMode::PAIR, true},
         {"cloud", VoiceMode::CLOUD, false},
-        {"chord", VoiceMode::CHORD, false},
+        {"chord", VoiceMode::CHORD, true},
         {"cascade", VoiceMode::CASCADE, false},
         {"string", VoiceMode::STRING, false},
     };
@@ -152,7 +152,7 @@ static void cmd_mode(const char *args, Print &out) {
         }
     }
     out.println(F("usage: mode <pair|cloud|chord|cascade|string>"));
-    out.print(F("active modes: pair  current: "));
+    out.print(F("active modes: pair chord  current: "));
     out.println(voiceModeName(gVoiceMode));
 }
 
@@ -257,12 +257,31 @@ cmd_cpu(const char * /*args*/, Print &out) {
     const uint32_t us = gAudioElapsedUs;
     const uint32_t over = gAudioOverruns;
     const float headroom = (30.0f - (float)us) / 30.0f * 100.0f;
+    const uint32_t upSec = millis() / 1000;
+    // uptime mm:ss
+    const uint32_t mm = upSec / 60;
+    const uint32_t ss = upSec % 60;
+    // delta overruns since last cpu call — reveals if overruns are happening
+    // right now (real problem) vs. just accumulated at startup/during serial TX
+    static uint32_t lastOver = 0;
+    const uint32_t delta = over - lastOver;
+    lastOver = over;
     out.print(F("audio ISR: "));
     out.print(us);
     out.print(F("us / 30us  headroom: "));
     out.print(headroom, 1);
     out.print(F("%  overruns: "));
-    out.println(over);
+    out.print(over);
+    out.print(F(" (+"));
+    out.print(delta);
+    out.print(F(" since last)  uptime: "));
+    if (mm < 10)
+        out.print('0');
+    out.print(mm);
+    out.print(':');
+    if (ss < 10)
+        out.print('0');
+    out.println(ss);
 #else
     out.println(F("CPU_PROFILE not active — add -DCPU_PROFILE to build_flags"));
 #endif
@@ -314,6 +333,69 @@ static void cmd_config(const char *args, Print &out) {
 // and the table needs cmd_help.  Define cmd_help after the table is declared.
 static void cmd_help(const char *args, Print &out);
 
+// CHORD-mode convenience shim: select a chord shape by name or index (0-10).
+// Maps directly to gRelation so the same smoothing / caching path is used.
+static void cmd_chord(const char *args, Print &out) {
+    static const struct {
+        const char *name;
+        uint8_t idx;
+    } kNames[] = {
+        {"unison", 0},
+        {"power", 1},
+        {"minor", 2},
+        {"major", 3},
+        {"sus2", 4},
+        {"sus4", 5},
+        {"maj7", 6},
+        {"min7", 7},
+        {"dom7", 8},
+        {"dim", 9},
+        {"octaves", 10},
+    };
+    static const char *kLabels[] = {
+        "unison",
+        "power",
+        "minor",
+        "major",
+        "sus2",
+        "sus4",
+        "maj7",
+        "min7",
+        "dom7",
+        "dim",
+        "octaves",
+    };
+    // match by name
+    for (uint8_t i = 0; i < 11; i++) {
+        if (strcasecmp(args, kNames[i].name) == 0) {
+            gRelation = kNames[i].idx * 2.4f;
+            out.print(F("chord -> "));
+            out.print(kLabels[kNames[i].idx]);
+            out.print(F("  (rel "));
+            out.print(gRelation, 1);
+            out.println(F(")"));
+            return;
+        }
+    }
+    // match by index 0-10
+    char *end;
+    const long idx = strtol(args, &end, 10);
+    if (end != args && idx >= 0 && idx <= 10) {
+        gRelation = (float)idx * 2.4f;
+        out.print(F("chord -> "));
+        out.print(kLabels[idx]);
+        out.print(F("  (rel "));
+        out.print(gRelation, 1);
+        out.println(F(")"));
+        return;
+    }
+    out.println(F("usage: chord <name|0-10>"));
+    out.println(F("  names: unison power minor major sus2 sus4 maj7 min7 dom7 dim octaves"));
+    out.println(F("  index:    0      1      2     3     4    5    6    7    8    9    10"));
+    out.print(F("  current mode: "));
+    out.println(gVoiceMode == VoiceMode::CHORD ? F("CHORD") : F("not CHORD — rel still set"));
+}
+
 // ---------------------------------------------------------------------------
 // Command table — the single source of truth for all transports.
 //
@@ -338,6 +420,7 @@ const CommandEntry kCommands[] = {
     {"trig",      "[ms]        trigger a note pulse (default 100ms gate)",                cmd_trig},
     {"vol",       "<0-1>       master volume",                                             cmd_vol},
     {"space",     "<0-2>       stereo width: 0=mono  1=full stereo  2=hyper-wide (default: 1)", cmd_space},
+    {"chord",     "<name|0-10> set chord shape (CHORD mode): unison power minor major sus2 sus4 maj7 min7 dom7 dim octaves", cmd_chord},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset>  persist/restore all parameters to flash",          cmd_config},
     {"status",    "            print all current parameters",                              cmd_status},

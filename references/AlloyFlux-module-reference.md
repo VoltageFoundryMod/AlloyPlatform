@@ -81,6 +81,7 @@
   - [MIDI Implementation](#midi-implementation)
     - [Connections](#connections)
     - [Supported Messages](#supported-messages)
+    - [MIDI Channel](#midi-channel)
   - [User Interface — Screenless](#user-interface--screenless)
     - [LED Language](#led-language)
     - [LED Behavior Per Mode](#led-behavior-per-mode)
@@ -1721,7 +1722,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 20. **V/Oct calibration** — two-point routine via button hold on power-up
 - [x] 21. **RELATION engine** — `gRelation` (semitones 0–24) maps voice 2 via `powf(2, rel/12)` in `updateControl()`; `gDetune` retained as Hz fine-spread; `VoiceMode` enum (PAIR/CLOUD/CHORD/CASCADE/STRING) with `mode` serial command; only PAIR active; framework ready for M22–M25
 - [ ] 22. **CLOUD mode** — multi-voice ensemble, animated stereo positioning
-- [ ] 23. **CHORD mode** — interval table, REL CV morph through chord shapes
+- [x] 23. **CHORD mode** — 4-voice interval table (11 shapes: Unison→Octaves); `voices[4]`/`subVoices[4]` arrays; `sActiveVoices` (2 for PAIR, 4 for CHORD); RELATION (0–24 st) sweeps + interpolates between chord shapes; hard-L/soft-L/soft-R/hard-R stereo pan (normalized ×256 fixed-point); `DriftEngine<4>`; cached 4× `powf` per shape/base-freq change; PAIR mode backward-compatible; `chord <name|0-10>` serial command as convenience shim over `rel`
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
 - [ ] 26. **Post Effects Section** — global chorus, stereo line delay (limited dut to amount of RAM), multimode filter, reverb (plate/spring - Schroeder or Dattorro networks), Karplus-Strong Resonator
@@ -1735,7 +1736,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 33. **Panel design** — Design final graphics and layout
 - [ ] 34. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
 - [ ] 35. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
-- [ ] 36. **Implement Web Configurator** — browser-based UI for configuration, calibration, preset management
+- [ ] 36. **Implement Web Configurator and Editor** — browser-based UI for configuration, calibration, preset management. Also can change parameters in real-time via Web MIDI API for performance control and visualization of internal state (e.g. chord shape, LFO waveforms, etc.)
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 - [ ] 38. **Expand voice count and polyphony** - Enable multiple voices so polyphony is possible in all modes, not just CLOUD and CHORD. Evaluate CPU load and optimize as needed.
 

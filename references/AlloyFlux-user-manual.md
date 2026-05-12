@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21 + M28 + M29** (PAIR mode, serial console, RELATION interval engine, drift, chorus, stereo width, envelope/VCA, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence)
+> **Firmware status: M1–M15 + M21 + M23 + M28 + M29 + M29b** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -19,6 +19,7 @@
     - [RELATION — Voice Interval](#relation--voice-interval)
       - [`rel <0–24>` — Voice 2 interval](#rel-024--voice-2-interval)
       - [`mode <pair|cloud|chord|cascade|string>` — Voice mode](#mode-paircloudchordcascadestring--voice-mode)
+      - [`chord <name|0–10>` — Chord shape selector](#chord-name010--chord-shape-selector)
     - [SHAPE — Waveform](#shape--waveform)
       - [`shape <0–1>` — Waveform morph](#shape-01--waveform-morph)
     - [FATNESS — Sub Oscillator](#fatness--sub-oscillator)
@@ -186,15 +187,46 @@ rel 7.5           # micro-interval between fifth and tritone
 
 Default: `pair`
 
-Selects the synthesis personality. Only `pair` is currently active.
+Selects the synthesis personality.
 
-| Mode      | Description                                         | Status       |
-| --------- | --------------------------------------------------- | ------------ |
-| `pair`    | ROOT + RELATION dual voice — interval + fine detune | Active (M21) |
-| `cloud`   | Multi-voice detuned ensemble                        | Future (M22) |
-| `chord`   | 4-voice chord stack from interval table             | Future (M23) |
-| `cascade` | Restrained FM oscillator interaction                | Future (M24) |
-| `string`  | Vintage string machine ensemble                     | Future (M25) |
+| Mode      | Description                                         | Status        |
+| --------- | --------------------------------------------------- | ------------- |
+| `pair`    | ROOT + RELATION dual voice — interval + fine detune | Active (M21)  |
+| `cloud`   | Multi-voice detuned ensemble                        | Future (M22)  |
+| `chord`   | 4-voice chord stack — RELATION sweeps chord shapes  | Active (M23)  |
+| `cascade` | Restrained FM oscillator interaction                | Future (M24)  |
+| `string`  | Vintage string machine ensemble                     | Future (M25)  |
+
+**CHORD mode** — RELATION knob (or CC 94) sweeps through 11 chord shapes, interpolating smoothly between them. Voices are spread hard-L → hard-R across the stereo field.
+
+| RELATION | Chord      | Intervals (semitones) |
+| -------- | ---------- | --------------------- |
+| 0.0      | Unison     | 0, 0, 0, 0            |
+| 0.1      | Power      | 0, 7, 12, 19          |
+| 0.2      | Minor      | 0, 3, 7, 12           |
+| 0.3      | Major      | 0, 4, 7, 12           |
+| 0.4      | Sus2       | 0, 2, 7, 12           |
+| 0.5      | Sus4       | 0, 5, 7, 12           |
+| 0.6      | Major 7    | 0, 4, 7, 11           |
+| 0.7      | Minor 7    | 0, 3, 7, 10           |
+| 0.8      | Dominant 7 | 0, 4, 7, 10           |
+| 0.9      | Diminished | 0, 3, 6, 9            |
+| 1.0      | Octaves    | 0, 12, 24, 36         |
+
+#### `chord <name|0–10>` — Chord shape selector
+
+Convenience shim over `rel` for CHORD mode. Selects a shape by name or index without calculating semitone values manually.
+
+```txt
+chord major      # Major triad + octave — rel set to 7.2
+chord minor      # Minor triad + octave — rel set to 4.8
+chord dom7       # Dominant 7th — rel set to 19.2
+chord 0          # Unison (all voices at root)
+chord 10         # Octaves (0, 12, 24, 36 st)
+```
+
+Accepts all 11 names: `unison` `power` `minor` `major` `sus2` `sus4` `maj7` `min7` `dom7` `dim` `octaves`, or index 0–10.
+Works in any mode — `rel` is always updated, so you can preview chord shapes while in PAIR mode too.
 
 ---
 

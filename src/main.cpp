@@ -129,13 +129,22 @@ static void generateWavetables() {
 #include "serial_console.h"
 
 // ---------------------------------------------------------------------------
-// Oscillators: Voice 1 (L) + Voice 2 (R) — 5-shape morphing wavetable oscillators
-// Sub oscillators: one octave down, fixed square shape, level controlled by FATNESS
+// Oscillators: 4 main voices + 4 sub voices (one octave down, fixed square).
+// PAIR uses voices[0]+[1]; CHORD/CLOUD use all four. sActiveVoices controls
+// how many are summed in updateAudio() to save ISR budget in 2-voice modes.
 // ---------------------------------------------------------------------------
-static ShapeOsc<MOZZI_AUDIO_RATE> v1(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
-static ShapeOsc<MOZZI_AUDIO_RATE> v2(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
-static ShapeOsc<MOZZI_AUDIO_RATE> subv1(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
-static ShapeOsc<MOZZI_AUDIO_RATE> subv2(SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable);
+static ShapeOsc<MOZZI_AUDIO_RATE> voices[4] = {
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+};
+static ShapeOsc<MOZZI_AUDIO_RATE> subVoices[4] = {
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+};
 
 // ---------------------------------------------------------------------------
 // Shared synthesis parameters (declared extern in params.h)
@@ -171,7 +180,14 @@ static float sRelation = 0.0f; // smoothed interval ratio input
 static int32_t sSubW = 51;
 
 // Drift engine: per-voice slow frequency random-walk (Milestone 11)
-static DriftEngine<2> gDrift;
+static DriftEngine<4> gDrift;
+
+// Per-voice stereo pan weights (×256 fixed-point), updated each updateControl().
+// sum(sPanL) = sum(sPanR) = 256 — keeps per-channel output within ±32512.
+// PAIR: voice 0 → L, voice 1 → R.  CHORD: hard-L, soft-L, soft-R, hard-R.
+static uint8_t sActiveVoices = 2;
+static int16_t sPanL[4] = {256, 0, 0, 0};
+static int16_t sPanR[4] = {0, 256, 0, 0};
 
 // Curve engine: AR envelope + VCA (Milestone 15)
 static CurveEngine<MOZZI_AUDIO_RATE> gCurveEng;
@@ -218,15 +234,17 @@ void setup() {
     configStore_load(); // silently uses compile-time defaults if no valid config found
     mutex_init(&gDspMutex);
     generateWavetables();
+    // Pre-warm powf() and its flash-resident math tables so the first CHORD or PAIR
+    // updateControl() call doesn't cause cold-cache flash misses that spike the ISR.
+    volatile float _pw = powf(2.0f, 7.0f / 12.0f);
+    (void)_pw;
     gChorus.init(); // must run before startMozzi() to fill delay buffers before first ISR
     startMozzi();
-    v1.setFreq(gBaseFreq);
-    v2.setFreq(gBaseFreq);
-    // Sub oscillators: fixed square shape (0.75), one octave below main freq
-    subv1.setShape(0.75f);
-    subv2.setShape(0.75f);
-    subv1.setFreq(gBaseFreq * 0.5f);
-    subv2.setFreq(gBaseFreq * 0.5f);
+    for (uint8_t i = 0; i < 4; i++) {
+        voices[i].setFreq(gBaseFreq);
+        subVoices[i].setShape(0.75f); // fixed square shape for all sub oscillators
+        subVoices[i].setFreq(gBaseFreq * 0.5f);
+    }
     serialConsole_ready();
 #ifdef CPU_PROFILE
     // Clear any overruns that occurred during Mozzi's startup DMA/PIO init —
@@ -274,7 +292,7 @@ void updateControl() {
     // powf() only recomputed when sRelation changes meaningfully; never called in the ISR.
     gDrift.setSpeed(gDriftSpeed);
     gDrift.update(sMotion);
-    float freq1, freq2;
+    float voiceFreqs[4] = {gBaseFreq, gBaseFreq, gBaseFreq, gBaseFreq};
     switch (gVoiceMode) {
     case VoiceMode::PAIR:
     default: {
@@ -286,18 +304,79 @@ void updateControl() {
             cachedRatio2 = powf(2.0f, sRelation / 12.0f);
             cachedRelation = sRelation;
         }
-        freq1 = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
-        freq2 = max(gBaseFreq * cachedRatio2 + gDetune * 0.5f + gDrift.offset(1), 20.0f);
+        voiceFreqs[0] = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
+        voiceFreqs[1] = max(gBaseFreq * cachedRatio2 + gDetune * 0.5f + gDrift.offset(1), 20.0f);
+        voices[0].setFreq(voiceFreqs[0]);
+        voices[1].setFreq(voiceFreqs[1]);
+        subVoices[0].setFreq(voiceFreqs[0] * 0.5f);
+        subVoices[1].setFreq(voiceFreqs[1] * 0.5f);
+        voices[0].setShape(sShape);
+        voices[1].setShape(sShape);
+        sActiveVoices = 2;
+        sPanL[0] = 256;
+        sPanL[1] = 0;
+        sPanL[2] = 0;
+        sPanL[3] = 0;
+        sPanR[0] = 0;
+        sPanR[1] = 256;
+        sPanR[2] = 0;
+        sPanR[3] = 0;
+        break;
+    }
+    case VoiceMode::CHORD: {
+        // 11 chord shapes — RELATION (0–24 semitones) sweeps continuously through them.
+        // Columns: semitone offsets for voices 0–3 from ROOT pitch.
+        static const int8_t kChordTable[11][4] = {
+            {0, 0, 0, 0},    // 0.0  Unison
+            {0, 7, 12, 19},  // 0.1  Power
+            {0, 3, 7, 12},   // 0.2  Minor
+            {0, 4, 7, 12},   // 0.3  Major
+            {0, 2, 7, 12},   // 0.4  Sus2
+            {0, 5, 7, 12},   // 0.5  Sus4
+            {0, 4, 7, 11},   // 0.6  Major 7
+            {0, 3, 7, 10},   // 0.7  Minor 7
+            {0, 4, 7, 10},   // 0.8  Dominant 7
+            {0, 3, 6, 9},    // 0.9  Diminished
+            {0, 12, 24, 36}, // 1.0  Octaves
+        };
+        // sRelation 0–24 st → continuous position 0.0–10.0 across table rows.
+        const float chordFrac = (sRelation / 24.0f) * 10.0f;
+        const int idx0 = (int)chordFrac < 9 ? (int)chordFrac : 9;
+        const float blend = chordFrac - (float)idx0;
+        // Cache: only recompute 4× powf when base freq or relation changes.
+        static float sCachedChordRel = -1.0f;
+        static float sCachedChordBase = -1.0f;
+        static float sCachedFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
+        if (fabsf(sRelation - sCachedChordRel) > 0.05f ||
+            fabsf(gBaseFreq - sCachedChordBase) > 0.01f) {
+            for (int i = 0; i < 4; i++) {
+                const float st = kChordTable[idx0][i] * (1.0f - blend) +
+                                 kChordTable[idx0 + 1][i] * blend;
+                sCachedFreqs[i] = gBaseFreq * powf(2.0f, st / 12.0f);
+            }
+            sCachedChordRel = sRelation;
+            sCachedChordBase = gBaseFreq;
+        }
+        for (int i = 0; i < 4; i++) {
+            voiceFreqs[i] = max(sCachedFreqs[i] + gDrift.offset(i), 20.0f);
+            voices[i].setFreq(voiceFreqs[i]);
+            voices[i].setShape(sShape);
+            subVoices[i].setFreq(voiceFreqs[i] * 0.5f);
+        }
+        sActiveVoices = 4;
+        // Stereo spread: hard-L, soft-L, soft-R, hard-R — normalized so sum(L)=sum(R)=256.
+        sPanL[0] = 128;
+        sPanL[1] = 90;
+        sPanL[2] = 38;
+        sPanL[3] = 0;
+        sPanR[0] = 0;
+        sPanR[1] = 38;
+        sPanR[2] = 90;
+        sPanR[3] = 128;
         break;
     }
     }
 
-    v1.setFreq(freq1);
-    v2.setFreq(freq2);
-    subv1.setFreq(freq1 * 0.5f);
-    subv2.setFreq(freq2 * 0.5f);
-    v1.setShape(sShape);
-    v2.setShape(sShape);
     // sSubW: 0..128 maps fatness 0..1 to sub contributing 0..50% of main amplitude.
     // Written here (Core 0 control rate), read in updateAudio() ISR — atomic on M33.
     sSubW = (int32_t)(sFatness * 128.0f);
@@ -307,8 +386,8 @@ void updateControl() {
 
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
-    gDsp.freq1 = freq1;
-    gDsp.freq2 = freq2;
+    gDsp.freq1 = voiceFreqs[0];
+    gDsp.freq2 = voiceFreqs[1];
     gDsp.shape = sShape;
     gDsp.fatness = sFatness;
     gDsp.motion = sMotion;
@@ -324,13 +403,30 @@ void updateControl() {
         lastCpuReport = now;
         const uint32_t us = gAudioElapsedUs;
         if (gPerformancePrintEnabled) {
+            const uint32_t upSec = now / 1000;
+            const uint32_t mm = upSec / 60;
+            const uint32_t ss = upSec % 60;
+            // delta overruns since last auto-print interval
+            static uint32_t lastAutoOver = 0;
+            const uint32_t delta = gAudioOverruns - lastAutoOver;
+            lastAutoOver = gAudioOverruns;
             float headroom = (30.0f - (float)us) / 30.0f * 100.0f;
             Serial.print(F("[cpu] "));
             Serial.print(us);
             Serial.print(F("us/30us  headroom "));
             Serial.print(headroom, 1);
             Serial.print(F("%  overruns "));
-            Serial.println(gAudioOverruns);
+            Serial.print(gAudioOverruns);
+            Serial.print(F(" (+"));
+            Serial.print(delta);
+            Serial.print(F("/5s)  up "));
+            if (mm < 10)
+                Serial.print('0');
+            Serial.print(mm);
+            Serial.print(':');
+            if (ss < 10)
+                Serial.print('0');
+            Serial.println(ss);
         }
     }
 #endif
@@ -341,33 +437,33 @@ AudioOutput updateAudio() {
     const uint32_t _t0 = time_us_32();
 #endif
 
-    // Main oscillators: full 5-shape morph
-    int32_t s1 = v1.next();
-    int32_t s2 = v2.next();
+    // Sum sActiveVoices into L/R via fixed-point pan weights (×256).
+    // sum(sPanL) = sum(sPanR) = 256 keeps each channel within ±32512 max.
+    int32_t left = 0, right = 0;
+    for (uint8_t i = 0; i < sActiveVoices; i++) {
+        const int32_t s = voices[i].next();
+        const int32_t sub = subVoices[i].next();
+        const int32_t m = s + ((sub * sSubW) >> 8);
+        left += (m * sPanL[i]) >> 8;
+        right += (m * sPanR[i]) >> 8;
+    }
 
-    // Sub oscillators: fixed square (shape=0.75), one octave below, mixed at sSubW/256
-    // sSubW 0..128 → sub adds 0..50% of ±32512 range (matches Juno sub fader range)
-    int32_t sub1 = subv1.next();
-    int32_t sub2 = subv2.next();
-    int32_t m1 = s1 + ((sub1 * sSubW) >> 8);
-    int32_t m2 = s2 + ((sub2 * sSubW) >> 8);
-
-    // Soft clip: cap at ±32512 before volume scaling to prevent from16Bit wrap
-    if (m1 > 32512)
-        m1 = 32512;
-    else if (m1 < -32512)
-        m1 = -32512;
-    if (m2 > 32512)
-        m2 = 32512;
-    else if (m2 < -32512)
-        m2 = -32512;
+    // Soft clip: cap at ±32512 before volume scaling to prevent from16Bit wrap.
+    if (left > 32512)
+        left = 32512;
+    else if (left < -32512)
+        left = -32512;
+    if (right > 32512)
+        right = 32512;
+    else if (right < -32512)
+        right = -32512;
 
     // CURVE envelope VCA (Milestone 15): bypassed in drone mode (no gate patched).
     // Volume and envelope are combined into a single integer multiply for efficiency.
     const float envLevel = gGatePatched ? gCurveEng.next() : 1.0f;
-    int32_t scale = (int32_t)(sVolume * envLevel * 256.0f);
-    int32_t left = (m1 * scale) >> 8;
-    int32_t right = (m2 * scale) >> 8;
+    const int32_t scale = (int32_t)(sVolume * envLevel * 256.0f);
+    left = (left * scale) >> 8;
+    right = (right * scale) >> 8;
 
     // Chorus — runs here in Core 0 ISR using phasor LFO (~50 cycles, no trig).
     // gChorusDepth and gChorusMode are written by updateControl() at 128 Hz;
