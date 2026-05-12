@@ -265,8 +265,8 @@ All pins accounted for. No pin used twice.
 | GP7  | 10       | WS2812B data          | Out    | LED chain (all 3 LEDs) — PIO 1                        |
 | GP8  | 11       | UART1 TX              | Out    | Spare / debug serial                                  |
 | GP9  | 12       | UART1 RX              | In     | Hardware MIDI in (TRS jack)                           |
-| GP10 | 14       | Button                | In     | Internal pull-up — single button                      |
-| GP11 | 15       | Spare                 | —      | Future expansion                                      |
+| GP10 | 14       | Button                | In     | Internal pull-up — single button for MODE             |
+| GP11 | 15       | Button                | In     | Internal pull-up — Button for development (Trigger)   |
 | GP12 | 16       | Gate input            | In     | Note trigger — direct digital read                    |
 | GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later |
 | GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                           |
@@ -945,8 +945,8 @@ Osc → Drift → soft-clip → VCA (CURVE) → [Filter pre] → Chorus → [Fil
 
 Effect positions are configured via `fxorder` — two boolean flags give four orderings:
 
-| `fxorder filter` | `fxorder delay` | Chain |
-|------------------|-----------------|-------|
+| `fxorder filter` | `fxorder delay` | Chain                            |
+| ---------------- | --------------- | -------------------------------- |
 | `pre` (default)  | `pre` (default) | Filter → Chorus → Delay → Reverb |
 | `post`           | `pre`           | Chorus → Filter → Delay → Reverb |
 | `pre`            | `post`          | Filter → Chorus → Reverb → Delay |
@@ -958,17 +958,17 @@ All four orderings are musically distinct and all determined at control rate —
 
 Cytomic TVA-SVF (trapezoidal state-variable filter) — stereo, four modes.
 
-| Parameter  | Range        | Notes |
-|------------|--------------|-------|
-| Mode       | OFF/LP/HP/BP/NOTCH | OFF = hard bypass, zero CPU |
-| Cutoff     | 20–16000 Hz  | `tanf()` called at 128 Hz only — never in ISR |
-| Resonance  | 0.0–1.0      | 0=flat, 1=near self-oscillation; soft-clipped to prevent overflow |
+| Parameter | Range              | Notes                                                             |
+| --------- | ------------------ | ----------------------------------------------------------------- |
+| Mode      | OFF/LP/HP/BP/NOTCH | OFF = hard bypass, zero CPU                                       |
+| Cutoff    | 20–16000 Hz        | `tanf()` called at 128 Hz only — never in ISR                     |
+| Resonance | 0.0–1.0            | 0=flat, 1=near self-oscillation; soft-clipped to prevent overflow |
 
 Coefficients (`g`, `k`, `a1`, `a2`, `a3`) are recomputed in `updateControl()` at 128 Hz using the Cytomic formulae. The audio-rate `process()` path uses only float multiply-add — no trig.
 
 Both L and R channels share coefficients but have independent integrator state (`ic1L/ic2L`, `ic1R/ic2R`) — true stereo response.
 
-```
+```txt
 filter lp 2000 0.6   → low-pass at 2000 Hz, resonance 0.6
 filter hp 400        → high-pass at 400 Hz, default resonance
 filter off           → hard bypass
@@ -978,7 +978,7 @@ filter off           → hard bypass
 
 Two boolean flags; written by `updateControl()` or serial command, read atomically by the ISR (byte-aligned on Cortex-M33).
 
-```
+```txt
 fxorder filter pre    → filter before chorus (default — shapes raw voice)
 fxorder filter post   → filter after chorus (sculpts the chorused mix)
 fxorder delay pre     → delay feeds into reverb (spacious, default)
@@ -1001,13 +1001,13 @@ This avoids the artifact that forced chorus back to Core 0: chorus is in-line (b
 
 **Algorithm interface is abstract** (`ReverbEngine` pure-virtual base class) — swap implementations without touching the ISR or Core 1 loop:
 
-| Implementation | Status | Notes |
-|----------------|--------|-------|
-| `NullReverb`   | Stub (bypassed) | Outputs zeros, zero CPU |
-| `DattorroReverb` | **Active (M26b)** | Lush plate, float delay lines, WFE/SEV inter-core sync, FTZ enabled on both cores |
-| Spring / Hall / Room | Future | Same interface |
+| Implementation       | Status            | Notes                                                                             |
+| -------------------- | ----------------- | --------------------------------------------------------------------------------- |
+| `NullReverb`         | Stub (bypassed)   | Outputs zeros, zero CPU                                                           |
+| `DattorroReverb`     | **Active (M26b)** | Lush plate, float delay lines, WFE/SEV inter-core sync, FTZ enabled on both cores |
+| Spring / Hall / Room | Future            | Same interface                                                                    |
 
-```
+```txt
 reverb 0.4 0.7 0.5   → mix=0.4, size=0.7, damping=0.5
 reverb off           → disable (gRevEnabled=false, Core 1 outputs zeros)
 ```
@@ -1016,29 +1016,29 @@ reverb off           → disable (gRevEnabled=false, Core 1 outputs zeros)
 
 Stereo ping-pong delay with compile-time configurable maximum (`DELAY_MAX_MS`, default 300ms).
 
-| Max delay | RAM cost | Notes |
-|-----------|----------|-----------|
-| 200 ms    | ~26 KB   | |
+| Max delay | RAM cost | Notes                               |
+| --------- | -------- | ----------------------------------- |
+| 200 ms    | ~26 KB   |                                     |
 | 300 ms    | ~39 KB   | **Default** — set in platformio.ini |
 | 500 ms    | ~65 KB   | All safe within RP2350's 520KB SRAM |
 
 **Cross-channel feedback** creates the ping-pong effect — echoes alternate L/R/L/R:
 
-```
+```txt
 L delay line ← inL + feedback × delayedR
 R delay line ← inR + feedback × delayedL
 ```
 
 Linear interpolation on fractional delay samples eliminates zipper artefacts when time changes. `process()` is `always_inline` — fully absorbed into `updateAudio()` in SRAM.
 
-| Parameter  | Range         | Notes |
-|------------|---------------|-------|
-| mix        | 0.0–1.0       | 0 = hard bypass (zero CPU, early return) |
-| time_ms    | 10–300 ms     | Fractional sample accuracy |
-| feedback   | 0.0–0.95      | Clamped to prevent runaway accumulation |
-| dry gain   | 1 − mix×0.5   | Slight dry reduction at high mix |
+| Parameter | Range       | Notes                                    |
+| --------- | ----------- | ---------------------------------------- |
+| mix       | 0.0–1.0     | 0 = hard bypass (zero CPU, early return) |
+| time_ms   | 10–300 ms   | Fractional sample accuracy               |
+| feedback  | 0.0–0.95    | Clamped to prevent runaway accumulation  |
+| dry gain  | 1 − mix×0.5 | Slight dry reduction at high mix         |
 
-```
+```txt
 delay 0.5 150 0.6    → mix=0.5, time=150ms, feedback=0.6 (ping-pong bounce)
 delay on             → re-enable with current mix/time/feedback
 delay off            → hard bypass (zero CPU)
@@ -1046,14 +1046,14 @@ delay off            → hard bypass (zero CPU)
 
 ### ISR Budget (M26)
 
-| Effect        | Core | Cost       | Notes |
-|---------------|------|------------|-------|
-| Filter (OFF)  | 0    | ~0 µs      | Hard bypass — single branch |
-| Filter (LP/HP/BP/NOTCH) | 0 | ~2–3 µs | 10× float mul/add per channel |
-| Delay (active) | 0   | ~1–2 µs    | 8× float ops + 2 buffer reads/writes per channel; bypass = 0 µs |
-| Reverb mix-in | 0    | ~0.5 µs    | 1 multiply + 1 add per channel (additive) |
-| Reverb DSP    | 1    | offloaded  | Core 1 free-runs; never touches ISR budget |
-| FxOrder flags | 0    | ~0 µs      | 2 branch predictions, static config |
+| Effect                  | Core | Cost      | Notes                                                           |
+| ----------------------- | ---- | --------- | --------------------------------------------------------------- |
+| Filter (OFF)            | 0    | ~0 µs     | Hard bypass — single branch                                     |
+| Filter (LP/HP/BP/NOTCH) | 0    | ~2–3 µs   | 10× float mul/add per channel                                   |
+| Delay (active)          | 0    | ~1–2 µs   | 8× float ops + 2 buffer reads/writes per channel; bypass = 0 µs |
+| Reverb mix-in           | 0    | ~0.5 µs   | 1 multiply + 1 add per channel (additive)                       |
+| Reverb DSP              | 1    | offloaded | Core 1 free-runs; never touches ISR budget                      |
+| FxOrder flags           | 0    | ~0 µs     | 2 branch predictions, static config                             |
 
 ---
 
@@ -1374,25 +1374,25 @@ Both active simultaneously. Last-received source wins.
 
 ### Supported Messages
 
-| Message         | Action                                                             |
-| --------------- | ------------------------------------------------------------------ |
-| Note On         | Set ROOT pitch + trigger GATE (monophonic, last-note priority)     |
-| Note Off        | Release articulation                                               |
-| Pitch Bend      | ±2 semitones (configurable via calibration routine)                |
-| CC 1 Mod Wheel  | `motion` — drift + chorus depth (0–1)                            |
-| CC 7 Volume     | `vol` — master output level (0–1)                                 |
-| CC 64 Sustain   | `gate` — hold (≥64=on, <64=off)                                    |
-| CC 71 Timbre    | `curve` — envelope shape (0–1)                                    |
-| CC 72 Release   | `curvetime` — envelope time scale (0.25–4)                        |
-| CC 73 Attack    | `dspeed` — drift glide speed (0.001–0.1)                         |
-| CC 74 Brightness| `shape` — waveform morph (0–1)                                    |
-| CC 91 Reverb    | `space` — stereo width (0–2)                                      |
-| CC 92 Tremolo   | `detune` — symmetric fine spread (0–200 Hz)                        |
-| CC 93 Chorus    | `fat` — sub oscillator level (0–1)                                |
-| CC 94 Celeste   | `rel` — RELATION semitones above ROOT (0–24)                      |
-| CC 123          | All Notes Off / panic                                              |
-| Clock 0xF8      | MOTION sync to MIDI clock                                          |
-| Program Change  | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING) |
+| Message          | Action                                                            |
+| ---------------- | ----------------------------------------------------------------- |
+| Note On          | Set ROOT pitch + trigger GATE (monophonic, last-note priority)    |
+| Note Off         | Release articulation                                              |
+| Pitch Bend       | ±2 semitones (configurable via calibration routine)               |
+| CC 1 Mod Wheel   | `motion` — drift + chorus depth (0–1)                             |
+| CC 7 Volume      | `vol` — master output level (0–1)                                 |
+| CC 64 Sustain    | `gate` — hold (≥64=on, <64=off)                                   |
+| CC 71 Timbre     | `curve` — envelope shape (0–1)                                    |
+| CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                        |
+| CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                          |
+| CC 74 Brightness | `shape` — waveform morph (0–1)                                    |
+| CC 91 Reverb     | `space` — stereo width (0–2)                                      |
+| CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                       |
+| CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                |
+| CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                      |
+| CC 123           | All Notes Off / panic                                             |
+| Clock 0xF8       | MOTION sync to MIDI clock                                         |
+| Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING) |
 
 All CC assignments are defined in `include/param_map.h` / `src/param_map.cpp` — a single shared table iterated by all transports. Adding a new parameter requires one row in that file only.
 
