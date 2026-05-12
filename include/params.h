@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ChorusEngine.h" // ChorusMode enum
+#include "FilterEngine.h" // FilterMode enum (M26a)
 #include "VoiceMode.h"    // VoiceMode enum
 
 /**
@@ -53,3 +54,22 @@ extern volatile bool gPerformancePrintEnabled; // set by cmd_performance_print, 
 extern volatile uint32_t gAudioElapsedUs;
 extern volatile uint32_t gAudioOverruns;
 #endif
+
+// ---------------------------------------------------------------------------
+// M26 Post-effects section
+// ---------------------------------------------------------------------------
+
+// Filter (M26a)
+extern float gFilterCutoff;    // Hz, 20–16000, default 8000 (i.e. OFF-but-ready)
+extern float gFilterRes;       // 0.0 (flat) – 1.0 (near self-oscillation), default 0.0
+extern FilterMode gFilterMode; // OFF by default — zero CPU cost when bypassed
+
+// Reverb (M26b — active when gRevEnabled; NullReverb stub until DattorroReverb)
+extern float gRevSize;    // 0.0 (small room) – 1.0 (long plate), default 0.5
+extern float gRevDamping; // 0.0 (bright) – 1.0 (dark HF loss), default 0.5
+// gRevMix / gRevEnabled are volatile — declared in ReverbEngine.h
+
+// Delay (M26c — pass-through stub; parameters stored ready for implementation)
+extern float gDelayTime;     // ms, 10–DELAY_MAX_MS, default 100
+extern float gDelayFeedback; // 0.0 (single echo) – 0.95 (long decay), default 0.5
+extern float gDelayMix;      // 0.0 (off) – 1.0 (full wet), default 0.0

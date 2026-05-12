@@ -50,6 +50,13 @@
     - [VCA Placement — Before Chorus](#vca-placement--before-chorus)
     - [Implementation Notes](#implementation-notes)
     - [Implementation — CurveEngine (Milestone 15)](#implementation--curveengine-milestone-15)
+  - [Post-Effects Section (M26)](#post-effects-section-m26)
+    - [Signal Chain](#signal-chain-1)
+    - [FilterEngine (M26a)](#filterengine-m26a)
+    - [FxChain Ordering (M26a)](#fxchain-ordering-m26a)
+    - [ReverbEngine (M26b)](#reverbengine-m26b)
+    - [DelayEngine (M26c)](#delayengine-m26c)
+    - [ISR Budget (M26)](#isr-budget-m26)
   - [Front Panel Controls](#front-panel-controls)
     - [ROOT](#root)
     - [RELATION *(signature control — largest knob)*](#relation-signature-control--largest-knob)
@@ -342,13 +349,26 @@ MIDI TRS / USB MIDI / V/OCT + GATE
            │
    ┌───────┴───────┐
    ▼               ▼
-Chorus L        Chorus R
+Chorus L        Chorus R         ◄── [FILTER: post-chorus if fxorder filter post]
 (BBD-inspired)  (different phase/rate)
    │               │
-   ▼               ▼
-SPACE engine    SPACE engine    ◄── SPACE CV (mux)
-(stereo width,  (stereo width,
- placement)      placement)
+   └───────┬───────┘
+           │
+   ┌───────▼───────────────┐
+   │  [FILTER — pre-chorus] │  ← default position (lp/hp/bp/notch/off)
+   │  Cytomic SVF, stereo  │
+   └───────┬───────────────┘
+           │  ← filter post-chorus position if fxorder=post
+   ┌───────▼───────────────┐
+   │  [DELAY — pre-reverb] │  ← default (ping-pong, 10–200ms)
+   └───────┬───────────────┘
+           │
+   ┌───────▼───────────────┐
+   │      REVERB            │  ← additive mix-in from Core 1
+   │   (Core 1 offload)    │    (1-frame latency, inaudible)
+   └───────┬───────────────┘
+           │  ← delay post-reverb position if fxorder=post
+SPACE engine (stereo width)     ◄── SPACE CV (mux)
    │               │
    ▼               ▼
 TL072 gain      TL072 gain
@@ -906,9 +926,121 @@ gCurveTime = powf(4.0f, (knob - 0.5f) * 2.0f);
 
 This gives equal perceptual resolution at all speeds — the same physical travel doubles or halves the time regardless of position.
 
-**Signal chain position:** oscillators → drift → soft-clip → **[VCA — CURVE envelope]** → chorus (M12) → output
+**Signal chain position:** oscillators → drift → soft-clip → **[VCA — CURVE envelope]** → chorus (M12) → M26 effects → output
 
-Future gate sources: GP12 jack (M19), MIDI Note On/Off (M26/M28), I2C (Teletype).
+Future gate sources: GP12 jack (M19), MIDI Note On/Off (M28), I2C (Teletype).
+
+---
+
+## Post-Effects Section (M26)
+
+The post-effects section sits between the Chorus and the Space engine. It adds a multimode filter, reverb, and delay — all optional and zero-cost when bypassed.
+
+### Signal Chain
+
+```txt
+Osc → Drift → soft-clip → VCA (CURVE) → [Filter pre] → Chorus → [Filter post]
+    → [Delay pre] → [Reverb additive] → [Delay post] → SPACE → Output
+```
+
+Effect positions are configured via `fxorder` — two boolean flags give four orderings:
+
+| `fxorder filter` | `fxorder delay` | Chain |
+|------------------|-----------------|-------|
+| `pre` (default)  | `pre` (default) | Filter → Chorus → Delay → Reverb |
+| `post`           | `pre`           | Chorus → Filter → Delay → Reverb |
+| `pre`            | `post`          | Filter → Chorus → Reverb → Delay |
+| `post`           | `post`          | Chorus → Filter → Reverb → Delay |
+
+All four orderings are musically distinct and all determined at control rate — the ISR executes two branch predictions at audio rate (zero overhead).
+
+### FilterEngine (M26a)
+
+Cytomic TVA-SVF (trapezoidal state-variable filter) — stereo, four modes.
+
+| Parameter  | Range        | Notes |
+|------------|--------------|-------|
+| Mode       | OFF/LP/HP/BP/NOTCH | OFF = hard bypass, zero CPU |
+| Cutoff     | 20–16000 Hz  | `tanf()` called at 128 Hz only — never in ISR |
+| Resonance  | 0.0–1.0      | 0=flat, 1=near self-oscillation; soft-clipped to prevent overflow |
+
+Coefficients (`g`, `k`, `a1`, `a2`, `a3`) are recomputed in `updateControl()` at 128 Hz using the Cytomic formulae. The audio-rate `process()` path uses only float multiply-add — no trig.
+
+Both L and R channels share coefficients but have independent integrator state (`ic1L/ic2L`, `ic1R/ic2R`) — true stereo response.
+
+```
+filter lp 2000 0.6   → low-pass at 2000 Hz, resonance 0.6
+filter hp 400        → high-pass at 400 Hz, default resonance
+filter off           → hard bypass
+```
+
+### FxChain Ordering (M26a)
+
+Two boolean flags; written by `updateControl()` or serial command, read atomically by the ISR (byte-aligned on Cortex-M33).
+
+```
+fxorder filter pre    → filter before chorus (default — shapes raw voice)
+fxorder filter post   → filter after chorus (sculpts the chorused mix)
+fxorder delay pre     → delay feeds into reverb (spacious, default)
+fxorder delay post    → reverb feeds into delay (echoed reverb tail)
+```
+
+### ReverbEngine (M26b)
+
+Plate reverb running on **Core 1** — completely offloaded from the audio ISR.
+
+**Inter-core protocol (artifact-free by design):**
+
+- `gRevIn_L/R` — Core 0 ISR writes once per sample, Core 1 reads
+- `gRevOut_L/R` — Core 1 writes after processing, Core 0 ISR reads and mixes in
+- All four are `volatile int32_t`, 32-bit aligned → atomic on Cortex-M33, no mutex needed
+- Core 0 adds wet return additively: `out += (gRevOut * wetScale) >> 8`
+- The return is at most 1 audio frame (≤30µs) old — completely inaudible on a 0.5–3s reverb tail
+
+This avoids the artifact that forced chorus back to Core 0: chorus is in-line (blocking = dropped sample); reverb is additive (stale-by-one-frame = acoustically transparent).
+
+**Algorithm interface is abstract** (`ReverbEngine` pure-virtual base class) — swap implementations without touching the ISR or Core 1 loop:
+
+| Implementation | Status | Notes |
+|----------------|--------|-------|
+| `NullReverb`   | Active (M26 stub) | Outputs zeros, zero CPU |
+| `DattorroReverb` | M26b | Lush plate, floating tails |
+| Spring / Hall / Room | Future | Same interface |
+
+```
+reverb 0.4 0.7 0.5   → mix=0.4, size=0.7, damping=0.5
+reverb off           → disable (gRevEnabled=false, Core 1 outputs zeros)
+```
+
+### DelayEngine (M26c)
+
+Stereo ping-pong delay with compile-time configurable maximum (`DELAY_MAX_MS`, default 300ms).
+
+| Max delay | RAM cost | Notes |
+|-----------|----------|-------|
+| 200 ms    | ~26 KB   | Default |
+| 300 ms    | ~39 KB   | Increase `DELAY_MAX_MS` in platformio.ini |
+| 500 ms    | ~65 KB   | All safe within RP2350's 520KB SRAM |
+
+Ping-pong routing: even bounces → L, odd bounces → R. Cross-channel feedback turns a mono input into animated stereo movement.
+
+Currently a **pass-through stub** — ring buffer + fractional read + cross-feed routing land in M26c.
+
+```
+delay 0.5 150 0.6    → mix=0.5, time=150ms, feedback=0.6
+delay off            → mix=0 (pass-through)
+```
+
+### ISR Budget (M26)
+
+| Effect        | Core | Cost       | Notes |
+|---------------|------|------------|-------|
+| Filter (OFF)  | 0    | ~0 µs      | Hard bypass — single branch |
+| Filter (LP/HP/BP/NOTCH) | 0 | ~2–3 µs | 10× float mul/add per channel |
+| Delay (stub)  | 0    | ~0 µs      | Pass-through until M26c |
+| Reverb mix-in | 0    | ~0.5 µs    | 1 multiply + 1 add per channel (additive) |
+| Reverb DSP    | 1    | offloaded  | Core 1 free-runs; never touches ISR budget |
+| FxOrder flags | 0    | ~0 µs      | 2 branch predictions, static config |
 
 ---
 
@@ -1659,16 +1791,20 @@ PCM5102 OUT → headphones or powered monitor
 Parsed in `updateControl()` — non-blocking. Gated behind `#define SERIAL_CONTROL` — remove for final firmware.
 
 ```txt
-pitch 440       → ROOT frequency (Hz)
-relation 0.3    → RELATION position (0.0–1.0)
-shape 0.5       → SHAPE morph (0=sine, 1=hollow pulse)
-motion 0.4      → MOTION depth (0.0–1.0)
-fm 0.2          → FM depth (0.0–1.0)
-curve 0.5       → CURVE position (0=pluck, 1=swell)
-space 0.7       → SPACE width (0.0–1.0)
-mode pair       → voice mode (pair/cloud/chord/cascade/string)
-vol 0.8         → output volume
-cpu             → print CPU headroom report (Method 2)
+pitch 440            → ROOT frequency (Hz)
+relation 0.3         → RELATION position (0.0–1.0)
+shape 0.5            → SHAPE morph (0=sine, 1=hollow pulse)
+motion 0.4           → MOTION depth (0.0–1.0)
+fm 0.2               → FM depth (0.0–1.0)
+curve 0.5            → CURVE position (0=pluck, 1=swell)
+space 0.7            → SPACE width (0.0–1.0)
+mode pair            → voice mode (pair/cloud/chord/cascade/string)
+vol 0.8              → output volume
+filter lp 2000 0.6   → SVF filter: lp/hp/bp/notch/off, cutoff Hz, resonance 0–1 (M26a)
+fxorder filter post  → effect chain ordering: filter/delay × pre/post (M26a)
+reverb 0.4 0.7 0.5   → reverb: mix, size, damping (M26b; Core 1 offload)
+delay 0.5 150 0.6    → ping-pong delay: mix, time_ms, feedback (M26c)
+cpu                  → print CPU headroom report (Method 2)
 ```
 
 
@@ -1725,7 +1861,10 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 23. **CHORD mode** — 4-voice interval table (11 shapes: Unison→Octaves); `voices[4]`/`subVoices[4]` arrays; `sActiveVoices` (2 for PAIR, 4 for CHORD); RELATION (0–24 st) sweeps + interpolates between chord shapes; hard-L/soft-L/soft-R/hard-R stereo pan (normalized ×256 fixed-point); `DriftEngine<4>`; cached 4× `powf` per shape/base-freq change; PAIR mode backward-compatible; `chord <name|0-10>` serial command as convenience shim over `rel`
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
-- [ ] 26. **Post Effects Section** — global chorus, stereo line delay (limited dut to amount of RAM), multimode filter, reverb (plate/spring - Schroeder or Dattorro networks), Karplus-Strong Resonator
+- [x] 26a. **Post Effects Section — Filter + Chain + Core 1 infra** — Cytomic TVA-SVF stereo filter (LP/HP/BP/NOTCH/OFF); `FilterEngine` with trig-free audio-rate path; `FxOrder` 2-flag reorderable chain (4 orderings: filter pre/post-chorus × delay pre/post-reverb); `ReverbEngine` abstract base + `NullReverb` stub running on Core 1 via volatile int32 inter-core slots (no mutex, additive 1-frame latency, artifact-free); `DelayEngine` static 26KB buffers + pass-through stub; `filter`, `fxorder`, `reverb`, `delay` serial commands; `-DDELAY_MAX_MS=200` compile flag; RAM 92KB (17.7%), Flash 117KB (2.8%)
+- [ ] 26b. **Dattorro plate reverb** — replace `NullReverb` with full Dattorro network on Core 1
+- [ ] 26c. **Delay ring buffer** — implement ping-pong ring buffer + fractional read + cross-feed routing in `DelayEngine`
+- [ ] 26d. **Post Effects** — global chorus, Karplus-Strong Resonator (original M26 remainder)
 - [ ] 27. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
 - [x] 28. **Central param/CC dispatch table** — `include/param_map.h` + `src/param_map.cpp`; `CCParam` struct with `{cc, valMin, valMax, *target, name}`; `paramMap_dispatchCC()` shared by all transports; 10 parameters mapped (CC 1/7/71/72/73/74/91/92/93/94); `onControlChange` in USB MIDI reduced to 3 lines + specials (CC 64 sustain, CC 123 panic)
 - [x] 29. **USB MIDI + MIDI channel config** — `Adafruit_USBD_MIDI` + `MIDI Library` via `-DUSE_TINYUSB`; composite CDC+MIDI device (serial console + MIDI coexist on same USB); Note On/Off → `gBaseFreq`/`gGateHigh` (monophonic, last-note priority); full CC map via `paramMap_dispatchCC`; Program Change 1–5 → VoiceMode; `usbMidi_init()` before `Serial.begin()` with `TinyUSBDevice.mounted()` wait; Web MIDI compatible (Chrome/Edge via `navigator.requestMIDIAccess`); `gMidiChannel` (0=omni, 1–16) set via `midichan` serial command; channel filter in all MIDI callbacks

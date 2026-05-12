@@ -122,7 +122,11 @@ static void generateWavetables() {
 // Module includes
 // ---------------------------------------------------------------------------
 #include "CurveEngine.h"
+#include "DelayEngine.h"
 #include "DriftEngine.h"
+#include "FilterEngine.h"
+#include "FxChain.h"
+#include "ReverbEngine.h"
 #include "debug.h"
 #include "dsp_shared.h"
 #include "params.h"
@@ -199,6 +203,38 @@ static ChorusEngine<MOZZI_AUDIO_RATE> gChorus;
 // Trig pulse timer — set by cmd_trig, cleared in updateControl() when elapsed.
 // 0 means no trig pending.
 uint32_t sTrigReleaseAt = 0;
+
+// ---------------------------------------------------------------------------
+// M26 Post-effects engines and parameters
+// ---------------------------------------------------------------------------
+
+// Filter (M26a) — Cytomic TVA-SVF, stereo, coefficients computed at control rate.
+static FilterEngine gFilter;
+float gFilterCutoff = 8000.0f;
+float gFilterRes = 0.0f;
+FilterMode gFilterMode = FilterMode::OFF;
+
+// Effect ordering (M26a) — 2 bool flags → 4 chain orderings.
+FxOrder gFxOrder = {false, false}; // filter pre-chorus, delay pre-reverb
+
+// Reverb (M26b) — abstract interface; NullReverb stub until DattorroReverb lands.
+// Core 0 ISR → gRevIn → Core 1 → gRevOut → Core 0 ISR (1-frame latency, inaudible).
+static NullReverb sNullReverb;
+ReverbEngine *gReverb = &sNullReverb;
+volatile int32_t gRevIn_L = 0;
+volatile int32_t gRevIn_R = 0;
+volatile int32_t gRevOut_L = 0;
+volatile int32_t gRevOut_R = 0;
+volatile float gRevMix = 0.35f;
+volatile bool gRevEnabled = false;
+float gRevSize = 0.5f;
+float gRevDamping = 0.5f;
+
+// Delay (M26c) — ping-pong stereo delay; pass-through stub until ring buffer lands.
+static DelayEngine gDelay;
+float gDelayTime = 100.0f;
+float gDelayFeedback = 0.5f;
+float gDelayMix = 0.0f;
 
 // CPU profiling counters (Milestone 8) — compiled out when CPU_PROFILE is not set.
 #ifdef CPU_PROFILE
@@ -384,6 +420,19 @@ void updateControl() {
     // Chorus depth — single float, atomic on M33, no mutex needed.
     gChorusDepth = sMotion;
 
+    // Filter (M26a) — smooth cutoff + resonance, recompute SVF coefficients at control rate.
+    // setParams() calls tanf() — safe here; never called from updateAudio() ISR.
+    {
+        static float sFilterCutoff = 8000.0f;
+        static float sFilterRes = 0.0f;
+        sFilterCutoff += (gFilterCutoff - sFilterCutoff) * 0.1f;
+        sFilterRes += (gFilterRes - sFilterRes) * 0.1f;
+        gFilter.setParams(sFilterCutoff, sFilterRes, gFilterMode);
+    }
+
+    // Delay (M26c) — update params at control rate (stub; full implementation in M26c).
+    gDelay.setParams(gDelayTime, gDelayFeedback, gDelayMix);
+
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
     gDsp.freq1 = voiceFreqs[0];
@@ -465,11 +514,57 @@ AudioOutput updateAudio() {
     left = (left * scale) >> 8;
     right = (right * scale) >> 8;
 
-    // Chorus — runs here in Core 0 ISR using phasor LFO (~50 cycles, no trig).
+    // ---------------------------------------------------------------------------
+    // M26 Post-effects chain — 4 orderings via two bool flags (gFxOrder).
+    // All bool reads are atomic on Cortex-M33 (8-bit aligned); no mutex needed.
+    // ---------------------------------------------------------------------------
+
+    // [FILTER — PRE-CHORUS position]
+    if (!gFxOrder.filterPostChorus) {
+        gFilter.process(left, right, &left, &right);
+    }
+
+    // Chorus — Core 0 ISR phasor LFO (~50 cycles, no trig).
     // gChorusDepth and gChorusMode are written by updateControl() at 128 Hz;
     // single 32-bit aligned reads are atomic on Cortex-M33, no mutex needed.
     int32_t outL, outR;
     gChorus.process(left, right, gChorusDepth, gChorusMode, &outL, &outR);
+
+    // [FILTER — POST-CHORUS position]
+    if (gFxOrder.filterPostChorus) {
+        gFilter.process(outL, outR, &outL, &outR);
+    }
+
+    // [DELAY — PRE-REVERB position]
+    if (!gFxOrder.delayPostReverb) {
+        gDelay.process(outL, outR, &outL, &outR);
+    }
+
+    // REVERB — mix in Core 1's last wet return.  The return is 1 audio frame old
+    // (≤30µs) — completely inaudible for a reverb tail of 0.5–3 seconds.
+    // Reads of volatile int32_t are atomic on Cortex-M33; no mutex needed.
+    if (gRevEnabled) {
+        const int32_t wetScale = (int32_t)(gRevMix * 256.0f);
+        outL += (gRevOut_L * wetScale) >> 8;
+        outR += (gRevOut_R * wetScale) >> 8;
+        // Soft-clip after wet addition (BP resonance + reverb can exceed ±32512).
+        if (outL > 32512)
+            outL = 32512;
+        if (outL < -32512)
+            outL = -32512;
+        if (outR > 32512)
+            outR = 32512;
+        if (outR < -32512)
+            outR = -32512;
+    }
+    // Deposit current sample for Core 1 to process on its next loop iteration.
+    gRevIn_L = outL;
+    gRevIn_R = outR;
+
+    // [DELAY — POST-REVERB position]
+    if (gFxOrder.delayPostReverb) {
+        gDelay.process(outL, outR, &outL, &outR);
+    }
 
     // SPACE — mid-side stereo width (Milestone 13). sSpace=1.0 is identity.
     // 0.0=mono, 1.0=identity, 2.0=hyper-wide. Bypass guard skips processing at ~1.0.
@@ -499,11 +594,34 @@ void loop() {
 // ---------------------------------------------------------------------------
 
 void setup1() {
-    // Core 1 reserved for future DSP offload (reverb, filter — M26+).
-    // Chorus runs on Core 0 ISR; nothing needed here yet.
+    // Core 1 DSP offload (M26b+).
+    // gReverb points to a ReverbEngine created on Core 0; NullReverb needs no init.
+    // DattorroReverb will call reset() here when it lands in M26b.
 }
 
 void loop1() {
-    // Nothing here until a heavier DSP engine warrants offload.
-    tight_loop_contents();
+    // Reverb processing — Core 1 runs this at free speed (~150 MHz minus overhead).
+    // At 32768 Hz audio rate, Core 1 completes each reverb tick long before Core 0
+    // deposits the next sample.  No mutex: each core owns distinct volatile slots.
+    if (gRevEnabled) {
+        // Normalise ±32512 int32 → ±1.0f for the reverb algorithm.
+        const float inL = (float)gRevIn_L * (1.0f / 32512.0f);
+        const float inR = (float)gRevIn_R * (1.0f / 32512.0f);
+        float revL, revR;
+        gReverb->process(inL, inR, &revL, &revR);
+        // Clamp before converting back — algorithmic edge cases can spike.
+        if (revL > 1.0f)
+            revL = 1.0f;
+        if (revL < -1.0f)
+            revL = -1.0f;
+        if (revR > 1.0f)
+            revR = 1.0f;
+        if (revR < -1.0f)
+            revR = -1.0f;
+        gRevOut_L = (int32_t)(revL * 32512.0f);
+        gRevOut_R = (int32_t)(revR * 32512.0f);
+    } else {
+        gRevOut_L = 0;
+        gRevOut_R = 0;
+    }
 }

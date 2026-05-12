@@ -1,4 +1,6 @@
 #include "commands.h"
+#include "FxChain.h"
+#include "ReverbEngine.h"
 #include "config_store.h"
 #include "params.h"
 #include <Arduino.h>
@@ -396,6 +398,207 @@ static void cmd_chord(const char *args, Print &out) {
     out.println(gVoiceMode == VoiceMode::CHORD ? F("CHORD") : F("not CHORD — rel still set"));
 }
 
+// M26a — Filter: <lp|hp|bp|notch|off> [cutoff_hz] [resonance]
+static void cmd_filter(const char *args, Print &out) {
+    // Parse mode name (first token)
+    char modeBuf[8] = {};
+    const char *rest = args;
+    uint8_t i = 0;
+    while (*rest && *rest != ' ' && i < (uint8_t)(sizeof(modeBuf) - 1))
+        modeBuf[i++] = *rest++;
+    while (*rest == ' ')
+        rest++;
+
+    FilterMode mode;
+    if (strcmp(modeBuf, "lp") == 0)
+        mode = FilterMode::LP;
+    else if (strcmp(modeBuf, "hp") == 0)
+        mode = FilterMode::HP;
+    else if (strcmp(modeBuf, "bp") == 0)
+        mode = FilterMode::BP;
+    else if (strcmp(modeBuf, "notch") == 0)
+        mode = FilterMode::NOTCH;
+    else if (strcmp(modeBuf, "off") == 0)
+        mode = FilterMode::OFF;
+    else {
+        out.println(F("usage: filter <lp|hp|bp|notch|off> [cutoff_hz] [resonance]"));
+        out.print(F("  filter mode: "));
+        const char *names[] = {"off", "lp", "hp", "bp", "notch"};
+        out.print(names[(uint8_t)gFilterMode]);
+        out.print(F("  cutoff: "));
+        out.print(gFilterCutoff, 0);
+        out.print(F(" Hz"));
+        out.print(F("  res: "));
+        out.println(gFilterRes, 2);
+        return;
+    }
+    gFilterMode = mode;
+
+    if (*rest) {
+        gFilterCutoff = constrain((float)atof(rest), 20.0f, 16000.0f);
+        while (*rest && *rest != ' ')
+            rest++;
+        while (*rest == ' ')
+            rest++;
+        if (*rest)
+            gFilterRes = constrain((float)atof(rest), 0.0f, 1.0f);
+    }
+
+    out.print(F("filter -> "));
+    if (mode == FilterMode::OFF) {
+        out.println(F("off"));
+    } else {
+        const char *names[] = {"off", "lp", "hp", "bp", "notch"};
+        out.print(names[(uint8_t)mode]);
+        out.print(F("  cutoff: "));
+        out.print(gFilterCutoff, 0);
+        out.print(F(" Hz"));
+        out.print(F("  res: "));
+        out.println(gFilterRes, 2);
+    }
+}
+
+// M26a — FxOrder: fxorder filter <pre|post>  |  fxorder delay <pre|post>
+static void cmd_fxorder(const char *args, Print &out) {
+    char slotBuf[8] = {};
+    const char *rest = args;
+    uint8_t i = 0;
+    while (*rest && *rest != ' ' && i < (uint8_t)(sizeof(slotBuf) - 1))
+        slotBuf[i++] = *rest++;
+    while (*rest == ' ')
+        rest++;
+
+    if (strcmp(slotBuf, "filter") == 0) {
+        if (strcmp(rest, "pre") == 0) {
+            gFxOrder.filterPostChorus = false;
+            out.println(F("fxorder filter -> pre-chorus (default)"));
+        } else if (strcmp(rest, "post") == 0) {
+            gFxOrder.filterPostChorus = true;
+            out.println(F("fxorder filter -> post-chorus"));
+        } else {
+            out.print(F("fxorder filter: "));
+            out.println(gFxOrder.filterPostChorus ? F("post-chorus") : F("pre-chorus"));
+        }
+    } else if (strcmp(slotBuf, "delay") == 0) {
+        if (strcmp(rest, "pre") == 0) {
+            gFxOrder.delayPostReverb = false;
+            out.println(F("fxorder delay -> pre-reverb (default)"));
+        } else if (strcmp(rest, "post") == 0) {
+            gFxOrder.delayPostReverb = true;
+            out.println(F("fxorder delay -> post-reverb"));
+        } else {
+            out.print(F("fxorder delay: "));
+            out.println(gFxOrder.delayPostReverb ? F("post-reverb") : F("pre-reverb"));
+        }
+    } else {
+        out.println(F("usage: fxorder <filter|delay> <pre|post>"));
+        out.print(F("  filter: "));
+        out.println(gFxOrder.filterPostChorus ? F("post-chorus") : F("pre-chorus"));
+        out.print(F("  delay:  "));
+        out.println(gFxOrder.delayPostReverb ? F("post-reverb") : F("pre-reverb"));
+    }
+}
+
+// M26b — Reverb: reverb [off | <mix> [size] [damping]]
+static void cmd_reverb(const char *args, Print &out) {
+    if (strcmp(args, "off") == 0) {
+        gRevEnabled = false;
+        out.println(F("reverb -> off"));
+        return;
+    }
+    if (*args == '\0') {
+        out.print(F("reverb: "));
+        out.println(gRevEnabled ? F("on") : F("off"));
+        out.print(F("  mix: "));
+        out.println((float)gRevMix, 2);
+        out.print(F("  size: "));
+        out.println(gRevSize, 2);
+        out.print(F("  damping: "));
+        out.println(gRevDamping, 2);
+        return;
+    }
+    const float mix = constrain((float)atof(args), 0.0f, 1.0f);
+    gRevMix = mix;
+    gRevEnabled = (mix > 0.001f);
+
+    const char *rest = args;
+    while (*rest && *rest != ' ')
+        rest++;
+    while (*rest == ' ')
+        rest++;
+    if (*rest) {
+        gRevSize = constrain((float)atof(rest), 0.0f, 1.0f);
+        while (*rest && *rest != ' ')
+            rest++;
+        while (*rest == ' ')
+            rest++;
+        if (*rest)
+            gRevDamping = constrain((float)atof(rest), 0.0f, 1.0f);
+    }
+
+    out.print(F("reverb -> "));
+    if (!gRevEnabled) {
+        out.println(F("off (mix=0)"));
+    } else {
+        out.print(F("mix "));
+        out.print((float)gRevMix, 2);
+        out.print(F("  size "));
+        out.print(gRevSize, 2);
+        out.print(F("  damping "));
+        out.println(gRevDamping, 2);
+    }
+}
+
+// M26c — Delay: delay [off | <mix> [time_ms] [feedback]]
+static void cmd_delay(const char *args, Print &out) {
+    if (strcmp(args, "off") == 0) {
+        gDelayMix = 0.0f;
+        out.println(F("delay -> off"));
+        return;
+    }
+    if (*args == '\0') {
+        out.print(F("delay: "));
+        out.println(gDelayMix > 0.001f ? F("on") : F("off"));
+        out.print(F("  mix: "));
+        out.println(gDelayMix, 2);
+        out.print(F("  time: "));
+        out.print(gDelayTime, 0);
+        out.println(F(" ms"));
+        out.print(F("  feedback: "));
+        out.println(gDelayFeedback, 2);
+        return;
+    }
+    gDelayMix = constrain((float)atof(args), 0.0f, 1.0f);
+
+    const char *rest = args;
+    while (*rest && *rest != ' ')
+        rest++;
+    while (*rest == ' ')
+        rest++;
+    if (*rest) {
+        gDelayTime = constrain((float)atof(rest), 10.0f, (float)DELAY_MAX_MS);
+        while (*rest && *rest != ' ')
+            rest++;
+        while (*rest == ' ')
+            rest++;
+        if (*rest)
+            gDelayFeedback = constrain((float)atof(rest), 0.0f, 0.95f);
+    }
+
+    out.print(F("delay -> "));
+    if (gDelayMix < 0.001f) {
+        out.println(F("off (mix=0)"));
+    } else {
+        out.print(F("mix "));
+        out.print(gDelayMix, 2);
+        out.print(F("  time "));
+        out.print(gDelayTime, 0);
+        out.print(F(" ms"));
+        out.print(F("  feedback "));
+        out.println(gDelayFeedback, 2);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Command table — the single source of truth for all transports.
 //
@@ -421,6 +624,10 @@ const CommandEntry kCommands[] = {
     {"vol",       "<0-1>       master volume",                                             cmd_vol},
     {"space",     "<0-2>       stereo width: 0=mono  1=full stereo  2=hyper-wide (default: 1)", cmd_space},
     {"chord",     "<name|0-10> set chord shape (CHORD mode): unison power minor major sus2 sus4 maj7 min7 dom7 dim octaves", cmd_chord},
+    {"filter",    "<lp|hp|bp|notch|off> [cutoff_hz] [resonance]  SVF filter (M26a)",    cmd_filter},
+    {"fxorder",   "<filter|delay> <pre|post>   effect chain ordering (M26a)",           cmd_fxorder},
+    {"reverb",    "[off | <mix> [size] [damping]]   plate reverb, Core 1 (M26b)",       cmd_reverb},
+    {"delay",     "[off | <mix> [time_ms] [feedback]]   ping-pong delay (M26c)",        cmd_delay},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset>  persist/restore all parameters to flash",          cmd_config},
     {"status",    "            print all current parameters",                              cmd_status},
