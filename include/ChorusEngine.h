@@ -100,8 +100,8 @@ class ChorusEngine {
      * No trig, no division, no branches (other than buffer wrap — masked).
      * Both phasors always advance regardless of mode so re-enabling is glitch-free.
      */
-    void process(int32_t inL, int32_t inR, float depth, ChorusMode mode,
-                 int32_t *outL, int32_t *outR) {
+    void __attribute__((always_inline)) process(int32_t inL, int32_t inR, float depth, ChorusMode mode,
+                                                int32_t *outL, int32_t *outR) {
         // Write new samples into delay buffers.
         _bufL[_writePos] = inL;
         _bufR[_writePos] = inR;

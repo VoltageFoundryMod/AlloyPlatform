@@ -40,8 +40,8 @@ class SpaceEngine {
      * @param outL  processed left  sample (clamped to ±32512)
      * @param outR  processed right sample (clamped to ±32512)
      */
-    static void process(int32_t inL, int32_t inR, float width,
-                        int32_t *outL, int32_t *outR) {
+    static void __attribute__((always_inline)) process(int32_t inL, int32_t inR, float width,
+                                                       int32_t *outL, int32_t *outR) {
         const int32_t mid = (inL + inR) >> 1;
         const int32_t side = (inL - inR) >> 1;
         const int32_t iW = (int32_t)(width * 256.0f);

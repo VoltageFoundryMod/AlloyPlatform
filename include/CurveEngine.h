@@ -88,7 +88,7 @@ class CurveEngine {
      * Call from updateAudio() at AUDIO_RATE — no expf, branch-minimal.
      * Returns 0.0..1.0.
      */
-    float next() {
+    float __attribute__((always_inline)) next() {
         switch (_state) {
         case ATTACK:
             _env += _attCoeff * (1.0f - _env);

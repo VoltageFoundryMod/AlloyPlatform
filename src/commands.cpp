@@ -506,6 +506,16 @@ static void cmd_reverb(const char *args, Print &out) {
         out.println(F("reverb -> off"));
         return;
     }
+    if (strcmp(args, "on") == 0) {
+        gRevEnabled = true;
+        out.print(F("reverb -> on  mix "));
+        out.print((float)gRevMix, 2);
+        out.print(F("  size "));
+        out.print(gRevSize, 2);
+        out.print(F("  damping "));
+        out.println(gRevDamping, 2);
+        return;
+    }
     if (*args == '\0') {
         out.print(F("reverb: "));
         out.println(gRevEnabled ? F("on") : F("off"));

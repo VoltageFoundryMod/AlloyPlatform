@@ -85,8 +85,8 @@ class FilterEngine {
      * process() — call at audio rate from updateAudio() ISR.
      * No trig. Two channels processed independently with shared coefficients.
      */
-    inline void process(int32_t inL, int32_t inR,
-                        int32_t *outL, int32_t *outR) {
+    inline void __attribute__((always_inline)) process(int32_t inL, int32_t inR,
+                                                       int32_t *outL, int32_t *outR) {
         if (_mode == FilterMode::OFF) {
             *outL = inL;
             *outR = inR;

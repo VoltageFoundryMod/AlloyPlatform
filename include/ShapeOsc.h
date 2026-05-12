@@ -30,11 +30,11 @@ class ShapeOsc {
     static constexpr uint16_t TABLE_CELLS = 2048;
     static constexpr uint8_t N_SHAPES = 5;
 
-    ShapeOsc(const int8_t *sine,
-             const int8_t *tri,
-             const int8_t *saw,
-             const int8_t *pulse,
-             const int8_t *hollow)
+    ShapeOsc(const int16_t *sine,
+             const int16_t *tri,
+             const int16_t *saw,
+             const int16_t *pulse,
+             const int16_t *hollow)
         : _phase(0), _phaseInc(0), _tA(0), _blend(0) {
         _tables[0] = sine;
         _tables[1] = tri;
@@ -76,26 +76,27 @@ class ShapeOsc {
         const uint16_t nxt = (idx + 1u) & mask;
         const int32_t frac = (int32_t)(_phase & 0xFFFFu); // 0..65535
 
-        // Read two adjacent cells from each crossfade table; sign-extend int8→int32
-        const int32_t a0 = (int32_t)(int8_t)_tables[_tA][idx];
-        const int32_t b0 = (int32_t)(int8_t)_tables[_tA][nxt];
-        const int32_t a1 = (int32_t)(int8_t)_tables[_tA + 1][idx];
-        const int32_t b1 = (int32_t)(int8_t)_tables[_tA + 1][nxt];
+        // Read two adjacent cells from each crossfade table; sign-extend int16→int32
+        const int32_t a0 = (int32_t)_tables[_tA][idx];
+        const int32_t b0 = (int32_t)_tables[_tA][nxt];
+        const int32_t a1 = (int32_t)_tables[_tA + 1][idx];
+        const int32_t b1 = (int32_t)_tables[_tA + 1][nxt];
 
-        // Linear interpolation within each table (same formula as Osc16)
-        // result = (a<<8) + ((b-a)*frac>>8) → ≈±32512
-        const int16_t s0 = (int16_t)((a0 << 8) + (((b0 - a0) * frac) >> 8));
-        const int16_t s1 = (int16_t)((a1 << 8) + (((b1 - a1) * frac) >> 8));
+        // Linear interpolation within each table.
+        // int16 range is ±32767; interpolate in 32-bit then shift down by 16
+        // to get output in ±32767 (compatible with Mozzi 16-bit pipeline).
+        const int32_t s0 = a0 + (((b0 - a0) * frac) >> 16);
+        const int32_t s1 = a1 + (((b1 - a1) * frac) >> 16);
 
         // Crossfade between the two adjacent tables
-        const int16_t out = (int16_t)(((int32_t)s0 * (256 - _blend) + (int32_t)s1 * _blend) >> 8);
+        const int16_t out = (int16_t)(((s0 * (256 - _blend)) + (s1 * _blend)) >> 8);
 
         _phase += _phaseInc;
         return out;
     }
 
   private:
-    const int8_t *_tables[N_SHAPES];
+    const int16_t *_tables[N_SHAPES];
     uint32_t _phase;
     uint32_t _phaseInc;
     uint8_t _tA;    // lower table index (0..3), updated in setShape()

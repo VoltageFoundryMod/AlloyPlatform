@@ -29,7 +29,6 @@
 #include "usb_midi.h"
 #include <Mozzi.h>
 #include <math.h>
-#include <tables/sin2048_int8.h>
 
 // ---------------------------------------------------------------------------
 // Band-limited wavetables — all generated at startup via additive synthesis.
@@ -39,27 +38,35 @@
 // SHAPE spectrum across the five tables (0.0 → 1.0):
 //   sine      triangle     saw     pulse(50%)   hollow(25%)
 // ---------------------------------------------------------------------------
-static int8_t gTriTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
-static int8_t gSawTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
-static int8_t gSquareTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
-static int8_t gNarrowPulseTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int16_t gSineTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int16_t gTriTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int16_t gSawTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int16_t gSquareTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
+static int16_t gNarrowPulseTable[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS];
 
-static void normaliseTable(const float *buf, int8_t *dst, int n) {
+static void normaliseTable(const float *buf, int16_t *dst, int n) {
     float peak = 0.0f;
     for (int i = 0; i < n; i++)
         if (fabsf(buf[i]) > peak)
             peak = fabsf(buf[i]);
     if (peak < 1e-6f)
         peak = 1.0f;
-    const float scale = 127.0f / peak;
+    const float scale = 32767.0f / peak;
     for (int i = 0; i < n; i++)
-        dst[i] = (int8_t)(buf[i] * scale);
+        dst[i] = (int16_t)(buf[i] * scale);
 }
 
 static void generateWavetables() {
     static float buf[ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS]; // static: avoids 8 KB stack frame
     const int N = ShapeOsc<MOZZI_AUDIO_RATE>::TABLE_CELLS;
     const int maxH = (MOZZI_AUDIO_RATE / 2) / 440; // 37 @ 32768 Hz
+
+    // --- Sine: fundamental only (no harmonics needed) ---
+    for (int i = 0; i < N; i++) {
+        const float phase = 2.0f * (float)M_PI * i / N;
+        buf[i] = sinf(phase);
+    }
+    normaliseTable(buf, gSineTable, N);
 
     // --- Triangle: odd harmonics, alternating sign, 1/h² rolloff ---
     for (int i = 0; i < N; i++) {
@@ -122,6 +129,7 @@ static void generateWavetables() {
 // Module includes
 // ---------------------------------------------------------------------------
 #include "CurveEngine.h"
+#include "DattorroReverb.h"
 #include "DelayEngine.h"
 #include "DriftEngine.h"
 #include "FilterEngine.h"
@@ -131,6 +139,8 @@ static void generateWavetables() {
 #include "dsp_shared.h"
 #include "params.h"
 #include "serial_console.h"
+// No longer using SIN2048_DATA (int8_t) — replaced by gSineTable (int16_t)
+// for 96dBFS noise floor vs the 48dBFS of the 8-bit Mozzi table.
 
 // ---------------------------------------------------------------------------
 // Oscillators: 4 main voices + 4 sub voices (one octave down, fixed square).
@@ -138,16 +148,16 @@ static void generateWavetables() {
 // how many are summed in updateAudio() to save ISR budget in 2-voice modes.
 // ---------------------------------------------------------------------------
 static ShapeOsc<MOZZI_AUDIO_RATE> voices[4] = {
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
 };
 static ShapeOsc<MOZZI_AUDIO_RATE> subVoices[4] = {
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
-    {SIN2048_DATA, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
+    {gSineTable, gTriTable, gSawTable, gSquareTable, gNarrowPulseTable},
 };
 
 // ---------------------------------------------------------------------------
@@ -217,16 +227,20 @@ FilterMode gFilterMode = FilterMode::OFF;
 // Effect ordering (M26a) — 2 bool flags → 4 chain orderings.
 FxOrder gFxOrder = {false, false}; // filter pre-chorus, delay pre-reverb
 
-// Reverb (M26b) — abstract interface; NullReverb stub until DattorroReverb lands.
+// Reverb (M26b) — Dattorro plate algorithm runs on Core 1.
 // Core 0 ISR → gRevIn → Core 1 → gRevOut → Core 0 ISR (1-frame latency, inaudible).
-static NullReverb sNullReverb;
-ReverbEngine *gReverb = &sNullReverb;
+static DattorroReverb sDattorroReverb;
+ReverbEngine *gReverb = &sDattorroReverb;
 volatile int32_t gRevIn_L = 0;
 volatile int32_t gRevIn_R = 0;
 volatile int32_t gRevOut_L = 0;
 volatile int32_t gRevOut_R = 0;
 volatile float gRevMix = 0.35f;
 volatile bool gRevEnabled = false;
+// Sequence counter: Core 0 ISR increments after writing gRevIn each sample.
+// Core 1 spins until seq changes, then processes exactly once — prevents
+// the Dattorro algorithm from being called ~4500x on the same stale sample.
+volatile uint32_t gRevSampleSeq = 0;
 float gRevSize = 0.5f;
 float gRevDamping = 0.5f;
 
@@ -257,7 +271,15 @@ volatile float gChorusDepth = 0.0f;
 // ---------------------------------------------------------------------------
 
 void setup() {
-    // USB MIDI must be registered before Serial.begin() so both CDC and MIDI
+    // Enable Flush-to-Zero mode on Core 0's FPU.
+    // Denormal floats (values < ~1.2e-38) cause ~100x slower FPU ops on Cortex-M33;
+    // with FTZ they flush to zero instead — inaudible and prevents ISR overruns.
+    {
+        uint32_t fpscr;
+        asm volatile("vmrs %0, fpscr" : "=r"(fpscr));
+        fpscr |= (1u << 24); // FZ: Flush-to-Zero
+        asm volatile("vmsr fpscr, %0" ::"r"(fpscr));
+    }
     // appear in the same USB descriptor on first host enumeration.
     // Adafruit_USBD_MIDI::begin() triggers a disconnect/reconnect; the
     // serialConsole_init() wait loop below catches that reconnect cleanly.
@@ -433,6 +455,17 @@ void updateControl() {
     // Delay (M26c) — update params at control rate (stub; full implementation in M26c).
     gDelay.setParams(gDelayTime, gDelayFeedback, gDelayMix);
 
+    // Reverb (M26b) — setParams at control rate; safe on Core 1 (tanf allowed here).
+    // Change-detect: only recalculate coefficients when parameters actually change.
+    {
+        static float sPrevRevSize = -1.0f, sPrevRevDamping = -1.0f;
+        if (gRevSize != sPrevRevSize || gRevDamping != sPrevRevDamping) {
+            gReverb->setParams(gRevSize, gRevDamping);
+            sPrevRevSize = gRevSize;
+            sPrevRevDamping = gRevDamping;
+        }
+    }
+
     // Publish smoothed params for Core 1 DSP engines (chorus, drift — Milestones 12+).
     mutex_enter_blocking(&gDspMutex);
     gDsp.freq1 = voiceFreqs[0];
@@ -481,7 +514,11 @@ void updateControl() {
 #endif
 }
 
-AudioOutput updateAudio() {
+// Place the audio ISR in SRAM so it is never evicted from the 16KB XIP cache
+// by TinyUSB / Serial activity in updateControl().  A cold cache miss on the
+// ISR entry takes 15-30µs — unmeasured by time_us_32() (read after re-fill) —
+// and manifests as sporadic overruns even when the measured time looks fine.
+AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio() {
 #ifdef CPU_PROFILE
     const uint32_t _t0 = time_us_32();
 #endif
@@ -540,10 +577,17 @@ AudioOutput updateAudio() {
         gDelay.process(outL, outR, &outL, &outR);
     }
 
-    // REVERB — mix in Core 1's last wet return.  The return is 1 audio frame old
-    // (≤30µs) — completely inaudible for a reverb tail of 0.5–3 seconds.
-    // Reads of volatile int32_t are atomic on Cortex-M33; no mutex needed.
+    // REVERB — only when enabled: deposit dry signal, wake Core 1, mix wet return.
+    // When disabled, Core 1 stays permanently in WFE — zero SRAM bus traffic from
+    // Core 1, eliminating the bus-arbitration stalls that cause subtle crackle even
+    // when reverb is not audibly active. gRevOut_L/R remain 0 (written by setup1).
     if (gRevEnabled) {
+        // Write dry signal BEFORE sev so Core 1 never reads a half-written pair.
+        gRevIn_L = outL;
+        gRevIn_R = outR;
+        gRevSampleSeq++;
+        __asm volatile("sev"); // wake Core 1
+        // Mix the wet return from Core 1 (1 sample old — inaudible for reverb tails).
         const int32_t wetScale = (int32_t)(gRevMix * 256.0f);
         outL += (gRevOut_L * wetScale) >> 8;
         outR += (gRevOut_R * wetScale) >> 8;
@@ -557,9 +601,6 @@ AudioOutput updateAudio() {
         if (outR < -32512)
             outR = -32512;
     }
-    // Deposit current sample for Core 1 to process on its next loop iteration.
-    gRevIn_L = outL;
-    gRevIn_R = outR;
 
     // [DELAY — POST-REVERB position]
     if (gFxOrder.delayPostReverb) {
@@ -594,15 +635,32 @@ void loop() {
 // ---------------------------------------------------------------------------
 
 void setup1() {
-    // Core 1 DSP offload (M26b+).
-    // gReverb points to a ReverbEngine created on Core 0; NullReverb needs no init.
-    // DattorroReverb will call reset() here when it lands in M26b.
+    // Enable Flush-to-Zero mode on Core 1's FPU.
+    // The reverb tail decays into denormal territory; without FTZ the FPU takes
+    // ~100x longer per operation, Core 1 falls behind Core 0, and crackle results.
+    {
+        uint32_t fpscr;
+        asm volatile("vmrs %0, fpscr" : "=r"(fpscr));
+        fpscr |= (1u << 24); // FZ: Flush-to-Zero
+        asm volatile("vmsr fpscr, %0" ::"r"(fpscr));
+    }
+    // Zero all reverb delay lines before audio starts.
+    gReverb->reset();
 }
 
 void loop1() {
-    // Reverb processing — Core 1 runs this at free speed (~150 MHz minus overhead).
-    // At 32768 Hz audio rate, Core 1 completes each reverb tick long before Core 0
-    // deposits the next sample.  No mutex: each core owns distinct volatile slots.
+    // Reverb processing — Core 1 processes exactly once per audio sample.
+    // Uses WFE/SEV instead of a hot spin: Core 1 sleeps with zero bus traffic
+    // until Core 0's ISR fires __sev() after depositing the new sample.
+    // A hot spin read of a shared volatile at 150 MHz saturates the SRAM bus
+    // and causes the Core 0 ISR to stall waiting for arbitration — crackle.
+    static uint32_t sLastSeq = 0;
+    uint32_t seq;
+    while ((seq = gRevSampleSeq) == sLastSeq) {
+        __asm volatile("wfe"); // sleep; wake on __sev() from Core 0 ISR
+    }
+    sLastSeq = seq;
+
     if (gRevEnabled) {
         // Normalise ±32512 int32 → ±1.0f for the reverb algorithm.
         const float inL = (float)gRevIn_L * (1.0f / 32512.0f);
