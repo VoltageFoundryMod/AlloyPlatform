@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21 + M23 + M28 + M29 + M29b** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence)
+> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter, Dattorro plate reverb, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -15,6 +15,7 @@
   - [Parameters](#parameters)
     - [Pitch and Tuning](#pitch-and-tuning)
       - [`pitch <hz>` — Base frequency](#pitch-hz--base-frequency)
+      - [`note <name>` — Set pitch by note name](#note-name--set-pitch-by-note-name)
       - [`detune <hz>` — Stereo spread](#detune-hz--stereo-spread)
     - [RELATION — Voice Interval](#relation--voice-interval)
       - [`rel <0–24>` — Voice 2 interval](#rel-024--voice-2-interval)
@@ -33,13 +34,18 @@
       - [`gate <1 | 0 | free>` — Gate control](#gate-1--0--free--gate-control)
       - [`curve <0–1>` — Envelope shape](#curve-01--envelope-shape)
       - [`curvetime <0.25–4>` — Envelope time scale](#curvetime-0254--envelope-time-scale)
-    - [Volume](#volume)
-      - [`vol <0–1>` — Master volume](#vol-01--master-volume)
   - [MIDI Control](#midi-control)
     - [`midichan <1–16|omni>` — MIDI receive channel](#midichan-116omni--midi-receive-channel)
     - [USB MIDI CC Map](#usb-midi-cc-map)
   - [Config Persistence](#config-persistence)
     - [`config save` / `config load` / `config reset`](#config-save--config-load--config-reset)
+    - [Volume](#volume)
+      - [`vol <0–1>` — Master volume](#vol-01--master-volume)
+  - [Post-Effects](#post-effects)
+    - [`filter <mode> [cutoff] [res]` — Multimode filter](#filter-mode-cutoff-res--multimode-filter)
+    - [`fxorder <filter|delay> <pre|post>` — Effect chain order](#fxorder-filterdelay-prepost--effect-chain-order)
+    - [`reverb <mix> [size] [damping]` — Plate reverb](#reverb-mix-size-damping--plate-reverb)
+    - [`delay <mix> [time_ms] [feedback]` — Ping-pong delay](#delay-mix-time_ms-feedback--ping-pong-delay)
   - [Knob Shift Functions](#knob-shift-functions)
   - [Gate and Envelope Modes](#gate-and-envelope-modes)
     - [Drone mode (default)](#drone-mode-default)
@@ -52,6 +58,10 @@
     - [Slow cinematic swell](#slow-cinematic-swell)
     - [Hollow nasal lead](#hollow-nasal-lead)
     - [Unstable vintage synth](#unstable-vintage-synth)
+    - [Lush plate reverb pad](#lush-plate-reverb-pad)
+    - [Ping-pong echo lead](#ping-pong-echo-lead)
+    - [Dark filtered drone](#dark-filtered-drone)
+    - [Cathedral (reverb + delay)](#cathedral-reverb--delay)
   - [Diagnostic Commands](#diagnostic-commands)
     - [`cpu`](#cpu)
     - [`perf on` / `perf off`](#perf-on--perf-off)
@@ -134,6 +144,20 @@ pitch 523.25      # C5
 | E4   | 329.63 |
 | A4   | 440.00 |
 | C5   | 523.25 |
+
+#### `note <name>` — Set pitch by note name
+
+Alternative to `pitch` — set root frequency by scientific pitch notation (letter A–G, optional `#`/`b` accidental, octave number). A4 = 440 Hz reference.
+
+```txt
+note C4           # middle C — 261.63 Hz
+note A4           # concert A — 440 Hz
+note A3           # A3 — 220 Hz
+note C#4          # C sharp 4 — 277.18 Hz
+note Bb3          # B flat 3 — 233.08 Hz
+```
+
+---
 
 #### `detune <hz>` — Stereo spread
 
@@ -528,6 +552,91 @@ vol 1.0           # maximum (caution with high fatness)
 
 ---
 
+## Post-Effects
+
+The post-effects chain sits between Chorus and the SPACE engine. All three effects are optional and fully bypassed (zero CPU) when disabled.
+
+```txt
+Signal chain (default): VCA → Filter → Chorus → Delay → Reverb → SPACE → Output
+```
+
+Effect positions are reorderable via `fxorder`.
+
+### `filter <mode> [cutoff] [res]` — Multimode filter
+
+Stereo state-variable filter (Cytomic SVF) — coefficients updated at 128 Hz, audio-rate processing is trig-free.
+
+| Mode    | Character                          |
+| ------- | ---------------------------------- |
+| `off`   | Bypass — zero CPU (default)        |
+| `lp`    | Low-pass — warm, rolls off highs   |
+| `hp`    | High-pass — removes low end        |
+| `bp`    | Band-pass — midrange resonant peak |
+| `notch` | Notch — scoops a frequency         |
+
+| Parameter | Range       | Default |
+| --------- | ----------- | ------- |
+| cutoff    | 20–16000 Hz | 8000 Hz |
+| resonance | 0.0–1.0     | 0.0     |
+
+```txt
+filter lp 2000 0.6    # low-pass at 2 kHz, resonance 0.6
+filter hp 400         # high-pass at 400 Hz
+filter bp 1200 0.8    # band-pass at 1.2 kHz, high resonance
+filter off            # bypass
+```
+
+### `fxorder <filter|delay> <pre|post>` — Effect chain order
+
+Controls where the filter and delay sit relative to chorus and reverb.
+
+| Command               | Chain result                                    |
+| --------------------- | ----------------------------------------------- |
+| `fxorder filter pre`  | Filter → Chorus (default — shapes raw voice)    |
+| `fxorder filter post` | Chorus → Filter (sculpts the chorused mix)      |
+| `fxorder delay pre`   | Delay → Reverb (default — reverb'd echoes)      |
+| `fxorder delay post`  | Reverb → Delay (echoes of the reverb tail)      |
+
+### `reverb <mix> [size] [damping]` — Plate reverb
+
+Dattorro 1997 plate algorithm running entirely on Core 1 — zero load on the audio ISR.
+
+| Parameter | Range   | Default | Notes                                  |
+| --------- | ------- | ------- | -------------------------------------- |
+| mix       | 0.0–1.0 | 0.35    | Wet level added on top of dry          |
+| size      | 0.0–1.0 | 0.5     | Tank decay — higher = longer tail      |
+| damping   | 0.0–1.0 | 0.5     | High-frequency rolloff in the tail     |
+
+```txt
+reverb 0.3 0.7 0.4    # subtle plate — large, slightly bright
+reverb 0.5 0.9 0.7    # large hall — long dark tail
+reverb 0.2 0.5 0.3    # small room — short, clear
+reverb on             # re-enable with current settings
+reverb off            # disable (Core 1 sleeps — zero CPU)
+```
+
+### `delay <mix> [time_ms] [feedback]` — Ping-pong delay
+
+Stereo ping-pong delay — cross-channel feedback routes echoes L→R→L alternating. Maximum time: 300 ms.
+
+| Parameter | Range     | Default | Notes                                  |
+| --------- | --------- | ------- | -------------------------------------- |
+| mix       | 0.0–1.0   | 0.0     | Wet level; 0 = bypass (zero CPU)       |
+| time_ms   | 10–300 ms | 100 ms  | Fractional sample accuracy             |
+| feedback  | 0.0–0.95  | 0.5     | Echo decay; >0.8 gives long fading tail|
+
+```txt
+delay 0.4 150 0.6     # ping-pong at 150 ms, 60% feedback
+delay 0.5 80 0.4      # tight short bounces
+delay 0.3 300 0.8     # long slow echo
+delay on              # re-enable with current settings
+delay off             # bypass
+```
+
+> **Tip:** `fxorder delay post` with long reverb creates echoes of the reverb tail — cathedral-like decay. Default `fxorder delay pre` creates reverb'd echoes — classic studio plate+delay sound.
+
+---
+
 ## Knob Shift Functions
 
 The panel has a single button that doubles as a **shift key**. Holding it while turning a knob accesses a secondary parameter — four knobs have shift functions, giving eight parameters from seven knobs.
@@ -593,10 +702,17 @@ gate 0
 
 ## Status
 
-`status` prints all current parameters in a single line:
+`status` prints all current parameters across two lines — voice parameters on line 1, post-effects chain on line 2:
 
 ```txt
-pitch=220.00 detune=4.00 shape=0.250 fat=0.400 motion=0.400 dspeed=0.0400 curve=0.500 ctime=1.00 gate=free chorus=I+II vol=0.800 space=1.000 midichan=omni
+pitch=220.00 mode=PAIR rel=0.000 detune=4.00 shape=0.250 fat=0.400 motion=0.400 dspeed=0.0400 curve=0.500 ctime=1.00 gate=free chorus=I+II vol=0.800 space=1.000 midichan=omni
+filter=off fxorder=filter:pre,delay:pre reverb=off delay=off
+```
+
+With effects active:
+
+```txt
+filter=lp cut=2000 res=0.60 fxorder=filter:post,delay:pre reverb=on mix=0.40 size=0.70 damp=0.50 delay=on mix=0.50 time=150ms fb=0.60
 ```
 
 ---
@@ -682,6 +798,62 @@ dspeed 0.06
 gate free
 ```
 
+### Lush plate reverb pad
+
+```txt
+pitch 220
+shape 0.25
+fat 0.3
+motion 0.4
+curve 0.75
+curvetime 1.5
+reverb 0.4 0.85 0.5
+gate free
+```
+
+### Ping-pong echo lead
+
+```txt
+note A4
+shape 0.5
+fat 0.0
+motion 0.15
+curve 0.3
+curvetime 0.7
+delay 0.45 160 0.65
+chorus off
+gate 1
+gate 0
+```
+
+### Dark filtered drone
+
+```txt
+pitch 110
+shape 0.5
+fat 0.5
+motion 0.5
+filter lp 800 0.5
+curve 0.8
+curvetime 2.0
+gate free
+```
+
+### Cathedral (reverb + delay)
+
+```txt
+pitch 261.63
+shape 0.2
+fat 0.2
+motion 0.3
+reverb 0.5 0.95 0.7
+delay 0.3 300 0.75
+fxorder delay post
+curve 1.0
+curvetime 2.0
+gate 1
+```
+
 ---
 
 ## Diagnostic Commands
@@ -706,7 +878,7 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | ------------------- | ------------- | -------------------------------------------------------------- |
 | `pitch <hz>`        | 20–8000       | Base frequency                                                 |
 | `note <name>`       | —             | Set pitch by note name (C4, A#3, etc.)                         |
-| `mode <name>`       | pair/…        | Voice mode (only pair active — M21)                            |
+| `mode <name>`       | pair/chord/…  | Voice mode (pair: M21, chord: M23)                             |
 | `rel <0–24>`        | 0–24 st       | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)      |
 | `detune <hz>`       | 0–200         | Symmetric fine spread between voices                           |
 | `shape <0–1>`       | 0–1           | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow          |
@@ -720,6 +892,10 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | `gate <1\|0\|free>` | —             | Gate high / low / bypass (drone)                               |
 | `trig [ms]`         | —             | One-shot gate pulse (default 100 ms)                           |
 | `vol <0–1>`         | 0–1           | Master volume                                                  |
+| `filter <mode> …`   | off/lp/hp/bp/notch | Multimode filter: mode [cutoff Hz] [resonance 0–1]        |
+| `fxorder <fx> <pos>`| filter/delay × pre/post | Effect chain position                              |
+| `reverb <mix> …`    | 0–1, 0–1, 0–1 | Plate reverb: mix size damping; `reverb on/off`               |
+| `delay <mix> …`     | 0–1, 10–300, 0–0.95 | Ping-pong delay: mix time_ms feedback; `delay on/off`   |
 | `midichan <n\|omni>` | 1–16, omni    | MIDI receive channel (default: omni)                           |
 | `config <cmd>`      | save/load/reset | Persist / restore / wipe all parameters to flash              |
 | `status`            | —             | Print all current parameters                                   |
@@ -747,6 +923,9 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | `curvetime` | 1.0     | Normal speed                      |
 | `gate`      | free    | Drone, envelope bypassed          |
 | `vol`       | 0.8     |                                   |
+| `filter`    | off     | Filter bypassed                   |
+| `reverb`    | off     | Reverb disabled                   |
+| `delay`     | off     | Delay bypassed (mix=0)            |
 | `midichan`  | omni    | All MIDI channels                 |
 
 > All parameters marked above are automatically restored on boot if `config save` has been used.

@@ -235,6 +235,58 @@ static void cmd_status(const char * /*args*/, Print &out) {
         out.println(F("omni"));
     else
         out.println(gMidiChannel);
+
+    // Line 2 — post-effects state
+    out.print(F("filter="));
+    switch (gFilterMode) {
+    case FilterMode::OFF:
+        out.print(F("off"));
+        break;
+    case FilterMode::LP:
+        out.print(F("lp"));
+        break;
+    case FilterMode::HP:
+        out.print(F("hp"));
+        break;
+    case FilterMode::BP:
+        out.print(F("bp"));
+        break;
+    case FilterMode::NOTCH:
+        out.print(F("notch"));
+        break;
+    }
+    if (gFilterMode != FilterMode::OFF) {
+        out.print(F(" cut="));
+        out.print(gFilterCutoff, 0);
+        out.print(F(" res="));
+        out.print(gFilterRes, 2);
+    }
+    out.print(F(" fxorder=filter:"));
+    out.print(gFxOrder.filterPostChorus ? F("post") : F("pre"));
+    out.print(F(",delay:"));
+    out.print(gFxOrder.delayPostReverb ? F("post") : F("pre"));
+    out.print(F(" reverb="));
+    if (!gRevEnabled) {
+        out.print(F("off"));
+    } else {
+        out.print(F("on mix="));
+        out.print(gRevMix, 2);
+        out.print(F(" size="));
+        out.print(gRevSize, 2);
+        out.print(F(" damp="));
+        out.print(gRevDamping, 2);
+    }
+    out.print(F(" delay="));
+    if (gDelayMix < 0.001f) {
+        out.println(F("off"));
+    } else {
+        out.print(F("on mix="));
+        out.print(gDelayMix, 2);
+        out.print(F(" time="));
+        out.print(gDelayTime, 0);
+        out.print(F("ms fb="));
+        out.println(gDelayFeedback, 2);
+    }
 }
 
 static void cmd_performance_print(const char *args, Print &out) {
@@ -564,6 +616,17 @@ static void cmd_delay(const char *args, Print &out) {
     if (strcmp(args, "off") == 0) {
         gDelayMix = 0.0f;
         out.println(F("delay -> off"));
+        return;
+    }
+    if (strcmp(args, "on") == 0) {
+        if (gDelayMix < 0.001f)
+            gDelayMix = 0.3f; // restore last or default mix
+        out.print(F("delay -> on  mix "));
+        out.print(gDelayMix, 2);
+        out.print(F("  time "));
+        out.print(gDelayTime, 0);
+        out.print(F(" ms  feedback "));
+        out.println(gDelayFeedback, 2);
         return;
     }
     if (*args == '\0') {

@@ -1017,18 +1017,31 @@ reverb off           → disable (gRevEnabled=false, Core 1 outputs zeros)
 Stereo ping-pong delay with compile-time configurable maximum (`DELAY_MAX_MS`, default 300ms).
 
 | Max delay | RAM cost | Notes |
-|-----------|----------|-------|
-| 200 ms    | ~26 KB   | Default |
-| 300 ms    | ~39 KB   | Increase `DELAY_MAX_MS` in platformio.ini |
+|-----------|----------|-----------|
+| 200 ms    | ~26 KB   | |
+| 300 ms    | ~39 KB   | **Default** — set in platformio.ini |
 | 500 ms    | ~65 KB   | All safe within RP2350's 520KB SRAM |
 
-Ping-pong routing: even bounces → L, odd bounces → R. Cross-channel feedback turns a mono input into animated stereo movement.
-
-Currently a **pass-through stub** — ring buffer + fractional read + cross-feed routing land in M26c.
+**Cross-channel feedback** creates the ping-pong effect — echoes alternate L/R/L/R:
 
 ```
-delay 0.5 150 0.6    → mix=0.5, time=150ms, feedback=0.6
-delay off            → mix=0 (pass-through)
+L delay line ← inL + feedback × delayedR
+R delay line ← inR + feedback × delayedL
+```
+
+Linear interpolation on fractional delay samples eliminates zipper artefacts when time changes. `process()` is `always_inline` — fully absorbed into `updateAudio()` in SRAM.
+
+| Parameter  | Range         | Notes |
+|------------|---------------|-------|
+| mix        | 0.0–1.0       | 0 = hard bypass (zero CPU, early return) |
+| time_ms    | 10–300 ms     | Fractional sample accuracy |
+| feedback   | 0.0–0.95      | Clamped to prevent runaway accumulation |
+| dry gain   | 1 − mix×0.5   | Slight dry reduction at high mix |
+
+```
+delay 0.5 150 0.6    → mix=0.5, time=150ms, feedback=0.6 (ping-pong bounce)
+delay on             → re-enable with current mix/time/feedback
+delay off            → hard bypass (zero CPU)
 ```
 
 ### ISR Budget (M26)
@@ -1037,7 +1050,7 @@ delay off            → mix=0 (pass-through)
 |---------------|------|------------|-------|
 | Filter (OFF)  | 0    | ~0 µs      | Hard bypass — single branch |
 | Filter (LP/HP/BP/NOTCH) | 0 | ~2–3 µs | 10× float mul/add per channel |
-| Delay (stub)  | 0    | ~0 µs      | Pass-through until M26c |
+| Delay (active) | 0   | ~1–2 µs    | 8× float ops + 2 buffer reads/writes per channel; bypass = 0 µs |
 | Reverb mix-in | 0    | ~0.5 µs    | 1 multiply + 1 add per channel (additive) |
 | Reverb DSP    | 1    | offloaded  | Core 1 free-runs; never touches ISR budget |
 | FxOrder flags | 0    | ~0 µs      | 2 branch predictions, static config |
@@ -1804,7 +1817,12 @@ vol 0.8              → output volume
 filter lp 2000 0.6   → SVF filter: lp/hp/bp/notch/off, cutoff Hz, resonance 0–1 (M26a)
 fxorder filter post  → effect chain ordering: filter/delay × pre/post (M26a)
 reverb 0.4 0.7 0.5   → reverb: mix, size, damping (M26b; Core 1 offload)
+reverb on            → re-enable with current mix/size/damping
+reverb off           → disable (Core 1 stays in WFE — zero bus traffic)
 delay 0.5 150 0.6    → ping-pong delay: mix, time_ms, feedback (M26c)
+delay on             → re-enable with current mix/time/feedback
+delay off            → hard bypass (zero CPU)
+status               → print all parameters (two lines: voice + fx chain)
 cpu                  → print CPU headroom report (Method 2)
 ```
 
@@ -1864,7 +1882,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
 - [x] 26a. **Post Effects Section — Filter + Chain + Core 1 infra** — Cytomic TVA-SVF stereo filter (LP/HP/BP/NOTCH/OFF); `FilterEngine` with trig-free audio-rate path; `FxOrder` 2-flag reorderable chain (4 orderings: filter pre/post-chorus × delay pre/post-reverb); `ReverbEngine` abstract base + `NullReverb` stub running on Core 1 via volatile int32 inter-core slots (no mutex, additive 1-frame latency, artifact-free); `DelayEngine` static 26KB buffers + pass-through stub; `filter`, `fxorder`, `reverb`, `delay` serial commands; `-DDELAY_MAX_MS=200` compile flag; RAM 92KB (17.7%), Flash 117KB (2.8%)
 - [x] 26b. **Dattorro plate reverb** — `DattorroReverb` class on Core 1; Dattorro 1997 plate topology; float delay lines (eliminates Q15 quantisation noise); correct cross-coupling (D8→left, D6→right); modulated APFs with LFO ±8 samples; one-pole damping at end of long delays; FTZ (Flush-to-Zero) on both cores' FPUs; `gRevSampleSeq` counter + `__sev()`/`__wfe()` — Core 1 sleeps between samples, zero bus contention when reverb disabled; `reverb on/off/mix/size/damping` serial commands; RAM 235KB (44.9%)
-- [ ] 26c. **Delay ring buffer** — implement ping-pong ring buffer + fractional read + cross-feed routing in `DelayEngine`
+- [x] 26c. **Delay ring buffer** — stereo ping-pong delay; cross-channel feedback (L←fbR, R←fbL) creates L/R alternating bounce; linear fractional interpolation for accurate sub-sample delay time; `always_inline process()`; `delay on/off/mix/time/feedback` serial commands; `status` line 2 shows all fx state; RAM 236KB (45.1%)
 - [ ] 26d. **Post Effects** — global chorus, Karplus-Strong Resonator (original M26 remainder)
 - [ ] 27. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
 - [x] 28. **Central param/CC dispatch table** — `include/param_map.h` + `src/param_map.cpp`; `CCParam` struct with `{cc, valMin, valMax, *target, name}`; `paramMap_dispatchCC()` shared by all transports; 10 parameters mapped (CC 1/7/71/72/73/74/91/92/93/94); `onControlChange` in USB MIDI reduced to 3 lines + specials (CC 64 sustain, CC 123 panic)
@@ -1879,6 +1897,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 36. **Implement Web Configurator and Editor** — browser-based UI for configuration, calibration, preset management. Also can change parameters in real-time via Web MIDI API for performance control and visualization of internal state (e.g. chord shape, LFO waveforms, etc.)
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 - [ ] 38. **Expand voice count and polyphony** - Enable multiple voices so polyphony is possible in all modes, not just CLOUD and CHORD. Evaluate CPU load and optimize as needed.
+- [ ] 39. **Implement load/save presets via MIDI SysEx** — allows users to store and recall presets from external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator.
 
 
 ## Project Refinement
