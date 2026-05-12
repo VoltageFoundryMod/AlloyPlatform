@@ -21,6 +21,7 @@
 // ---------------------------------------------------------------------------
 // Mozzi includes
 // ---------------------------------------------------------------------------
+#include "ButtonEngine.h"
 #include "ChorusEngine.h"
 #include "ShapeOsc.h"
 #include "SpaceEngine.h"
@@ -29,6 +30,12 @@
 #include "usb_midi.h"
 #include <Mozzi.h>
 #include <math.h>
+
+// ---------------------------------------------------------------------------
+// Button pin assignments (Milestone 31)
+// ---------------------------------------------------------------------------
+#define PIN_BUTTON_MODE 10 // GP10 — mode cycle button (panel button)
+#define PIN_BUTTON_TRIG 11 // GP11 — dev trigger button; enable with DEV_TRIG_BUTTON
 
 // ---------------------------------------------------------------------------
 // Band-limited wavetables — all generated at startup via additive synthesis.
@@ -214,6 +221,12 @@ static ChorusEngine<MOZZI_AUDIO_RATE> gChorus;
 // 0 means no trig pending.
 uint32_t sTrigReleaseAt = 0;
 
+// Button engines (Milestone 31) — polled at 128 Hz in updateControl().
+static ButtonEngine gBtnMode(PIN_BUTTON_MODE); // mode cycle
+#ifdef DEV_TRIG_BUTTON
+static ButtonEngine gBtnTrig(PIN_BUTTON_TRIG); // dev gate trigger
+#endif
+
 // ---------------------------------------------------------------------------
 // M26 Post-effects engines and parameters
 // ---------------------------------------------------------------------------
@@ -297,6 +310,10 @@ void setup() {
     volatile float _pw = powf(2.0f, 7.0f / 12.0f);
     (void)_pw;
     gChorus.init(); // must run before startMozzi() to fill delay buffers before first ISR
+    gBtnMode.begin();
+#ifdef DEV_TRIG_BUTTON
+    gBtnTrig.begin();
+#endif
     startMozzi();
     for (uint8_t i = 0; i < 4; i++) {
         voices[i].setFreq(gBaseFreq);
@@ -315,6 +332,43 @@ void updateControl() {
     serialConsole_update();
 #ifdef USE_TINYUSB
     usbMidi_update();
+#endif
+
+    // -----------------------------------------------------------------------
+    // Button polling (Milestone 31) — 128 Hz, ~31 ms debounce window.
+    // -----------------------------------------------------------------------
+    gBtnMode.poll();
+    if (gBtnMode.pressed()) {
+        // Cycle through implemented voice modes only.
+        // Unimplemented modes (CLOUD/CASCADE/STRING) are skipped until their
+        // milestone lands — add them to the cycle list as each is completed.
+        static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CHORD};
+        static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
+        uint8_t idx = 0;
+        for (uint8_t i = 0; i < kN; i++) {
+            if (kActiveModes[i] == gVoiceMode) {
+                idx = i;
+                break;
+            }
+        }
+        gVoiceMode = kActiveModes[(idx + 1) % kN];
+#ifdef SERIAL_CONTROL
+        Serial.print(F("mode -> "));
+        Serial.println(voiceModeName(gVoiceMode));
+#endif
+    }
+
+#ifdef DEV_TRIG_BUTTON
+    // Dev trigger button: press = gate high, release = gate low.
+    // Mirrors what a hardware gate jack would do — natural hold behaviour.
+    gBtnTrig.poll();
+    if (gBtnTrig.pressed()) {
+        gGatePatched = true;
+        gGateHigh = true;
+    }
+    if (gBtnTrig.released()) {
+        gGateHigh = false;
+    }
 #endif
 
     // Auto-release for cmd_trig: lower gate when the pulse duration has elapsed.

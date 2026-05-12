@@ -267,7 +267,7 @@ All pins accounted for. No pin used twice.
 | GP9  | 12       | UART1 RX              | In     | Hardware MIDI in (TRS jack)                           |
 | GP10 | 14       | Button                | In     | Internal pull-up — single button for MODE             |
 | GP11 | 15       | Button                | In     | Internal pull-up — Button for development (Trigger)   |
-| GP12 | 16       | Gate input            | In     | Note trigger — direct digital read                    |
+| GP12 | 16       | Spare                 | In     | Future expansion                                      |
 | GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later |
 | GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                           |
 | GP15 | 20       | I2C External          | —      | SCL 1 for I2C external comm                           |
@@ -1699,14 +1699,14 @@ Approximate costs at 32768Hz, 150MHz. Always verify with Method 2.
 
 | Configuration        | Est. µs | Headroom | Status |
 | -------------------- | ------- | -------- | ------ |
-| PAIR, no chorus      | ~6 µs   | ~80%     | ✅     |
-| PAIR + chorus        | ~13 µs  | ~57%     | ✅     |
-| CLOUD (4 voices)     | ~14 µs  | ~54%     | ✅     |
-| CLOUD + chorus       | ~21 µs  | ~31%     | ✅     |
-| CHORD (4 voices)     | ~14 µs  | ~54%     | ✅     |
-| STRING (all engines) | ~24 µs  | ~21%     | ✅ ⚠️  |
-| 8 voices + chorus C0 | ~34 µs  | −11%     | ❌     |
-| 8 voices + chorus C1 | ~21 µs  | ~31%     | ✅     |
+| PAIR, no chorus      | ~6 µs   | ~80%     | ✅      |
+| PAIR + chorus        | ~13 µs  | ~57%     | ✅      |
+| CLOUD (4 voices)     | ~14 µs  | ~54%     | ✅      |
+| CLOUD + chorus       | ~21 µs  | ~31%     | ✅      |
+| CHORD (4 voices)     | ~14 µs  | ~54%     | ✅      |
+| STRING (all engines) | ~24 µs  | ~21%     | ✅ ⚠️    |
+| 8 voices + chorus C0 | ~34 µs  | −11%     | ❌      |
+| 8 voices + chorus C1 | ~21 µs  | ~31%     | ✅      |
 
 ### Dual Core Offload Strategy
 
@@ -1889,7 +1889,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 29. **USB MIDI + MIDI channel config** — `Adafruit_USBD_MIDI` + `MIDI Library` via `-DUSE_TINYUSB`; composite CDC+MIDI device (serial console + MIDI coexist on same USB); Note On/Off → `gBaseFreq`/`gGateHigh` (monophonic, last-note priority); full CC map via `paramMap_dispatchCC`; Program Change 1–5 → VoiceMode; `usbMidi_init()` before `Serial.begin()` with `TinyUSBDevice.mounted()` wait; Web MIDI compatible (Chrome/Edge via `navigator.requestMIDIAccess`); `gMidiChannel` (0=omni, 1–16) set via `midichan` serial command; channel filter in all MIDI callbacks
 - [x] 29b. **Flash config persistence** — `include/config_store.h` / `src/config_store.cpp`; Earle Philhower EEPROM emulation (wear-levelled circular buffer); `AlloyConfig` struct covers all 15 synthesis + MIDI parameters; `configStore_load()` in `setup()` auto-restores on boot; `config save|load|reset` serial commands; three-layer flash protection: dirty check (memcmp), 10 s rate limit, magic+version invalidation on struct change; 4-slot layout for future preset expansion (`kMaxPresets=4`)
 - [ ] 30. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
-- [ ] 31. **Button UI** — single button, mode cycle, double-tap, long-hold
+- [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()` edge events; GP10 mode button cycles PAIR→CHORD (active modes only — extend `kActiveModes[]` as each mode lands); GP11 dev trigger button (hold=gate high, release=gate low) gated by `-DDEV_TRIG_BUTTON` flag — remove for production; double-tap and long-hold shift functions pending (M31 remainder)
 - [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
 - [ ] 33. **Panel design** — Design final graphics and layout
 - [ ] 34. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)

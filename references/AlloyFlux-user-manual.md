@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter, Dattorro plate reverb, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence)
+> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b + M31(partial)** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter, Dattorro plate reverb, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence, mode button cycling)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -650,7 +650,7 @@ The panel has a single button that doubles as a **shift key**. Holding it while 
 
 The LED indicator dims white while shift mode is active. ROOT, RELATION, and FM knobs have no shift function.
 
-> **Current firmware:** shift is not yet implemented (Milestone 31). All secondary parameters are accessed via serial commands in the meantime.
+> **Current firmware (M31 partial):** mode cycling is active — pressing the panel button (GP10) steps through PAIR → CHORD → PAIR. Shift functions (hold + knob) are not yet implemented; secondary parameters are still accessed via serial commands.
 
 ---
 
