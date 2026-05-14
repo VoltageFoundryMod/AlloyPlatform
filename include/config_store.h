@@ -1,8 +1,8 @@
 #pragma once
 #include <stdint.h>
 
-#include "ChorusEngine.h"
 #include "VoiceMode.h"
+#include "dsp/ChorusEngine.h"
 
 /**
  * Flash config persistence — Milestone 30 (config save/load).

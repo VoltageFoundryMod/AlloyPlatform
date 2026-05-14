@@ -202,7 +202,7 @@ The RELATION knob is the signature control of the module. It is the most express
 | Build tool  | PlatformIO                                                                         |
 | Knobs       | 7 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE)                                |
 | Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT) |
-| Buttons     | 1                                                                                  |
+| Buttons     | 2 (MODE + SHIFT)                                                                   |
 | LEDs        | 3× WS2812B RGB                                                                     |
 | Power draw  | ~100mA +12V, ~5mA −12V (estimate)                                                  |
 
@@ -224,7 +224,8 @@ The RELATION knob is the signature control of the module. It is the most express
 │  UART1 RX (GP9) ←────────────────── MIDI TRS in     │
 │  USB ←────────────────────────────── USB MIDI       │
 │  PIO GP7 ────────────────────────→ WS2812B LEDs     │
-│  GP10 ←───────────────────────────── Button         │
+│  GP10 ←───────────────────────────── MODE button   │
+│  GP11 ←───────────────────────────── SHIFT button  │
 │  GP12 ←───────────────────────────── Gate input     │
 │  GP13 PWM ───────────────────────→ (spare / future) │
 │  GP3–GP6 ────────────────────────→ 74HC4067 select  │
@@ -265,8 +266,8 @@ All pins accounted for. No pin used twice.
 | GP7  | 10       | WS2812B data          | Out    | LED chain (all 3 LEDs) — PIO 1                        |
 | GP8  | 11       | UART1 TX              | Out    | Spare / debug serial                                  |
 | GP9  | 12       | UART1 RX              | In     | Hardware MIDI in (TRS jack)                           |
-| GP10 | 14       | Button                | In     | Internal pull-up — single button for MODE             |
-| GP11 | 15       | Button                | In     | Internal pull-up — Button for development (Trigger)   |
+| GP10 | 14       | MODE button           | In     | Internal pull-up — cycles voice modes                 |
+| GP11 | 15       | SHIFT button          | In     | Internal pull-up — secondary pot functions; MODE+SHIFT combo → drone |
 | GP12 | 16       | Spare                 | In     | Future expansion                                      |
 | GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later |
 | GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                           |
@@ -286,7 +287,7 @@ All pins accounted for. No pin used twice.
 | —    | 39       | VSYS                  | Pwr    | System power from Eurorack via LDO                    |
 | —    | 40       | VBUS                  | Pwr    | USB 5V                                                |
 
-**Spare GPIO: GP11, GP13–GP22 — 11 pins available for future features.**
+**Spare GPIO: GP13–GP22 — 10 pins available for future features.**
 
 ---
 
@@ -903,8 +904,10 @@ Oscillators → Drift/Motion → [VCA — CURVE envelope] → Chorus → SPACE �
 
 **Gate patched behaviour** — controlled by `gGatePatched` (volatile bool, Core 0):
 
-- `false` (default): envelope fixed at 1.0 — module sounds continuously (drone/pad)
-- `true`: AR envelope active, triggered by rising/falling edges
+- `false` (default on boot): envelope fixed at 1.0 — module sounds continuously (drone/pad)
+- `true`: AR envelope active, triggered by rising/falling edges of `gGateHigh`
+- Auto-armed to `true` by: any MIDI Note On, `gate 0`/`gate 1` serial command, CC 64 sustain, hardware gate jack (M19)
+- Reset to `false` (drone) by: `gate free` serial command, CC 119 from MIDI, MODE+SHIFT buttons held simultaneously
 
 **Serial commands:**
 
@@ -928,7 +931,7 @@ This gives equal perceptual resolution at all speeds — the same physical trave
 
 **Signal chain position:** oscillators → drift → soft-clip → **[VCA — CURVE envelope]** → chorus (M12) → M26 effects → output
 
-Future gate sources: GP12 jack (M19), MIDI Note On/Off (M28), I2C (Teletype).
+Future gate sources: GP12 jack (M19), I2C (Teletype).
 
 ---
 
@@ -1143,9 +1146,9 @@ When SPACE CV is patched, SPACE knob becomes attenuverter for that CV.
 
 ### Shift Function Summary
 
-All shift functions use the same gesture: **hold the panel button** while turning the knob. LED indicator dims white to signal shift mode is active. Releasing the button exits shift mode.
+The panel has two buttons: **MODE** (GP10) and **SHIFT** (GP11). Hold SHIFT while turning a knob to access the secondary parameter. The LED dims white while shift mode is active. Releasing SHIFT exits shift mode.
 
-| Knob  | Primary function             | Shift function (hold button)    |
+| Knob  | Primary function             | Shift function (hold SHIFT)     |
 | ----- | ---------------------------- | ------------------------------- |
 | SHAPE | Waveform morph (sine→hollow) | FATNESS — sub oscillator level  |
 | MOTN  | Drift + chorus depth         | DRIFTSPEED — drift glide rate   |
@@ -1381,7 +1384,7 @@ Both active simultaneously. Last-received source wins.
 | Pitch Bend       | ±2 semitones (configurable via calibration routine)               |
 | CC 1 Mod Wheel   | `motion` — drift + chorus depth (0–1)                             |
 | CC 7 Volume      | `vol` — master output level (0–1)                                 |
-| CC 64 Sustain    | `gate` — hold (≥64=on, <64=off)                                   |
+| CC 64 Sustain    | `gate` — hold (≤64=on, <64=off); arms `gGatePatched=true`         |
 | CC 71 Timbre     | `curve` — envelope shape (0–1)                                    |
 | CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                        |
 | CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                          |
@@ -1390,6 +1393,10 @@ Both active simultaneously. Last-received source wins.
 | CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                       |
 | CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                |
 | CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                      |
+| CC 112           | `revmodspeed` — reverb LFO rate multiplier (0.1–4.0) (M40)        |
+| CC 113           | `revmoddepth` — reverb LFO depth multiplier (0.0–1.0) (M40)       |
+| CC 114           | Reverb freeze — ≥64 = freeze on, <64 = freeze off (M41)           |
+| CC 119           | Drone return — clears gate arm, module returns to continuous drone |
 | CC 123           | All Notes Off / panic                                             |
 | Clock 0xF8       | MOTION sync to MIDI clock                                         |
 | Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING) |
@@ -1451,12 +1458,12 @@ The crucial UX distinction: mode changes are deliberate and infrequent. You choo
 
 ### Button Interaction Map
 
-| Action                | Result                                                           |
-| --------------------- | ---------------------------------------------------------------- |
-| Single tap            | Cycle voice mode: PAIR → CLOUD → CHORD → CASCADE → STRING → PAIR |
-| Double tap            | Toggle MOTION sync to MIDI clock                                 |
-| Long hold (3s)        | Enter V/Oct calibration routine                                  |
-| Long hold + ROOT knob | MIDI channel select (LED shows channel 1–16 as brightness)       |
+| Action                          | Result                                                            |
+| ------------------------------- | ----------------------------------------------------------------- |
+| MODE tap (Shift not held)       | Cycle voice mode: PAIR → CHORD → (→ CLOUD/CASCADE/STRING when implemented) → PAIR |
+| SHIFT hold + turn knob          | Access secondary pot parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL) |
+| MODE + SHIFT held simultaneously | Return to drone mode — clears gate arm regardless of current mode |
+| MODE long hold (3 s)            | Enter V/OCT calibration routine (future)                          |
 
 That is the complete button interaction surface. Nothing else is hidden. No color memorization required for performance — mode is chosen deliberately, confirmed by LED, heard immediately.
 
@@ -1819,6 +1826,9 @@ fxorder filter post  → effect chain ordering: filter/delay × pre/post (M26a)
 reverb 0.4 0.7 0.5   → reverb: mix, size, damping (M26b; Core 1 offload)
 reverb on            → re-enable with current mix/size/damping
 reverb off           → disable (Core 1 stays in WFE — zero bus traffic)
+reverb freeze on/off → freeze reverb tail (decay→1.0, input gated) (M41)
+reverb modspeed <v>  → LFO rate multiplier 0.1–4.0 (M40)
+reverb moddepth <v>  → LFO depth multiplier 0.0–1.0 (M40)
 delay 0.5 150 0.6    → ping-pong delay: mix, time_ms, feedback (M26c)
 delay on             → re-enable with current mix/time/feedback
 delay off            → hard bypass (zero CPU)
@@ -1881,15 +1891,18 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
 - [x] 26a. **Post Effects Section — Filter + Chain + Core 1 infra** — Cytomic TVA-SVF stereo filter (LP/HP/BP/NOTCH/OFF); `FilterEngine` with trig-free audio-rate path; `FxOrder` 2-flag reorderable chain (4 orderings: filter pre/post-chorus × delay pre/post-reverb); `ReverbEngine` abstract base + `NullReverb` stub running on Core 1 via volatile int32 inter-core slots (no mutex, additive 1-frame latency, artifact-free); `DelayEngine` static 26KB buffers + pass-through stub; `filter`, `fxorder`, `reverb`, `delay` serial commands; `-DDELAY_MAX_MS=200` compile flag; RAM 92KB (17.7%), Flash 117KB (2.8%)
-- [x] 26b. **Dattorro plate reverb** — `DattorroReverb` class on Core 1; Dattorro 1997 plate topology; float delay lines (eliminates Q15 quantisation noise); correct cross-coupling (D8→left, D6→right); modulated APFs with LFO ±8 samples; one-pole damping at end of long delays; FTZ (Flush-to-Zero) on both cores' FPUs; `gRevSampleSeq` counter + `__sev()`/`__wfe()` — Core 1 sleeps between samples, zero bus contention when reverb disabled; `reverb on/off/mix/size/damping` serial commands; RAM 235KB (44.9%)
+- [x] 26b. **Dattorro plate reverb (M26b rev)** — `DattorroReverb` on Core 1; Dattorro 1997 plate topology; float delay lines; correct cross-coupling; **4 LFOs at 0.10/0.12/0.15/0.18 Hz** (Plateau/Valley inspired, 10× slower than original — eliminates metallic wobble); **all 4 tank APFs now modulated** (APF6+APF8 newly so); **OnePoleHP tank filter** (~30 Hz, arrests bass accumulation); **OnePoleHP output DC block** (~10 Hz, prevents tail DC offset at high decay); **7th output tap** per channel completing Dattorro Table 1; **freeze mode** (decay→1.0, input gated); **modSpeed/modDepth parameters** (M40 partial); FTZ on both cores; WFE/SEV inter-core sync; `reverb freeze/modspeed/moddepth` serial sub-commands; CC 112 revModSpeed, CC 113 revModDepth, CC 114 freeze; RAM 236KB (45.1%)
 - [x] 26c. **Delay ring buffer** — stereo ping-pong delay; cross-channel feedback (L←fbR, R←fbL) creates L/R alternating bounce; linear fractional interpolation for accurate sub-sample delay time; `always_inline process()`; `delay on/off/mix/time/feedback` serial commands; `status` line 2 shows all fx state; RAM 236KB (45.1%)
 - [ ] 26d. **Post Effects** — global chorus, Karplus-Strong Resonator (original M26 remainder)
 - [ ] 27. **Hardware MIDI in** — UART1 RX GP9, TRS dual A/B circuit
 - [x] 28. **Central param/CC dispatch table** — `include/param_map.h` + `src/param_map.cpp`; `CCParam` struct with `{cc, valMin, valMax, *target, name}`; `paramMap_dispatchCC()` shared by all transports; 10 parameters mapped (CC 1/7/71/72/73/74/91/92/93/94); `onControlChange` in USB MIDI reduced to 3 lines + specials (CC 64 sustain, CC 123 panic)
 - [x] 29. **USB MIDI + MIDI channel config** — `Adafruit_USBD_MIDI` + `MIDI Library` via `-DUSE_TINYUSB`; composite CDC+MIDI device (serial console + MIDI coexist on same USB); Note On/Off → `gBaseFreq`/`gGateHigh` (monophonic, last-note priority); full CC map via `paramMap_dispatchCC`; Program Change 1–5 → VoiceMode; `usbMidi_init()` before `Serial.begin()` with `TinyUSBDevice.mounted()` wait; Web MIDI compatible (Chrome/Edge via `navigator.requestMIDIAccess`); `gMidiChannel` (0=omni, 1–16) set via `midichan` serial command; channel filter in all MIDI callbacks
 - [x] 29b. **Flash config persistence** — `include/config_store.h` / `src/config_store.cpp`; Earle Philhower EEPROM emulation (wear-levelled circular buffer); `AlloyConfig` struct covers all 15 synthesis + MIDI parameters; `configStore_load()` in `setup()` auto-restores on boot; `config save|load|reset` serial commands; three-layer flash protection: dirty check (memcmp), 10 s rate limit, magic+version invalidation on struct change; 4-slot layout for future preset expansion (`kMaxPresets=4`)
+- [ ] 29c. **MIDI SysEx config backup/restore** — dump/load `AlloyConfig` struct as SysEx message; allows users to manage presets via external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator
+- [ ] 29d. **MIDI CC mapping configurator** — allow users to assign MIDI CCs to parameters via Web Configurator; store mappings in flash; update `paramMap_dispatchCC` to use dynamic mapping
+- [ ] 29e. **MIDI channel configurator** — allow users to set MIDI channel (0=omni, 1–16) via Web Configurator; store in flash; filter incoming MIDI messages accordingly
 - [ ] 30. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
-- [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()` edge events; GP10 mode button cycles PAIR→CHORD (active modes only — extend `kActiveModes[]` as each mode lands); GP11 dev trigger button (hold=gate high, release=gate low) gated by `-DDEV_TRIG_BUTTON` flag — remove for production; double-tap and long-hold shift functions pending (M31 remainder)
+- [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()`/`isDown()` events; **GP10 MODE** cycles PAIR→CHORD; **GP11 SHIFT** — trig fires on **release** (not press) so holding SHIFT for combos doesn’t accidentally trigger; `sShiftConsumed` file-scope flag suppresses trig-on-release whenever SHIFT is consumed by any combo or future SHIFT+knob handler; **MODE+SHIFT held** → drone mode (`gGatePatched=false`, `sShiftConsumed=true`); SHIFT+knob secondary pot functions pending (M31 remainder)
 - [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
 - [ ] 33. **Panel design** — Design final graphics and layout
 - [ ] 34. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
@@ -1898,6 +1911,10 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 - [ ] 38. **Expand voice count and polyphony** - Enable multiple voices so polyphony is possible in all modes, not just CLOUD and CHORD. Evaluate CPU load and optimize as needed.
 - [ ] 39. **Implement load/save presets via MIDI SysEx** — allows users to store and recall presets from external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator.
+- [x] 40. **Expose reverb modulation parameters via MIDI CC** — `gRevModSpeed` (CC 112, 0.1–4.0) and `gRevModDepth` (CC 113, 0.0–1.0) added to central param map; `reverb modspeed/moddepth` serial sub-commands; `setModulation()` virtual method on `ReverbEngine`; change-detected in `updateControl()` at 128 Hz (partial — Web Configurator UI pending)
+- [x] 41. **Reverb freeze mode** — CC 114 (≥64=on, <64=off) and `reverb freeze on/off` serial command; `freeze()` virtual method on `ReverbEngine`; `DattorroReverb`: decay→1.0 + new input gated when frozen; tail holds indefinitely at full level; re-introducing input mixes in cleanly on next onset (partial — SHIFT+knob macro gesture pending)
+- [ ] 42. **Improve flash persistence data** Include additional parameters into preset saving like Reverb, Delay and other settings which are currently not saved and defined in either Web Configurator, Midi CCs or Shift+Knob macros. This will allow users to have more complete presets that cover all aspects of the module's sound, not just the core synthesis parameters.
+- [ ] 42a. **Factory reset + preset management** — `config save <slot>`, `config load <slot>`, `config reset` serial commands; preset slots 1–4; factory reset clears to defaults; Web Configurator UI for preset management
 
 
 ## Project Refinement

@@ -21,21 +21,21 @@
 // ---------------------------------------------------------------------------
 // Mozzi includes
 // ---------------------------------------------------------------------------
-#include "ButtonEngine.h"
-#include "ChorusEngine.h"
-#include "ShapeOsc.h"
-#include "SpaceEngine.h"
 #include "VoiceMode.h"
 #include "config_store.h"
-#include "usb_midi.h"
+#include "dsp/ChorusEngine.h"
+#include "dsp/ShapeOsc.h"
+#include "dsp/SpaceEngine.h"
+#include "io/ButtonEngine.h"
+#include "io/usb_midi.h"
 #include <Mozzi.h>
 #include <math.h>
 
 // ---------------------------------------------------------------------------
 // Button pin assignments (Milestone 31)
 // ---------------------------------------------------------------------------
-#define PIN_BUTTON_MODE 10 // GP10 — mode cycle button (panel button)
-#define PIN_BUTTON_TRIG 11 // GP11 — dev trigger button; enable with DEV_TRIG_BUTTON
+#define PIN_BUTTON_MODE 10  // GP10 — mode cycle button
+#define PIN_BUTTON_SHIFT 11 // GP11 — shift button (secondary pot functions + combo actions)
 
 // ---------------------------------------------------------------------------
 // Band-limited wavetables — all generated at startup via additive synthesis.
@@ -135,17 +135,17 @@ static void generateWavetables() {
 // ---------------------------------------------------------------------------
 // Module includes
 // ---------------------------------------------------------------------------
-#include "CurveEngine.h"
-#include "DattorroReverb.h"
-#include "DelayEngine.h"
-#include "DriftEngine.h"
-#include "FilterEngine.h"
-#include "FxChain.h"
-#include "ReverbEngine.h"
 #include "debug.h"
+#include "dsp/CurveEngine.h"
+#include "dsp/DattorroReverb.h"
+#include "dsp/DelayEngine.h"
+#include "dsp/DriftEngine.h"
+#include "dsp/FilterEngine.h"
+#include "dsp/FxChain.h"
+#include "dsp/ReverbEngine.h"
 #include "dsp_shared.h"
+#include "io/serial_console.h"
 #include "params.h"
-#include "serial_console.h"
 // No longer using SIN2048_DATA (int8_t) — replaced by gSineTable (int16_t)
 // for 96dBFS noise floor vs the 48dBFS of the 8-bit Mozzi table.
 
@@ -222,10 +222,11 @@ static ChorusEngine<MOZZI_AUDIO_RATE> gChorus;
 uint32_t sTrigReleaseAt = 0;
 
 // Button engines (Milestone 31) — polled at 128 Hz in updateControl().
-static ButtonEngine gBtnMode(PIN_BUTTON_MODE); // mode cycle
-#ifdef DEV_TRIG_BUTTON
-static ButtonEngine gBtnTrig(PIN_BUTTON_TRIG); // dev gate trigger
-#endif
+static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
+static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
+// Set to true whenever SHIFT is consumed by a combo or knob action so the
+// trig-on-release is suppressed. Reset automatically on SHIFT release.
+static bool sShiftConsumed = false;
 
 // ---------------------------------------------------------------------------
 // M26 Post-effects engines and parameters
@@ -256,6 +257,9 @@ volatile bool gRevEnabled = false;
 volatile uint32_t gRevSampleSeq = 0;
 float gRevSize = 0.5f;
 float gRevDamping = 0.5f;
+float gRevModSpeed = 1.0f; // M40: LFO rate multiplier (0.1–4.0)
+float gRevModDepth = 1.0f; // M40: LFO amplitude multiplier (0.0–1.0)
+bool gRevFrozen = false;   // M41: infinite sustain when true
 
 // Delay (M26c) — ping-pong stereo delay; pass-through stub until ring buffer lands.
 static DelayEngine gDelay;
@@ -311,9 +315,7 @@ void setup() {
     (void)_pw;
     gChorus.init(); // must run before startMozzi() to fill delay buffers before first ISR
     gBtnMode.begin();
-#ifdef DEV_TRIG_BUTTON
-    gBtnTrig.begin();
-#endif
+    gBtnShift.begin();
     startMozzi();
     for (uint8_t i = 0; i < 4; i++) {
         voices[i].setFreq(gBaseFreq);
@@ -336,40 +338,64 @@ void updateControl() {
 
     // -----------------------------------------------------------------------
     // Button polling (Milestone 31) — 128 Hz, ~31 ms debounce window.
+    // Poll both buttons before acting so isDown() reflects the same tick.
     // -----------------------------------------------------------------------
     gBtnMode.poll();
-    if (gBtnMode.pressed()) {
-        // Cycle through implemented voice modes only.
-        // Unimplemented modes (CLOUD/CASCADE/STRING) are skipped until their
-        // milestone lands — add them to the cycle list as each is completed.
-        static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CHORD};
-        static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
-        uint8_t idx = 0;
-        for (uint8_t i = 0; i < kN; i++) {
-            if (kActiveModes[i] == gVoiceMode) {
-                idx = i;
-                break;
+    gBtnShift.poll();
+
+    // Mode + Shift held simultaneously → return to drone mode (once per combo).
+    // A static flag prevents repeated firings while both are held.
+    // sShiftConsumed (file-scope): set by any combo or shift+knob handler so the
+    // trig on release is suppressed. Reset each time SHIFT is released.
+    {
+        static bool sDroneComboFired = false;
+        if (gBtnMode.isDown() && gBtnShift.isDown()) {
+            if (!sDroneComboFired) {
+                sDroneComboFired = true;
+                sShiftConsumed = true; // don't trig on SHIFT release
+                gGatePatched = false;
+                gGateHigh = false;
+#ifdef SERIAL_CONTROL
+                Serial.println(F("gate -> free (drone)"));
+#endif
+            }
+        } else {
+            sDroneComboFired = false;
+            // Mode solo (Shift not held): cycle voice mode.
+            if (gBtnMode.pressed()) {
+                // Cycle through implemented voice modes only.
+                // Add to kActiveModes[] as each milestone lands.
+                static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CHORD};
+                static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
+                uint8_t idx = 0;
+                for (uint8_t i = 0; i < kN; i++) {
+                    if (kActiveModes[i] == gVoiceMode) {
+                        idx = i;
+                        break;
+                    }
+                }
+                gVoiceMode = kActiveModes[(idx + 1) % kN];
+#ifdef SERIAL_CONTROL
+                Serial.print(F("mode -> "));
+                Serial.println(voiceModeName(gVoiceMode));
+#endif
+            }
+            // Shift solo: trig fires on RELEASE (not press) so holding SHIFT for
+            // a combo or future SHIFT+pot functions doesn't accidentally trigger.
+            // sShiftConsumed suppresses the trig if the press was used for a combo.
+            if (gBtnShift.released()) {
+                if (!sShiftConsumed) {
+                    gGatePatched = true;
+                    gGateHigh = true;
+                    sTrigReleaseAt = millis() + 100u;
+#ifdef SERIAL_CONTROL
+                    Serial.println(F("shift -> trig"));
+#endif
+                }
+                sShiftConsumed = false; // reset for next press
             }
         }
-        gVoiceMode = kActiveModes[(idx + 1) % kN];
-#ifdef SERIAL_CONTROL
-        Serial.print(F("mode -> "));
-        Serial.println(voiceModeName(gVoiceMode));
-#endif
     }
-
-#ifdef DEV_TRIG_BUTTON
-    // Dev trigger button: press = gate high, release = gate low.
-    // Mirrors what a hardware gate jack would do — natural hold behaviour.
-    gBtnTrig.poll();
-    if (gBtnTrig.pressed()) {
-        gGatePatched = true;
-        gGateHigh = true;
-    }
-    if (gBtnTrig.released()) {
-        gGateHigh = false;
-    }
-#endif
 
     // Auto-release for cmd_trig: lower gate when the pulse duration has elapsed.
     if (sTrigReleaseAt && millis() >= sTrigReleaseAt) {
@@ -517,6 +543,19 @@ void updateControl() {
             gReverb->setParams(gRevSize, gRevDamping);
             sPrevRevSize = gRevSize;
             sPrevRevDamping = gRevDamping;
+        }
+    }
+    {
+        static float sPrevRevModSpeed = -1.0f, sPrevRevModDepth = -1.0f;
+        static bool sPrevFrozen = false;
+        if (gRevModSpeed != sPrevRevModSpeed || gRevModDepth != sPrevRevModDepth) {
+            gReverb->setModulation(gRevModSpeed, gRevModDepth);
+            sPrevRevModSpeed = gRevModSpeed;
+            sPrevRevModDepth = gRevModDepth;
+        }
+        if (gRevFrozen != sPrevFrozen) {
+            gReverb->freeze(gRevFrozen);
+            sPrevFrozen = gRevFrozen;
         }
     }
 

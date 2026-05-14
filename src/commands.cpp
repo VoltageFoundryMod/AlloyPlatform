@@ -1,7 +1,7 @@
-#include "commands.h"
-#include "FxChain.h"
-#include "ReverbEngine.h"
+#include "io/commands.h"
 #include "config_store.h"
+#include "dsp/FxChain.h"
+#include "dsp/ReverbEngine.h"
 #include "params.h"
 #include <Arduino.h>
 #include <stdlib.h>
@@ -551,8 +551,43 @@ static void cmd_fxorder(const char *args, Print &out) {
     }
 }
 
-// M26b — Reverb: reverb [off | <mix> [size] [damping]]
+// M26b — Reverb: reverb [off | on | freeze [on|off] | modspeed <v> | moddepth <v> | <mix> [size] [damping]]
 static void cmd_reverb(const char *args, Print &out) {
+    if (strncmp(args, "freeze", 6) == 0) {
+        const char *sub = args + 6;
+        while (*sub == ' ')
+            sub++;
+        if (strcmp(sub, "on") == 0 || strcmp(sub, "1") == 0) {
+            gRevFrozen = true;
+            out.println(F("reverb freeze -> on"));
+        } else if (strcmp(sub, "off") == 0 || strcmp(sub, "0") == 0) {
+            gRevFrozen = false;
+            out.println(F("reverb freeze -> off"));
+        } else {
+            out.println(gRevFrozen ? F("reverb freeze: on") : F("reverb freeze: off"));
+        }
+        return;
+    }
+    if (strncmp(args, "modspeed", 8) == 0) {
+        const char *v = args + 8;
+        while (*v == ' ')
+            v++;
+        if (*v)
+            gRevModSpeed = constrain((float)atof(v), 0.1f, 4.0f);
+        out.print(F("reverb modspeed: "));
+        out.println(gRevModSpeed, 2);
+        return;
+    }
+    if (strncmp(args, "moddepth", 8) == 0) {
+        const char *v = args + 8;
+        while (*v == ' ')
+            v++;
+        if (*v)
+            gRevModDepth = constrain((float)atof(v), 0.0f, 1.0f);
+        out.print(F("reverb moddepth: "));
+        out.println(gRevModDepth, 2);
+        return;
+    }
     if (strcmp(args, "off") == 0) {
         gRevEnabled = false;
         out.println(F("reverb -> off"));
@@ -577,6 +612,12 @@ static void cmd_reverb(const char *args, Print &out) {
         out.println(gRevSize, 2);
         out.print(F("  damping: "));
         out.println(gRevDamping, 2);
+        out.print(F("  modspeed: "));
+        out.println(gRevModSpeed, 2);
+        out.print(F("  moddepth: "));
+        out.println(gRevModDepth, 2);
+        out.print(F("  freeze: "));
+        out.println(gRevFrozen ? F("on") : F("off"));
         return;
     }
     const float mix = constrain((float)atof(args), 0.0f, 1.0f);

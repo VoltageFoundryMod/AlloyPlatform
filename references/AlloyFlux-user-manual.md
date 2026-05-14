@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b + M31(partial)** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter, Dattorro plate reverb, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence, mode button cycling)
+> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b + M31(partial) + M40(partial) + M41(partial)** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter, Dattorro plate reverb with 4-LFO modulation + freeze mode, reverb modspeed/moddepth, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence, mode button cycling, drone-return via button combo or CC 119, SHIFT trig-on-release)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -468,7 +468,7 @@ gate 0
 
 Alloy Flux appears as a standard USB MIDI device — no drivers needed. Connect via USB and use any DAW, MIDI controller, or browser-based tool (Chrome/Edge support Web MIDI via `navigator.requestMIDIAccess`).
 
-**Note On / Note Off** set the root pitch and trigger the gate (monophonic, last-note priority). Sending Note On also arms the envelope if it was in drone mode.
+**Note On / Note Off** set the root pitch and trigger the gate (monophonic, last-note priority). Sending Note On also arms the envelope if it was in drone mode. To return to drone mode from MIDI, send **CC 119** (any value).
 
 ### `midichan <1–16|omni>` — MIDI receive channel
 
@@ -499,6 +499,10 @@ All continuous parameters are reachable via MIDI CC. Assignments follow GM/MMA c
 | 92  | Tremolo Send Depth  | `detune`            | 0–200 Hz      |
 | 93  | Chorus Send Depth   | `fat`               | 0–1           |
 | 94  | Celeste / Variation | `rel`               | 0–24 semitones |
+| 112 | (unassigned)        | `revModSpeed`       | 0.1–4.0 (LFO rate multiplier) |
+| 113 | (unassigned)        | `revModDepth`       | 0.0–1.0 (LFO depth multiplier) |
+| 114 | (unassigned)        | reverb freeze       | ≥64=freeze on, <64=freeze off |
+| 119 | (unassigned)        | drone return        | — (any value)  |
 | 123 | All Notes Off       | panic               | —              |
 
 Program Change messages 1–5 select voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING).
@@ -599,7 +603,7 @@ Controls where the filter and delay sit relative to chorus and reverb.
 
 ### `reverb <mix> [size] [damping]` — Plate reverb
 
-Dattorro 1997 plate algorithm running entirely on Core 1 — zero load on the audio ISR.
+Dattorro 1997 plate algorithm running entirely on Core 1 — zero load on the audio ISR. Four independent LFOs (0.10 / 0.12 / 0.15 / 0.18 Hz) modulate the tank allpass filters for smooth, diffuse reverberation.
 
 | Parameter | Range   | Default | Notes                                  |
 | --------- | ------- | ------- | -------------------------------------- |
@@ -613,7 +617,22 @@ reverb 0.5 0.9 0.7    # large hall — long dark tail
 reverb 0.2 0.5 0.3    # small room — short, clear
 reverb on             # re-enable with current settings
 reverb off            # disable (Core 1 sleeps — zero CPU)
+reverb freeze on      # hold reverb tail — decay → 1.0, input gated
+reverb freeze off     # return to normal decay
+reverb modspeed 2.0   # LFO rate multiplier 0.1–4.0 (default 1.0)
+reverb moddepth 0.5   # LFO depth multiplier 0.0–1.0 (default 1.0)
 ```
+
+#### Reverb sub-commands
+
+| Sub-command             | Range    | Description                                                       |
+| ----------------------- | -------- | ----------------------------------------------------------------- |
+| `reverb freeze on`      | —        | Freeze reverb tail — decay set to 1.0, input gated; tail sustains |
+| `reverb freeze off`     | —        | Unfreeze — return to configured decay and re-open input           |
+| `reverb modspeed <v>`   | 0.1–4.0  | LFO rate multiplier; 1.0 = default (0.10–0.18 Hz range)          |
+| `reverb moddepth <v>`   | 0.0–1.0  | LFO depth multiplier; 0.0 = static (no modulation)               |
+
+Also reachable via MIDI CC: CC 112 = modspeed, CC 113 = moddepth, CC 114 = freeze (≥64 on).
 
 ### `delay <mix> [time_ms] [feedback]` — Ping-pong delay
 
@@ -639,9 +658,9 @@ delay off             # bypass
 
 ## Knob Shift Functions
 
-The panel has a single button that doubles as a **shift key**. Holding it while turning a knob accesses a secondary parameter — four knobs have shift functions, giving eight parameters from seven knobs.
+The panel has two buttons: **MODE** (GP10) and **SHIFT** (GP11). Hold SHIFT while turning a knob to access a secondary parameter — four knobs have shift functions, giving eight parameters from seven knobs.
 
-| Knob  | Primary parameter               | Shift parameter (hold button)     |
+| Knob  | Primary parameter               | Shift parameter (hold SHIFT)      |
 | ----- | ------------------------------- | --------------------------------- |
 | SHAPE | `shape` — waveform morph        | `fat` — sub oscillator level      |
 | MOTN  | `motion` — drift + chorus depth | `dspeed` — drift glide rate       |
@@ -650,7 +669,9 @@ The panel has a single button that doubles as a **shift key**. Holding it while 
 
 The LED indicator dims white while shift mode is active. ROOT, RELATION, and FM knobs have no shift function.
 
-> **Current firmware (M31 partial):** mode cycling is active — pressing the panel button (GP10) steps through PAIR → CHORD → PAIR. Shift functions (hold + knob) are not yet implemented; secondary parameters are still accessed via serial commands.
+**Drone shortcut:** holding MODE + SHIFT simultaneously returns to drone mode — envelope is disarmed and the module sounds continuously regardless of the last gate source.
+
+> **Current firmware (M31 partial / M40 partial / M41 partial):** mode cycling and drone combo are active — MODE steps through PAIR → CHORD, MODE+SHIFT returns to drone. **SHIFT** also fires a 100 ms gate trigger on release (trig-on-release) — press and release SHIFT alone to trigger a one-shot note from the panel; if MODE+SHIFT drone combo was used, the trig is suppressed automatically (`sShiftConsumed`). Reverb now includes 4-LFO modulation, freeze, and modspeed/moddepth controls (CC 112/113/114). Shift functions (hold SHIFT + knob) are not yet implemented; secondary parameters are still accessed via serial commands.
 
 ---
 
@@ -663,6 +684,14 @@ No gate patching required. The module sounds continuously. Useful for:
 - Testing timbre without an envelope
 - Pads and drones that sustain indefinitely
 - Tuning and sound design exploration
+
+Return to drone mode at any time via:
+
+- **Serial:** `gate free`
+- **Buttons:** hold MODE + SHIFT simultaneously
+- **MIDI:** send CC 119 (any value)
+
+**SHIFT button — one-shot trigger:** pressing and releasing SHIFT alone fires a 100 ms gate pulse (equivalent to `trig 100`). Use this to trigger the envelope from the panel without a MIDI keyboard or serial command. If the MODE+SHIFT drone combo was used during the same press, the trig is suppressed — no accidental retriggering.
 
 ```txt
 # Factory default — just plug in audio and hear sound:
@@ -895,6 +924,9 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 | `filter <mode> …`   | off/lp/hp/bp/notch | Multimode filter: mode [cutoff Hz] [resonance 0–1]        |
 | `fxorder <fx> <pos>`| filter/delay × pre/post | Effect chain position                              |
 | `reverb <mix> …`    | 0–1, 0–1, 0–1 | Plate reverb: mix size damping; `reverb on/off`               |
+| `reverb freeze on/off` | —          | Hold reverb tail (decay→1.0, input gated) / release            |
+| `reverb modspeed <v>`  | 0.1–4.0    | LFO rate multiplier (default 1.0)                              |
+| `reverb moddepth <v>`  | 0.0–1.0    | LFO depth multiplier (default 1.0; 0=static)                   |
 | `delay <mix> …`     | 0–1, 10–300, 0–0.95 | Ping-pong delay: mix time_ms feedback; `delay on/off`   |
 | `midichan <n\|omni>` | 1–16, omni    | MIDI receive channel (default: omni)                           |
 | `config <cmd>`      | save/load/reset | Persist / restore / wipe all parameters to flash              |

@@ -75,6 +75,12 @@ class ReverbEngine {
 
     /** reset() — clear all delay lines and state (mode switch, mute). */
     virtual void reset() = 0;
+
+    /** setModulation() — M40: LFO speed and depth, called at control rate. */
+    virtual void setModulation(float /*speed*/, float /*depth*/) {}
+
+    /** freeze() — M41: hold current reverb tail indefinitely. */
+    virtual void freeze(bool /*frozen*/) {}
 };
 
 // ---------------------------------------------------------------------------

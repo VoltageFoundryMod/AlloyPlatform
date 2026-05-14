@@ -1,7 +1,7 @@
 #ifdef USE_TINYUSB
 
-#include "usb_midi.h"
-#include "param_map.h"
+#include "io/usb_midi.h"
+#include "io/param_map.h"
 #include "params.h"
 #include <Adafruit_TinyUSB.h>
 #include <MIDI.h>
@@ -75,6 +75,14 @@ static void onControlChange(byte channel, byte cc, byte value) {
     case 64: // Sustain pedal — arms gate; release only on pedal-up (value < 64)
         gGatePatched = true;
         gGateHigh = (value >= 64);
+        break;
+    case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
+        gRevFrozen = (value >= 64);
+        break;
+    case 119: // Drone return — clears gGatePatched, module returns to continuous drone
+        gGatePatched = false;
+        gGateHigh = false;
+        sActiveNote = 255;
         break;
     case 123: // All Notes Off / panic
         gGateHigh = false;

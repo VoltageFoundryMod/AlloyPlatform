@@ -1,8 +1,8 @@
 #pragma once
 
-#include "ChorusEngine.h" // ChorusMode enum
-#include "FilterEngine.h" // FilterMode enum (M26a)
-#include "VoiceMode.h"    // VoiceMode enum
+#include "VoiceMode.h"        // VoiceMode enum
+#include "dsp/ChorusEngine.h" // ChorusMode enum
+#include "dsp/FilterEngine.h" // FilterMode enum (M26a)
 
 /**
  * Shared synthesis parameters — defined in main.cpp.
@@ -65,8 +65,11 @@ extern float gFilterRes;       // 0.0 (flat) – 1.0 (near self-oscillation), de
 extern FilterMode gFilterMode; // OFF by default — zero CPU cost when bypassed
 
 // Reverb (M26b — active when gRevEnabled; NullReverb stub until DattorroReverb)
-extern float gRevSize;    // 0.0 (small room) – 1.0 (long plate), default 0.5
-extern float gRevDamping; // 0.0 (bright) – 1.0 (dark HF loss), default 0.5
+extern float gRevSize;     // 0.0 (small room) – 1.0 (long plate), default 0.5
+extern float gRevDamping;  // 0.0 (bright) – 1.0 (dark HF loss), default 0.5
+extern float gRevModSpeed; // 0.1 (glacial) – 4.0 (fast shimmer), default 1.0 (M40)
+extern float gRevModDepth; // 0.0 (static) – 1.0 (full ±8 sample swing), default 1.0 (M40)
+extern bool gRevFrozen;    // false = normal; true = infinite sustain (M41)
 // gRevMix / gRevEnabled are volatile — declared in ReverbEngine.h
 
 // Delay (M26c — pass-through stub; parameters stored ready for implementation)

@@ -1,7 +1,7 @@
 #ifdef SERIAL_CONTROL
 
-#include "serial_console.h"
-#include "commands.h"
+#include "io/serial_console.h"
+#include "io/commands.h"
 #include <Arduino.h>
 
 // ---------------------------------------------------------------------------

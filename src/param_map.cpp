@@ -1,4 +1,4 @@
-#include "param_map.h"
+#include "io/param_map.h"
 #include "params.h"
 
 // ---------------------------------------------------------------------------
@@ -22,21 +22,25 @@
 //   92  Tremolo Send Depth          detune  (symmetric fine-spread in Hz)
 //   93  Chorus Send Depth           fat     (sub oscillator level)
 //   94  Celeste (Detune) Depth      rel     (RELATION: semitones above ROOT)
+//  112  (undefined)                 revmodspeed  (M40: LFO rate 0.1–4.0)
+//  113  (undefined)                 revmoddepth  (M40: LFO depth 0.0–1.0)
 // ---------------------------------------------------------------------------
 
 // clang-format off
 const CCParam kCCParams[] = {
-    //  cc   min      max     target         name
-    {   1,  0.0f,    1.0f,  &gMotion,     "motion"    },  // Mod Wheel
-    {   7,  0.0f,    1.0f,  &gVolume,     "vol"       },  // Channel Volume
-    {  71,  0.0f,    1.0f,  &gCurve,      "curve"     },  // Resonance/Timbre
-    {  72,  0.25f,   4.0f,  &gCurveTime,  "curvetime" },  // Release Time
-    {  73,  0.001f,  0.1f,  &gDriftSpeed, "dspeed"    },  // Attack Time
-    {  74,  0.0f,    1.0f,  &gShape,      "shape"     },  // Brightness
-    {  91,  0.0f,    2.0f,  &gSpace,      "space"     },  // Reverb Depth
-    {  92,  0.0f,  200.0f,  &gDetune,     "detune"    },  // Tremolo Depth
-    {  93,  0.0f,    1.0f,  &gFatness,    "fat"       },  // Chorus Depth
-    {  94,  0.0f,   24.0f,  &gRelation,   "rel"       },  // Celeste/Variation
+    //  cc   min      max     target           name
+    {   1,  0.0f,    1.0f,  &gMotion,       "motion"      },  // Mod Wheel
+    {   7,  0.0f,    1.0f,  &gVolume,       "vol"         },  // Channel Volume
+    {  71,  0.0f,    1.0f,  &gCurve,        "curve"       },  // Resonance/Timbre
+    {  72,  0.25f,   4.0f,  &gCurveTime,    "curvetime"   },  // Release Time
+    {  73,  0.001f,  0.1f,  &gDriftSpeed,   "dspeed"      },  // Attack Time
+    {  74,  0.0f,    1.0f,  &gShape,        "shape"       },  // Brightness
+    {  91,  0.0f,    2.0f,  &gSpace,        "space"       },  // Reverb Depth
+    {  92,  0.0f,  200.0f,  &gDetune,       "detune"      },  // Tremolo Depth
+    {  93,  0.0f,    1.0f,  &gFatness,      "fat"         },  // Chorus Depth
+    {  94,  0.0f,   24.0f,  &gRelation,     "rel"         },  // Celeste/Variation
+    { 112,  0.1f,    4.0f,  &gRevModSpeed,  "revmodspeed" },  // M40: reverb LFO rate
+    { 113,  0.0f,    1.0f,  &gRevModDepth,  "revmoddepth" },  // M40: reverb LFO depth
 };
 // clang-format on
 
