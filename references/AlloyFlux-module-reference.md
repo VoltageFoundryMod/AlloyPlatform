@@ -107,7 +107,6 @@
     - [Method 2 — Hardware Cycle Counter (Recommended)](#method-2--hardware-cycle-counter-recommended)
     - [Method 3 — Idle Core Load Meter](#method-3--idle-core-load-meter)
     - [Method 4 — Audio Glitch / Overrun Counter](#method-4--audio-glitch--overrun-counter)
-    - [Voice Budget Estimates — RP2350](#voice-budget-estimates--rp2350)
     - [Dual Core Offload Strategy](#dual-core-offload-strategy)
   - [Component BOM](#component-bom)
   - [PlatformIO Setup](#platformio-setup)
@@ -254,38 +253,38 @@ The RELATION knob is the signature control of the module. It is the most express
 
 All pins accounted for. No pin used twice.
 
-| GPIO | Pico Pin | Function              | In/Out | Notes                                                 |
-| ---- | -------- | --------------------- | ------ | ----------------------------------------------------- |
-| GP0  | 1        | I2S DATA (SD)         | Out    | PCM5102 serial data — PIO 0                           |
-| GP1  | 2        | I2S BCK               | Out    | PCM5102 bit clock — PIO 0                             |
-| GP2  | 4        | I2S LRCLK             | Out    | PCM5102 LR clock — PIO 0                              |
-| GP3  | 5        | Mux S0                | Out    | 74HC4067 select bit 0                                 |
-| GP4  | 6        | Mux S1                | Out    | 74HC4067 select bit 1                                 |
-| GP5  | 7        | Mux S2                | Out    | 74HC4067 select bit 2                                 |
-| GP6  | 9        | Mux S3                | Out    | 74HC4067 select bit 3                                 |
-| GP7  | 10       | WS2812B data          | Out    | LED chain (all 3 LEDs) — PIO 1                        |
-| GP8  | 11       | UART1 TX              | Out    | Spare / debug serial                                  |
-| GP9  | 12       | UART1 RX              | In     | Hardware MIDI in (TRS jack)                           |
-| GP10 | 14       | MODE button           | In     | Internal pull-up — cycles voice modes                 |
+| GPIO | Pico Pin | Function              | In/Out | Notes                                                                |
+| ---- | -------- | --------------------- | ------ | -------------------------------------------------------------------- |
+| GP0  | 1        | I2S DATA (SD)         | Out    | PCM5102 serial data — PIO 0                                          |
+| GP1  | 2        | I2S BCK               | Out    | PCM5102 bit clock — PIO 0                                            |
+| GP2  | 4        | I2S LRCLK             | Out    | PCM5102 LR clock — PIO 0                                             |
+| GP3  | 5        | Mux S0                | Out    | 74HC4067 select bit 0                                                |
+| GP4  | 6        | Mux S1                | Out    | 74HC4067 select bit 1                                                |
+| GP5  | 7        | Mux S2                | Out    | 74HC4067 select bit 2                                                |
+| GP6  | 9        | Mux S3                | Out    | 74HC4067 select bit 3                                                |
+| GP7  | 10       | WS2812B data          | Out    | LED chain (all 3 LEDs) — PIO 1                                       |
+| GP8  | 11       | UART1 TX              | Out    | Spare / debug serial                                                 |
+| GP9  | 12       | UART1 RX              | In     | Hardware MIDI in (TRS jack)                                          |
+| GP10 | 14       | MODE button           | In     | Internal pull-up — cycles voice modes                                |
 | GP11 | 15       | SHIFT button          | In     | Internal pull-up — secondary pot functions; MODE+SHIFT combo → drone |
-| GP12 | 16       | Spare                 | In     | Future expansion                                      |
-| GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later |
-| GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                           |
-| GP15 | 20       | I2C External          | —      | SCL 1 for I2C external comm                           |
-| GP16 | 21       | Spare                 | —      | Future expansion                                      |
-| GP17 | 22       | Spare                 | —      | Future expansion                                      |
-| GP18 | 24       | Spare                 | —      | Future expansion                                      |
-| GP19 | 25       | Spare                 | —      | Future expansion                                      |
-| GP20 | 26       | Spare                 | —      | Future expansion                                      |
-| GP21 | 27       | Spare                 | —      | Future expansion                                      |
-| GP22 | 29       | Spare                 | —      | Future expansion                                      |
-| GP26 | 31       | ADC0 — V/OCT pitch    | In     | Direct ADC, fast reads, 1V/oct tracking               |
-| GP27 | 32       | ADC1 — FM IN          | In     | Direct ADC, audio-rate reads in updateAudio()         |
-| GP28 | 34       | ADC2 — Mux signal     | In     | 74HC4067 SIG — all knobs + slow CVs + jack switches   |
-| GP25 | internal | Onboard LED           | Out    | Debug only                                            |
-| —    | 36       | 3.3V out              | Pwr    | Powers PCM5102, 74HC4067                              |
-| —    | 39       | VSYS                  | Pwr    | System power from Eurorack via LDO                    |
-| —    | 40       | VBUS                  | Pwr    | USB 5V                                                |
+| GP12 | 16       | Spare                 | In     | Future expansion                                                     |
+| GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later                |
+| GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                                          |
+| GP15 | 20       | I2C External          | —      | SCL 1 for I2C external comm                                          |
+| GP16 | 21       | Spare                 | —      | Future expansion                                                     |
+| GP17 | 22       | Spare                 | —      | Future expansion                                                     |
+| GP18 | 24       | Spare                 | —      | Future expansion                                                     |
+| GP19 | 25       | Spare                 | —      | Future expansion                                                     |
+| GP20 | 26       | Spare                 | —      | Future expansion                                                     |
+| GP21 | 27       | Spare                 | —      | Future expansion                                                     |
+| GP22 | 29       | Spare                 | —      | Future expansion                                                     |
+| GP26 | 31       | ADC0 — V/OCT pitch    | In     | Direct ADC, fast reads, 1V/oct tracking                              |
+| GP27 | 32       | ADC1 — FM IN          | In     | Direct ADC, audio-rate reads in updateAudio()                        |
+| GP28 | 34       | ADC2 — Mux signal     | In     | 74HC4067 SIG — all knobs + slow CVs + jack switches                  |
+| GP25 | internal | Onboard LED           | Out    | Debug only                                                           |
+| —    | 36       | 3.3V out              | Pwr    | Powers PCM5102, 74HC4067                                             |
+| —    | 39       | VSYS                  | Pwr    | System power from Eurorack via LDO                                   |
+| —    | 40       | VBUS                  | Pwr    | USB 5V                                                               |
 
 **Spare GPIO: GP13–GP22 — 10 pins available for future features.**
 
@@ -1377,29 +1376,29 @@ Both active simultaneously. Last-received source wins.
 
 ### Supported Messages
 
-| Message          | Action                                                            |
-| ---------------- | ----------------------------------------------------------------- |
-| Note On          | Set ROOT pitch + trigger GATE (monophonic, last-note priority)    |
-| Note Off         | Release articulation                                              |
-| Pitch Bend       | ±2 semitones (configurable via calibration routine)               |
-| CC 1 Mod Wheel   | `motion` — drift + chorus depth (0–1)                             |
-| CC 7 Volume      | `vol` — master output level (0–1)                                 |
-| CC 64 Sustain    | `gate` — hold (≤64=on, <64=off); arms `gGatePatched=true`         |
-| CC 71 Timbre     | `curve` — envelope shape (0–1)                                    |
-| CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                        |
-| CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                          |
-| CC 74 Brightness | `shape` — waveform morph (0–1)                                    |
-| CC 91 Reverb     | `space` — stereo width (0–2)                                      |
-| CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                       |
-| CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                |
-| CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                      |
-| CC 112           | `revmodspeed` — reverb LFO rate multiplier (0.1–4.0) (M40)        |
-| CC 113           | `revmoddepth` — reverb LFO depth multiplier (0.0–1.0) (M40)       |
-| CC 114           | Reverb freeze — ≥64 = freeze on, <64 = freeze off (M41)           |
+| Message          | Action                                                             |
+| ---------------- | ------------------------------------------------------------------ |
+| Note On          | Set ROOT pitch + trigger GATE (monophonic, last-note priority)     |
+| Note Off         | Release articulation                                               |
+| Pitch Bend       | ±2 semitones (configurable via calibration routine)                |
+| CC 1 Mod Wheel   | `motion` — drift + chorus depth (0–1)                              |
+| CC 7 Volume      | `vol` — master output level (0–1)                                  |
+| CC 64 Sustain    | `gate` — hold (≤64=on, <64=off); arms `gGatePatched=true`          |
+| CC 71 Timbre     | `curve` — envelope shape (0–1)                                     |
+| CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                         |
+| CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                           |
+| CC 74 Brightness | `shape` — waveform morph (0–1)                                     |
+| CC 91 Reverb     | `space` — stereo width (0–2)                                       |
+| CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                        |
+| CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                 |
+| CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                       |
+| CC 112           | `revmodspeed` — reverb LFO rate multiplier (0.1–4.0) (M40)         |
+| CC 113           | `revmoddepth` — reverb LFO depth multiplier (0.0–1.0) (M40)        |
+| CC 114           | Reverb freeze — ≥64 = freeze on, <64 = freeze off (M41)            |
 | CC 119           | Drone return — clears gate arm, module returns to continuous drone |
-| CC 123           | All Notes Off / panic                                             |
-| Clock 0xF8       | MOTION sync to MIDI clock                                         |
-| Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING) |
+| CC 123           | All Notes Off / panic                                              |
+| Clock 0xF8       | MOTION sync to MIDI clock                                          |
+| Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING)  |
 
 All CC assignments are defined in `include/param_map.h` / `src/param_map.cpp` — a single shared table iterated by all transports. Adding a new parameter requires one row in that file only.
 
@@ -1458,12 +1457,12 @@ The crucial UX distinction: mode changes are deliberate and infrequent. You choo
 
 ### Button Interaction Map
 
-| Action                          | Result                                                            |
-| ------------------------------- | ----------------------------------------------------------------- |
-| MODE tap (Shift not held)       | Cycle voice mode: PAIR → CHORD → (→ CLOUD/CASCADE/STRING when implemented) → PAIR |
-| SHIFT hold + turn knob          | Access secondary pot parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL) |
-| MODE + SHIFT held simultaneously | Return to drone mode — clears gate arm regardless of current mode |
-| MODE long hold (3 s)            | Enter V/OCT calibration routine (future)                          |
+| Action                           | Result                                                                            |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| MODE tap (Shift not held)        | Cycle voice mode: PAIR → CHORD → (→ CLOUD/CASCADE/STRING when implemented) → PAIR |
+| SHIFT hold + turn knob           | Access secondary pot parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL)           |
+| MODE + SHIFT held simultaneously | Return to drone mode — clears gate arm regardless of current mode                 |
+| MODE long hold (3 s)             | Enter V/OCT calibration routine (future)                                          |
 
 That is the complete button interaction surface. Nothing else is hidden. No color memorization required for performance — mode is chosen deliberately, confirmed by LED, heard immediately.
 
@@ -1699,21 +1698,6 @@ AudioOutput updateAudio() {
 }
 // Any non-zero overruns = audible problem — reduce load
 ```
-
-### Voice Budget Estimates — RP2350
-
-Approximate costs at 32768Hz, 150MHz. Always verify with Method 2.
-
-| Configuration        | Est. µs | Headroom | Status |
-| -------------------- | ------- | -------- | ------ |
-| PAIR, no chorus      | ~6 µs   | ~80%     | ✅      |
-| PAIR + chorus        | ~13 µs  | ~57%     | ✅      |
-| CLOUD (4 voices)     | ~14 µs  | ~54%     | ✅      |
-| CLOUD + chorus       | ~21 µs  | ~31%     | ✅      |
-| CHORD (4 voices)     | ~14 µs  | ~54%     | ✅      |
-| STRING (all engines) | ~24 µs  | ~21%     | ✅ ⚠️    |
-| 8 voices + chorus C0 | ~34 µs  | −11%     | ❌      |
-| 8 voices + chorus C1 | ~21 µs  | ~31%     | ✅      |
 
 ### Dual Core Offload Strategy
 

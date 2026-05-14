@@ -45,6 +45,7 @@
     - [`filter <mode> [cutoff] [res]` — Multimode filter](#filter-mode-cutoff-res--multimode-filter)
     - [`fxorder <filter|delay> <pre|post>` — Effect chain order](#fxorder-filterdelay-prepost--effect-chain-order)
     - [`reverb <mix> [size] [damping]` — Plate reverb](#reverb-mix-size-damping--plate-reverb)
+      - [Reverb sub-commands](#reverb-sub-commands)
     - [`delay <mix> [time_ms] [feedback]` — Ping-pong delay](#delay-mix-time_ms-feedback--ping-pong-delay)
   - [Knob Shift Functions](#knob-shift-functions)
   - [Gate and Envelope Modes](#gate-and-envelope-modes)
@@ -213,13 +214,13 @@ Default: `pair`
 
 Selects the synthesis personality.
 
-| Mode      | Description                                         | Status        |
-| --------- | --------------------------------------------------- | ------------- |
-| `pair`    | ROOT + RELATION dual voice — interval + fine detune | Active (M21)  |
-| `cloud`   | Multi-voice detuned ensemble                        | Future (M22)  |
-| `chord`   | 4-voice chord stack — RELATION sweeps chord shapes  | Active (M23)  |
-| `cascade` | Restrained FM oscillator interaction                | Future (M24)  |
-| `string`  | Vintage string machine ensemble                     | Future (M25)  |
+| Mode      | Description                                         | Status       |
+| --------- | --------------------------------------------------- | ------------ |
+| `pair`    | ROOT + RELATION dual voice — interval + fine detune | Active (M21) |
+| `cloud`   | Multi-voice detuned ensemble                        | Future (M22) |
+| `chord`   | 4-voice chord stack — RELATION sweeps chord shapes  | Active (M23) |
+| `cascade` | Restrained FM oscillator interaction                | Future (M24) |
+| `string`  | Vintage string machine ensemble                     | Future (M25) |
 
 **CHORD mode** — RELATION knob (or CC 94) sweeps through 11 chord shapes, interpolating smoothly between them. Voices are spread hard-L → hard-R across the stereo field.
 
@@ -486,24 +487,24 @@ Combine with DAW multi-instrument routing to run multiple AlloyFlux modules on s
 
 All continuous parameters are reachable via MIDI CC. Assignments follow GM/MMA conventions where a standard meaning exists.
 
-| CC  | GM/MMA name         | AlloyFlux parameter | Range          |
-| --- | ------------------- | ------------------- | -------------- |
-| 1   | Modulation Wheel    | `motion`            | 0–1           |
-| 7   | Channel Volume      | `vol`               | 0–1           |
-| 64  | Sustain Pedal       | `gate` (hold)       | ≥64=on, <64=off |
-| 71  | Resonance / Timbre  | `curve`             | 0–1           |
-| 72  | Release Time        | `curvetime`         | 0.25–4         |
-| 73  | Attack Time         | `dspeed`            | 0.001–0.1     |
-| 74  | Brightness          | `shape`             | 0–1           |
-| 91  | Reverb Send Depth   | `space`             | 0–2           |
-| 92  | Tremolo Send Depth  | `detune`            | 0–200 Hz      |
-| 93  | Chorus Send Depth   | `fat`               | 0–1           |
-| 94  | Celeste / Variation | `rel`               | 0–24 semitones |
-| 112 | (unassigned)        | `revModSpeed`       | 0.1–4.0 (LFO rate multiplier) |
+| CC  | GM/MMA name         | AlloyFlux parameter | Range                          |
+| --- | ------------------- | ------------------- | ------------------------------ |
+| 1   | Modulation Wheel    | `motion`            | 0–1                            |
+| 7   | Channel Volume      | `vol`               | 0–1                            |
+| 64  | Sustain Pedal       | `gate` (hold)       | ≥64=on, <64=off                |
+| 71  | Resonance / Timbre  | `curve`             | 0–1                            |
+| 72  | Release Time        | `curvetime`         | 0.25–4                         |
+| 73  | Attack Time         | `dspeed`            | 0.001–0.1                      |
+| 74  | Brightness          | `shape`             | 0–1                            |
+| 91  | Reverb Send Depth   | `space`             | 0–2                            |
+| 92  | Tremolo Send Depth  | `detune`            | 0–200 Hz                       |
+| 93  | Chorus Send Depth   | `fat`               | 0–1                            |
+| 94  | Celeste / Variation | `rel`               | 0–24 semitones                 |
+| 112 | (unassigned)        | `revModSpeed`       | 0.1–4.0 (LFO rate multiplier)  |
 | 113 | (unassigned)        | `revModDepth`       | 0.0–1.0 (LFO depth multiplier) |
-| 114 | (unassigned)        | reverb freeze       | ≥64=freeze on, <64=freeze off |
-| 119 | (unassigned)        | drone return        | — (any value)  |
-| 123 | All Notes Off       | panic               | —              |
+| 114 | (unassigned)        | reverb freeze       | ≥64=freeze on, <64=freeze off  |
+| 119 | (unassigned)        | drone return        | — (any value)                  |
+| 123 | All Notes Off       | panic               | —                              |
 
 Program Change messages 1–5 select voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING).
 
@@ -594,22 +595,22 @@ filter off            # bypass
 
 Controls where the filter and delay sit relative to chorus and reverb.
 
-| Command               | Chain result                                    |
-| --------------------- | ----------------------------------------------- |
-| `fxorder filter pre`  | Filter → Chorus (default — shapes raw voice)    |
-| `fxorder filter post` | Chorus → Filter (sculpts the chorused mix)      |
-| `fxorder delay pre`   | Delay → Reverb (default — reverb'd echoes)      |
-| `fxorder delay post`  | Reverb → Delay (echoes of the reverb tail)      |
+| Command               | Chain result                                 |
+| --------------------- | -------------------------------------------- |
+| `fxorder filter pre`  | Filter → Chorus (default — shapes raw voice) |
+| `fxorder filter post` | Chorus → Filter (sculpts the chorused mix)   |
+| `fxorder delay pre`   | Delay → Reverb (default — reverb'd echoes)   |
+| `fxorder delay post`  | Reverb → Delay (echoes of the reverb tail)   |
 
 ### `reverb <mix> [size] [damping]` — Plate reverb
 
 Dattorro 1997 plate algorithm running entirely on Core 1 — zero load on the audio ISR. Four independent LFOs (0.10 / 0.12 / 0.15 / 0.18 Hz) modulate the tank allpass filters for smooth, diffuse reverberation.
 
-| Parameter | Range   | Default | Notes                                  |
-| --------- | ------- | ------- | -------------------------------------- |
-| mix       | 0.0–1.0 | 0.35    | Wet level added on top of dry          |
-| size      | 0.0–1.0 | 0.5     | Tank decay — higher = longer tail      |
-| damping   | 0.0–1.0 | 0.5     | High-frequency rolloff in the tail     |
+| Parameter | Range   | Default | Notes                              |
+| --------- | ------- | ------- | ---------------------------------- |
+| mix       | 0.0–1.0 | 0.35    | Wet level added on top of dry      |
+| size      | 0.0–1.0 | 0.5     | Tank decay — higher = longer tail  |
+| damping   | 0.0–1.0 | 0.5     | High-frequency rolloff in the tail |
 
 ```txt
 reverb 0.3 0.7 0.4    # subtle plate — large, slightly bright
@@ -625,12 +626,12 @@ reverb moddepth 0.5   # LFO depth multiplier 0.0–1.0 (default 1.0)
 
 #### Reverb sub-commands
 
-| Sub-command             | Range    | Description                                                       |
-| ----------------------- | -------- | ----------------------------------------------------------------- |
-| `reverb freeze on`      | —        | Freeze reverb tail — decay set to 1.0, input gated; tail sustains |
-| `reverb freeze off`     | —        | Unfreeze — return to configured decay and re-open input           |
-| `reverb modspeed <v>`   | 0.1–4.0  | LFO rate multiplier; 1.0 = default (0.10–0.18 Hz range)          |
-| `reverb moddepth <v>`   | 0.0–1.0  | LFO depth multiplier; 0.0 = static (no modulation)               |
+| Sub-command           | Range   | Description                                                       |
+| --------------------- | ------- | ----------------------------------------------------------------- |
+| `reverb freeze on`    | —       | Freeze reverb tail — decay set to 1.0, input gated; tail sustains |
+| `reverb freeze off`   | —       | Unfreeze — return to configured decay and re-open input           |
+| `reverb modspeed <v>` | 0.1–4.0 | LFO rate multiplier; 1.0 = default (0.10–0.18 Hz range)           |
+| `reverb moddepth <v>` | 0.0–1.0 | LFO depth multiplier; 0.0 = static (no modulation)                |
 
 Also reachable via MIDI CC: CC 112 = modspeed, CC 113 = moddepth, CC 114 = freeze (≥64 on).
 
@@ -638,11 +639,11 @@ Also reachable via MIDI CC: CC 112 = modspeed, CC 113 = moddepth, CC 114 = freez
 
 Stereo ping-pong delay — cross-channel feedback routes echoes L→R→L alternating. Maximum time: 300 ms.
 
-| Parameter | Range     | Default | Notes                                  |
-| --------- | --------- | ------- | -------------------------------------- |
-| mix       | 0.0–1.0   | 0.0     | Wet level; 0 = bypass (zero CPU)       |
-| time_ms   | 10–300 ms | 100 ms  | Fractional sample accuracy             |
-| feedback  | 0.0–0.95  | 0.5     | Echo decay; >0.8 gives long fading tail|
+| Parameter | Range     | Default | Notes                                   |
+| --------- | --------- | ------- | --------------------------------------- |
+| mix       | 0.0–1.0   | 0.0     | Wet level; 0 = bypass (zero CPU)        |
+| time_ms   | 10–300 ms | 100 ms  | Fractional sample accuracy              |
+| feedback  | 0.0–0.95  | 0.5     | Echo decay; >0.8 gives long fading tail |
 
 ```txt
 delay 0.4 150 0.6     # ping-pong at 150 ms, 60% feedback
@@ -903,37 +904,37 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 
 ## Command Quick Reference
 
-| Command             | Range         | Description                                                    |
-| ------------------- | ------------- | -------------------------------------------------------------- |
-| `pitch <hz>`        | 20–8000       | Base frequency                                                 |
-| `note <name>`       | —             | Set pitch by note name (C4, A#3, etc.)                         |
-| `mode <name>`       | pair/chord/…  | Voice mode (pair: M21, chord: M23)                             |
-| `rel <0–24>`        | 0–24 st       | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)      |
-| `detune <hz>`       | 0–200         | Symmetric fine spread between voices                           |
-| `shape <0–1>`       | 0–1           | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow          |
-| `fat <0–1>`         | 0–1           | Sub oscillator level (0=off, 1=50% of main)                    |
-| `motion <0–1>`      | 0–1           | Frequency drift + chorus depth (0=dry/static, 1=full)          |
-| `dspeed <n>`        | 0.001–0.1     | Drift glide speed (τ coefficient)                              |
-| `chorus <mode>`     | off/I/II/I+II | Chorus mode (default: I+II)                                    |
-| `space <0–2>`       | 0–2           | Stereo width (0=mono, 1=full stereo, 2=hyper-wide, default: 1) |
-| `curve <0–1>`       | 0–1           | Envelope shape (0=pluck, 1=swell)                              |
-| `curvetime <n>`     | 0.25–4        | Envelope time scale (1=default)                                |
-| `gate <1\|0\|free>` | —             | Gate high / low / bypass (drone)                               |
-| `trig [ms]`         | —             | One-shot gate pulse (default 100 ms)                           |
-| `vol <0–1>`         | 0–1           | Master volume                                                  |
-| `filter <mode> …`   | off/lp/hp/bp/notch | Multimode filter: mode [cutoff Hz] [resonance 0–1]        |
-| `fxorder <fx> <pos>`| filter/delay × pre/post | Effect chain position                              |
-| `reverb <mix> …`    | 0–1, 0–1, 0–1 | Plate reverb: mix size damping; `reverb on/off`               |
-| `reverb freeze on/off` | —          | Hold reverb tail (decay→1.0, input gated) / release            |
-| `reverb modspeed <v>`  | 0.1–4.0    | LFO rate multiplier (default 1.0)                              |
-| `reverb moddepth <v>`  | 0.0–1.0    | LFO depth multiplier (default 1.0; 0=static)                   |
-| `delay <mix> …`     | 0–1, 10–300, 0–0.95 | Ping-pong delay: mix time_ms feedback; `delay on/off`   |
-| `midichan <n\|omni>` | 1–16, omni    | MIDI receive channel (default: omni)                           |
-| `config <cmd>`      | save/load/reset | Persist / restore / wipe all parameters to flash              |
-| `status`            | —             | Print all current parameters                                   |
-| `cpu`               | —             | Audio ISR timing and headroom                                  |
-| `perf on\|off`      | —             | Auto CPU reporting every 5 s                                   |
-| `help`              | —             | List all commands                                              |
+| Command                | Range                   | Description                                                    |
+| ---------------------- | ----------------------- | -------------------------------------------------------------- |
+| `pitch <hz>`           | 20–8000                 | Base frequency                                                 |
+| `note <name>`          | —                       | Set pitch by note name (C4, A#3, etc.)                         |
+| `mode <name>`          | pair/chord/…            | Voice mode (pair: M21, chord: M23)                             |
+| `rel <0–24>`           | 0–24 st                 | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)      |
+| `detune <hz>`          | 0–200                   | Symmetric fine spread between voices                           |
+| `shape <0–1>`          | 0–1                     | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow          |
+| `fat <0–1>`            | 0–1                     | Sub oscillator level (0=off, 1=50% of main)                    |
+| `motion <0–1>`         | 0–1                     | Frequency drift + chorus depth (0=dry/static, 1=full)          |
+| `dspeed <n>`           | 0.001–0.1               | Drift glide speed (τ coefficient)                              |
+| `chorus <mode>`        | off/I/II/I+II           | Chorus mode (default: I+II)                                    |
+| `space <0–2>`          | 0–2                     | Stereo width (0=mono, 1=full stereo, 2=hyper-wide, default: 1) |
+| `curve <0–1>`          | 0–1                     | Envelope shape (0=pluck, 1=swell)                              |
+| `curvetime <n>`        | 0.25–4                  | Envelope time scale (1=default)                                |
+| `gate <1\|0\|free>`    | —                       | Gate high / low / bypass (drone)                               |
+| `trig [ms]`            | —                       | One-shot gate pulse (default 100 ms)                           |
+| `vol <0–1>`            | 0–1                     | Master volume                                                  |
+| `filter <mode> …`      | off/lp/hp/bp/notch      | Multimode filter: mode [cutoff Hz] [resonance 0–1]             |
+| `fxorder <fx> <pos>`   | filter/delay × pre/post | Effect chain position                                          |
+| `reverb <mix> …`       | 0–1, 0–1, 0–1           | Plate reverb: mix size damping; `reverb on/off`                |
+| `reverb freeze on/off` | —                       | Hold reverb tail (decay→1.0, input gated) / release            |
+| `reverb modspeed <v>`  | 0.1–4.0                 | LFO rate multiplier (default 1.0)                              |
+| `reverb moddepth <v>`  | 0.0–1.0                 | LFO depth multiplier (default 1.0; 0=static)                   |
+| `delay <mix> …`        | 0–1, 10–300, 0–0.95     | Ping-pong delay: mix time_ms feedback; `delay on/off`          |
+| `midichan <n\|omni>`   | 1–16, omni              | MIDI receive channel (default: omni)                           |
+| `config <cmd>`         | save/load/reset         | Persist / restore / wipe all parameters to flash               |
+| `status`               | —                       | Print all current parameters                                   |
+| `cpu`                  | —                       | Audio ISR timing and headroom                                  |
+| `perf on\|off`         | —                       | Auto CPU reporting every 5 s                                   |
+| `help`                 | —                       | List all commands                                              |
 
 ---
 
