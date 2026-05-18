@@ -34,15 +34,20 @@
       - [`gate <1 | 0 | free>` — Gate control](#gate-1--0--free--gate-control)
       - [`curve <0–1>` — Envelope shape](#curve-01--envelope-shape)
       - [`curvetime <0.25–4>` — Envelope time scale](#curvetime-0254--envelope-time-scale)
+    - [ADSR Envelope (M5x)](#adsr-envelope-m5x)
+      - [`env type <ar|adsr>` — Envelope algorithm](#env-type-aradsr--envelope-algorithm)
+      - [`adsr <A> <D> <S> <R> [loop|noloop]` — ADSR parameters](#adsr-a-d-s-r-loopnoloop--adsr-parameters)
+      - [`env loop <on|off>` — ADSR loop mode](#env-loop-onoff--adsr-loop-mode)
   - [MIDI Control](#midi-control)
     - [`midichan <1–16|omni>` — MIDI receive channel](#midichan-116omni--midi-receive-channel)
     - [USB MIDI CC Map](#usb-midi-cc-map)
   - [Config Persistence](#config-persistence)
-    - [`config save` / `config load` / `config reset`](#config-save--config-load--config-reset)
+    - [`config` — Preset slots \& factory reset](#config--preset-slots--factory-reset)
     - [Volume](#volume)
       - [`vol <0–1>` — Master volume](#vol-01--master-volume)
   - [Post-Effects](#post-effects)
     - [`filter <mode> [cutoff] [res]` — Multimode filter](#filter-mode-cutoff-res--multimode-filter)
+    - [`filter type <svf|ladder>` — Filter algorithm](#filter-type-svfladder--filter-algorithm)
     - [`fxorder <filter|delay> <pre|post>` — Effect chain order](#fxorder-filterdelay-prepost--effect-chain-order)
     - [`reverb <mix> [size] [damping]` — Plate reverb](#reverb-mix-size-damping--plate-reverb)
       - [Reverb sub-commands](#reverb-sub-commands)
@@ -570,32 +575,52 @@ The CC table is defined in a single file (`src/param_map.cpp`) shared by all tra
 
 ## Config Persistence
 
-### `config save` / `config load` / `config reset`
+### `config` — Preset slots & factory reset
 
-Saves and restores all parameters to flash using the RP2350 EEPROM emulation library (wear-levelled, safe for thousands of cycles).
+AlloyFlux has **10 preset slots** in flash (wear-levelled EEPROM emulation). Slot 0 is the auto-save live state restored on every boot. Slots 1–9 are explicit user presets.
+
+| Command | Action |
+| --- | --- |
+| `config save` | Write current parameters to flash (live slot 0) |
+| `config save <1–9>` | Save current parameters to preset slot 1–9 |
+| `config load` | Restore live slot 0 (also happens automatically on boot) |
+| `config load <1–9>` | Load preset slot 1–9 into active parameters |
+| `config reset` | Wipe live slot — defaults used on next boot |
+| `config reset <1–9>` | Wipe a single preset slot |
+| `config reset all` | **Factory reset** — wipe all 10 slots |
 
 ```txt
-config save       # write current parameters to flash
-config load       # restore last saved parameters
-config reset      # wipe stored config (defaults used on next boot)
+config save        # save live state
+config save 3      # save to preset slot 3
+config load 3      # recall preset slot 3
+config reset all   # factory reset — all slots wiped
 ```
 
-**Flash protection:** saves are rate-limited to one every 10 seconds. If the parameters haven’t changed since the last save, no write occurs (dirty check). The response tells you which case applied:
+**Flash protection (live slot only):** saves are rate-limited to one every 10 seconds. If the parameters haven’t changed since the last save, no write occurs (dirty check). Explicit preset slot saves (1–9) bypass the rate limit.
 
 ```txt
 > config save
-config saved
+config saved (live slot)
 
 > config save
 config unchanged — no write needed
 
 > config save
 config save throttled — wait 10s between saves
+
+> config save 3
+preset 3 saved
+
+> config load 3
+preset 3 loaded
+
+> config reset all
+all presets wiped — defaults on next boot
 ```
 
-On boot, parameters are loaded automatically if a valid saved config exists. If the firmware version changes, the stored config is silently discarded and compile-time defaults are used.
+On boot, the live slot (slot 0) is loaded automatically if a valid config exists. If the firmware version changes (struct updated), the stored config is silently discarded and compile-time defaults are used.
 
-> **Wear estimate:** at the 10 s rate limit, flash rated at 100,000 erase cycles ≈ 31 years of continuous saving. The wear-levelling circular buffer multiplies this further.
+> **Wear estimate:** at the 10 s rate limit, flash rated at 100,000 erase cycles ≈ 31 years of continuous saving. The wear-levelling circular buffer multiplies this further. Explicit preset saves are not rate-limited but are dirty-checked — no write if contents are identical.
 
 ---
 

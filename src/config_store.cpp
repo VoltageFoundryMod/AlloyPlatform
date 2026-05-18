@@ -14,7 +14,7 @@
 // We reserve kEepromBytes for our buffer — enough for kMaxPresets slots.
 // kEepromBytes must be <= the RP2350 EEPROM emulation size (default 4096).
 // ---------------------------------------------------------------------------
-static constexpr int kEepromBytes = kMaxPresets * sizeof(AlloyConfig); // ~240 bytes
+static constexpr int kEepromBytes = kMaxPresets * sizeof(AlloyConfig); // ~1200 bytes (10 slots)
 static constexpr int kSlotBytes = sizeof(AlloyConfig);
 
 // Minimum milliseconds between flash commits.
@@ -59,6 +59,33 @@ static void packConfig(AlloyConfig &cfg) {
     cfg.curveTime = gCurveTime;
     cfg.volume = gVolume;
     cfg.midiChannel = gMidiChannel;
+    // Filter
+    cfg.filterCutoff = gFilterCutoff;
+    cfg.filterRes = gFilterRes;
+    cfg.filterMode = (uint8_t)gFilterMode;
+    cfg.filterType = (uint8_t)gFilterType;
+    // Envelope
+    cfg.envelopeType = (uint8_t)gEnvelopeType;
+    cfg.adsrAttack = gAdsrAttack;
+    cfg.adsrDecay = gAdsrDecay;
+    cfg.adsrSustain = gAdsrSustain;
+    cfg.adsrRelease = gAdsrRelease;
+    cfg.adsrLoop = gAdsrLoop;
+    // Reverb
+    cfg.revEnabled = gRevEnabled;
+    cfg.revMix = gRevMix;
+    cfg.revSize = gRevSize;
+    cfg.revDamping = gRevDamping;
+    cfg.revModSpeed = gRevModSpeed;
+    cfg.revModDepth = gRevModDepth;
+    cfg.revFrozen = gRevFrozen;
+    // Delay
+    cfg.delayTime = gDelayTime;
+    cfg.delayFeedback = gDelayFeedback;
+    cfg.delayMix = gDelayMix;
+    // FxOrder
+    cfg.fxFilterPostChorus = gFxOrder.filterPostChorus;
+    cfg.fxDelayPostReverb = gFxOrder.delayPostReverb;
 }
 
 // Apply a validated config struct to all gXxx globals.
@@ -78,27 +105,59 @@ static void applyConfig(const AlloyConfig &cfg) {
     gCurveTime = cfg.curveTime;
     gVolume = cfg.volume;
     gMidiChannel = cfg.midiChannel;
+    // Filter
+    gFilterCutoff = cfg.filterCutoff;
+    gFilterRes = cfg.filterRes;
+    gFilterMode = (FilterMode)cfg.filterMode;
+    gFilterType = (FilterType)cfg.filterType;
+    // Envelope
+    gEnvelopeType = (EnvelopeType)cfg.envelopeType;
+    gAdsrAttack = cfg.adsrAttack;
+    gAdsrDecay = cfg.adsrDecay;
+    gAdsrSustain = cfg.adsrSustain;
+    gAdsrRelease = cfg.adsrRelease;
+    gAdsrLoop = cfg.adsrLoop;
+    // Reverb
+    gRevEnabled = cfg.revEnabled;
+    gRevMix = cfg.revMix;
+    gRevSize = cfg.revSize;
+    gRevDamping = cfg.revDamping;
+    gRevModSpeed = cfg.revModSpeed;
+    gRevModDepth = cfg.revModDepth;
+    gRevFrozen = cfg.revFrozen;
+    // Delay
+    gDelayTime = cfg.delayTime;
+    gDelayFeedback = cfg.delayFeedback;
+    gDelayMix = cfg.delayMix;
+    // FxOrder
+    gFxOrder.filterPostChorus = cfg.fxFilterPostChorus;
+    gFxOrder.delayPostReverb = cfg.fxDelayPostReverb;
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-bool configStore_load() {
+bool configStore_load(uint8_t slot) {
+    if (slot >= kMaxPresets)
+        slot = 0;
     ensureEeprom();
     AlloyConfig cfg;
-    EEPROM.get(slotAddr(0), cfg);
+    EEPROM.get(slotAddr(slot), cfg);
     if (cfg.magic != kConfigMagic || cfg.version != kConfigVersion)
         return false; // no valid config — caller uses compile-time defaults
     applyConfig(cfg);
     return true;
 }
 
-ConfigSaveResult configStore_save() {
+ConfigSaveResult configStore_save(uint8_t slot) {
+    if (slot >= kMaxPresets)
+        slot = 0;
     const uint32_t now = millis();
 
-    // Rate limit: protect flash from rapid repeated writes.
-    if (sLastSaveMs > 0 && (now - sLastSaveMs) < kMinSaveIntervalMs)
+    // Rate limit applies only to the auto-save slot (slot 0) to protect flash.
+    // Explicit preset saves (slots 1–9) bypass the rate limit.
+    if (slot == 0 && sLastSaveMs > 0 && (now - sLastSaveMs) < kMinSaveIntervalMs)
         return ConfigSaveResult::THROTTLED;
 
     ensureEeprom();
@@ -107,25 +166,32 @@ ConfigSaveResult configStore_save() {
     AlloyConfig newCfg;
     packConfig(newCfg);
 
-    // Dirty check: read what is stored and compare byte-for-byte.
-    // If nothing changed, skip the erase/program cycle entirely.
+    // Dirty check: skip erase/program cycle if contents are identical.
     AlloyConfig stored;
-    EEPROM.get(slotAddr(0), stored);
+    EEPROM.get(slotAddr(slot), stored);
     if (memcmp(&newCfg, &stored, kSlotBytes) == 0)
         return ConfigSaveResult::UNCHANGED;
 
-    // Write to EEPROM buffer then commit (this pauses Core 1 for ~10 ms).
-    EEPROM.put(slotAddr(0), newCfg);
+    // Write to EEPROM buffer then commit (pauses Core 1 for ~10 ms).
+    EEPROM.put(slotAddr(slot), newCfg);
     EEPROM.commit();
-    sLastSaveMs = now;
+    if (slot == 0)
+        sLastSaveMs = now;
     return ConfigSaveResult::SAVED;
 }
 
-void configStore_reset() {
+void configStore_reset(uint8_t slot) {
     ensureEeprom();
-    // Wipe just the magic word — config is detected as invalid on next boot.
     uint32_t zero = 0;
-    EEPROM.put(slotAddr(0), zero);
+    if (slot == 255) {
+        // Wipe all slots.
+        for (uint8_t i = 0; i < kMaxPresets; i++)
+            EEPROM.put(slotAddr(i), zero);
+    } else {
+        if (slot >= kMaxPresets)
+            slot = 0;
+        EEPROM.put(slotAddr(slot), zero);
+    }
     EEPROM.commit();
     sLastSaveMs = 0;
 }

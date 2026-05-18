@@ -3,6 +3,10 @@
 
 #include "VoiceMode.h"
 #include "dsp/ChorusEngine.h"
+#include "dsp/CurveEngine.h"
+#include "dsp/FilterEngine.h"
+#include "dsp/FxChain.h"
+#include "dsp/ReverbEngine.h"
 
 /**
  * Flash config persistence — Milestone 30 (config save/load).
@@ -17,7 +21,7 @@
  *
  * Preset layout: the EEPROM buffer is divided into kMaxPresets slots of
  * sizeof(AlloyConfig) each.  Slot 0 = auto-saved "live" state.
- * Slots 1–(kMaxPresets-1) are named presets (future use).
+ * Slots 1–(kMaxPresets-1) are user presets saved/loaded by slot number.
  *
  * Adding a new parameter:
  *   1. Add a field to AlloyConfig below.
@@ -27,8 +31,8 @@
  */
 
 static constexpr uint32_t kConfigMagic = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t kConfigVersion = 2;
-static constexpr uint8_t kMaxPresets = 4; // future: slots 1–3 for presets
+static constexpr uint8_t kConfigVersion = 3;
+static constexpr uint8_t kMaxPresets = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
 
 struct AlloyConfig {
     uint32_t magic;
@@ -55,6 +59,33 @@ struct AlloyConfig {
     float volume;
     // MIDI
     uint8_t midiChannel; // 0 = omni, 1–16 = specific channel
+    // Filter (M26a / M5x)
+    float filterCutoff;
+    float filterRes;
+    uint8_t filterMode; // cast of FilterMode enum
+    uint8_t filterType; // cast of FilterType enum
+    // Envelope (M5x)
+    uint8_t envelopeType; // cast of EnvelopeType enum
+    float adsrAttack;
+    float adsrDecay;
+    float adsrSustain;
+    float adsrRelease;
+    bool adsrLoop;
+    // Reverb (M26b)
+    bool revEnabled;
+    float revMix;
+    float revSize;
+    float revDamping;
+    float revModSpeed;
+    float revModDepth;
+    bool revFrozen;
+    // Delay (M26c)
+    float delayTime;
+    float delayFeedback;
+    float delayMix;
+    // FxOrder (M26a)
+    bool fxFilterPostChorus;
+    bool fxDelayPostReverb;
 };
 
 enum class ConfigSaveResult : uint8_t {
@@ -65,20 +96,21 @@ enum class ConfigSaveResult : uint8_t {
 
 /**
  * Load config from flash into gXxx globals.
- * Call once at startup, before startMozzi().
+ * slot 0 = auto-save (called at startup); slots 1–9 = user presets.
  * Returns true when a valid config was found and applied; false = using defaults.
  */
-bool configStore_load();
+bool configStore_load(uint8_t slot = 0);
 
 /**
  * Save current gXxx globals to flash.
- * Enforces dirty-check + 10 s rate limit.  Returns result code.
+ * slot 0 = auto-save (dirty-check + 10 s rate limit enforced).
+ * slots 1–9 = explicit user preset saves (rate limit bypassed, dirty-check still applied).
  * Note: a successful commit() pauses audio for ~10 ms (Core 1 halted for flash erase).
  */
-ConfigSaveResult configStore_save();
+ConfigSaveResult configStore_save(uint8_t slot = 0);
 
 /**
- * Invalidate the stored config by writing zero magic.
- * Next boot falls back to compile-time defaults.
+ * Invalidate stored configs.  slot 0 = wipe live slot only; slot 255 = wipe all slots.
+ * Next boot (slot 0 wiped) falls back to compile-time defaults.
  */
-void configStore_reset();
+void configStore_reset(uint8_t slot = 0);

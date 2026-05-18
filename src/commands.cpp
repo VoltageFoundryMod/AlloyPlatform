@@ -374,10 +374,25 @@ static void cmd_midichan(const char *args, Print &out) {
 }
 
 static void cmd_config(const char *args, Print &out) {
-    if (strcmp(args, "save") == 0) {
-        switch (configStore_save()) {
+    // Parse sub-command and optional slot: "save [1-9]", "load [1-9]", "reset [all]"
+    char sub[16] = {};
+    char slotStr[8] = {};
+    sscanf(args, "%15s %7s", sub, slotStr);
+
+    uint8_t slot = 0;
+    if (slotStr[0] >= '1' && slotStr[0] <= '9' && slotStr[1] == '\0')
+        slot = (uint8_t)(slotStr[0] - '0');
+
+    if (strcmp(sub, "save") == 0) {
+        switch (configStore_save(slot)) {
         case ConfigSaveResult::SAVED:
-            out.println(F("config saved"));
+            if (slot == 0)
+                out.println(F("config saved (live slot)"));
+            else {
+                out.print(F("preset "));
+                out.print(slot);
+                out.println(F(" saved"));
+            }
             break;
         case ConfigSaveResult::UNCHANGED:
             out.println(F("config unchanged — no write needed"));
@@ -386,16 +401,43 @@ static void cmd_config(const char *args, Print &out) {
             out.println(F("config save throttled — wait 10s between saves"));
             break;
         }
-    } else if (strcmp(args, "load") == 0) {
-        if (configStore_load())
-            out.println(F("config loaded"));
-        else
-            out.println(F("no saved config — using defaults"));
-    } else if (strcmp(args, "reset") == 0) {
-        configStore_reset();
-        out.println(F("config wiped — defaults active on next boot"));
+    } else if (strcmp(sub, "load") == 0) {
+        if (configStore_load(slot)) {
+            if (slot == 0)
+                out.println(F("config loaded (live slot)"));
+            else {
+                out.print(F("preset "));
+                out.print(slot);
+                out.println(F(" loaded"));
+            }
+        } else {
+            if (slot == 0)
+                out.println(F("no saved config — using defaults"));
+            else {
+                out.print(F("preset "));
+                out.print(slot);
+                out.println(F(" empty"));
+            }
+        }
+    } else if (strcmp(sub, "reset") == 0) {
+        if (strcmp(slotStr, "all") == 0) {
+            configStore_reset(255);
+            out.println(F("all presets wiped — defaults on next boot"));
+        } else {
+            configStore_reset(slot);
+            if (slot == 0)
+                out.println(F("live config wiped — defaults on next boot"));
+            else {
+                out.print(F("preset "));
+                out.print(slot);
+                out.println(F(" wiped"));
+            }
+        }
     } else {
-        out.println(F("usage: config <save|load|reset>"));
+        out.println(F("usage: config <save|load|reset> [1-9|all]"));
+        out.println(F("  slot 0 (default) = live auto-save state"));
+        out.println(F("  slots 1-9        = user presets"));
+        out.println(F("  reset all        = wipe all slots"));
     }
 }
 
@@ -861,7 +903,7 @@ const CommandEntry kCommands[] = {
     {"adsr",         "<A_s> <D_s> <S> <R_s> [loop|noloop]  ADSR params (M5x)",              cmd_adsr},
     {"env loop",     "<on|off>  loop ADSR as LFO (M5x)",                                     cmd_env_loop},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
-    {"config",    "<save|load|reset>  persist/restore all parameters to flash",          cmd_config},
+    {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
     {"status",    "            print all current parameters",                              cmd_status},
     {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
     {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},
