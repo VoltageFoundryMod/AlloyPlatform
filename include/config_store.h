@@ -27,7 +27,7 @@
  */
 
 static constexpr uint32_t kConfigMagic = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t kConfigVersion = 1;
+static constexpr uint8_t kConfigVersion = 2;
 static constexpr uint8_t kMaxPresets = 4; // future: slots 1–3 for presets
 
 struct AlloyConfig {
@@ -41,6 +41,7 @@ struct AlloyConfig {
     // Timbre
     float shape;
     float fatness;
+    uint8_t subOctave; // 1 or 2
     // Animation
     float motion;
     float driftSpeed;

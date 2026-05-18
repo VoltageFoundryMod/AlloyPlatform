@@ -144,6 +144,20 @@ class ChorusEngine {
         const float newCosR = _cosR * _cosIncR - _sinR * _sinIncR;
         _sinR = newSinR;
         _cosR = newCosR;
+
+        // Phasor renormalization — the quadrature recurrence accumulates float
+        // rounding error: sin²+cos² drifts from 1.0 at ~1e-7 per sample, reaching
+        // ~0.2 magnitude error after a minute.  Every 512 samples (~16 ms) apply
+        // fast inverse-sqrt approximation: r = 1.5 - 0.5*(sin²+cos²) ≈ 1/|v|.
+        // 8 FPU ops, negligible cost; keeps error bounded at < 5e-5.
+        if ((_writePos & 511u) == 0u) {
+            float rL = 1.5f - 0.5f * (_sinL * _sinL + _cosL * _cosL);
+            _sinL *= rL;
+            _cosL *= rL;
+            float rR = 1.5f - 0.5f * (_sinR * _sinR + _cosR * _cosR);
+            _sinR *= rR;
+            _cosR *= rR;
+        }
     }
 
   private:

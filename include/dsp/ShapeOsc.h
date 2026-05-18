@@ -49,6 +49,9 @@ class ShapeOsc {
 
     // shape: 0.0 (sine) … 1.0 (hollow pulse).  Clamped internally.
     // Pre-computes the table-pair index and blend factor so next() is float-free.
+    /** Reset phase accumulator to zero — call on note retrigger to avoid random-phase clicks. */
+    void resetPhase() { _phase = 0; }
+
     void setShape(float shape) {
         if (shape < 0.0f)
             shape = 0.0f;

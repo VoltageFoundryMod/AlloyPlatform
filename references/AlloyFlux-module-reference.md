@@ -50,9 +50,11 @@
     - [VCA Placement — Before Chorus](#vca-placement--before-chorus)
     - [Implementation Notes](#implementation-notes)
     - [Implementation — CurveEngine (Milestone 15)](#implementation--curveengine-milestone-15)
+    - [Runtime Envelope Selection (M5x)](#runtime-envelope-selection-m5x)
   - [Post-Effects Section (M26)](#post-effects-section-m26)
     - [Signal Chain](#signal-chain-1)
     - [FilterEngine (M26a)](#filterengine-m26a)
+    - [Filter Algorithm Selection (M5x)](#filter-algorithm-selection-m5x)
     - [FxChain Ordering (M26a)](#fxchain-ordering-m26a)
     - [ReverbEngine (M26b)](#reverbengine-m26b)
     - [DelayEngine (M26c)](#delayengine-m26c)
@@ -69,8 +71,7 @@
   - [Panel Layout — 14HP](#panel-layout--14hp)
   - [Jack Assignment](#jack-assignment)
     - [Input Row 1 — Primary Inputs](#input-row-1--primary-inputs)
-    - [Input Row 2 — Modulation Inputs](#input-row-2--modulation-inputs)
-    - [Output Row](#output-row)
+    - [Input Row 2](#input-row-2)
   - [ADC Philosophy \& CV Input Conditioning](#adc-philosophy--cv-input-conditioning)
     - [ADC Strategy](#adc-strategy)
     - [V/OCT Input Conditioning](#voct-input-conditioning)
@@ -81,6 +82,11 @@
   - [Analog Multiplexer](#analog-multiplexer)
     - [Mux Channel Map](#mux-channel-map)
     - [Attenuverter Logic via Jack Switch Detection](#attenuverter-logic-via-jack-switch-detection)
+    - [Normalization Probe — CV Jack Detection](#normalization-probe--cv-jack-detection)
+      - [Circuit Topology](#circuit-topology)
+      - [Overvoltage Protection](#overvoltage-protection)
+      - [Detection Algorithm (firmware)](#detection-algorithm-firmware)
+      - [Probed Jacks](#probed-jacks)
   - [Audio Output Stage](#audio-output-stage)
     - [PCM5102A](#pcm5102a)
     - [Op-Amp Gain Stage](#op-amp-gain-stage)
@@ -202,41 +208,19 @@ The RELATION knob is the signature control of the module. It is the most express
 | Knobs       | 7 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE)                                |
 | Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT) |
 | Buttons     | 2 (MODE + SHIFT)                                                                   |
-| LEDs        | 3× WS2812B RGB                                                                     |
+| LEDs        | 5× APA102/SK9822 Dotstar RGB                                                       |
 | Power draw  | ~100mA +12V, ~5mA −12V (estimate)                                                  |
 
 ---
 
 ## Hardware Stack
 
-```txt
-┌──────────────────────────────────────────────────────┐
-│             RASPBERRY PI PICO 2 (RP2350)             │
-│             Dual Cortex-M33 @ 150MHz                 │
-│             4MB Flash / 520KB RAM                    │
-│                                                      │
-│  PIO I2S ────────────────────────→ PCM5102A          │
-│  ADC GP26 ←──────────────────────── V/OCT pitch CV  │
-│  ADC GP27 ←──────────────────────── FM IN (audio)   │
-│  ADC GP28 ←──── 74HC4067 ←────────── all knobs +    │
-│                                       slow CVs       │
-│  UART1 RX (GP9) ←────────────────── MIDI TRS in     │
-│  USB ←────────────────────────────── USB MIDI       │
-│  PIO GP7 ────────────────────────→ WS2812B LEDs     │
-│  GP10 ←───────────────────────────── MODE button   │
-│  GP11 ←───────────────────────────── SHIFT button  │
-│  GP12 ←───────────────────────────── Gate input     │
-│  GP13 PWM ───────────────────────→ (spare / future) │
-│  GP3–GP6 ────────────────────────→ 74HC4067 select  │
-└──────────────────────────────────────────────────────┘
-```
-
 ### RP2350 Peripheral Usage
 
 | Peripheral | Usage                                                      |
 | ---------- | ---------------------------------------------------------- |
-| PIO 0      | I2S audio output to PCM5102A (BCK=26, LCK=27, DATA=28)     |
-| PIO 1      | WS2812B LED data (GP7)                                     |
+| PIO 0      | I2S audio output to PCM5102A (BCK=16, LCK=17, DATA=18)     |
+| GPIO       | Dotstar LED bitbang SPI (GP7=data, GP8=clk)                |
 | PIO 2      | Spare — future use                                         |
 | ADC GP26   | V/OCT pitch CV — direct, fast reads                        |
 | ADC GP27   | FM IN — direct, audio-rate reads in updateAudio()          |
@@ -253,60 +237,56 @@ The RELATION knob is the signature control of the module. It is the most express
 
 All pins accounted for. No pin used twice.
 
-| GPIO | Pico Pin | Function              | In/Out | Notes                                                                |
-| ---- | -------- | --------------------- | ------ | -------------------------------------------------------------------- |
-| GP0  | 1        | I2S DATA (SD)         | Out    | PCM5102 serial data — PIO 0                                          |
-| GP1  | 2        | I2S BCK               | Out    | PCM5102 bit clock — PIO 0                                            |
-| GP2  | 4        | I2S LRCLK             | Out    | PCM5102 LR clock — PIO 0                                             |
-| GP3  | 5        | Mux S0                | Out    | 74HC4067 select bit 0                                                |
-| GP4  | 6        | Mux S1                | Out    | 74HC4067 select bit 1                                                |
-| GP5  | 7        | Mux S2                | Out    | 74HC4067 select bit 2                                                |
-| GP6  | 9        | Mux S3                | Out    | 74HC4067 select bit 3                                                |
-| GP7  | 10       | WS2812B data          | Out    | LED chain (all 3 LEDs) — PIO 1                                       |
-| GP8  | 11       | UART1 TX              | Out    | Spare / debug serial                                                 |
-| GP9  | 12       | UART1 RX              | In     | Hardware MIDI in (TRS jack)                                          |
-| GP10 | 14       | MODE button           | In     | Internal pull-up — cycles voice modes                                |
-| GP11 | 15       | SHIFT button          | In     | Internal pull-up — secondary pot functions; MODE+SHIFT combo → drone |
-| GP12 | 16       | Spare                 | In     | Future expansion                                                     |
-| GP13 | 17       | Spare / LFO CV future | Out    | PWM → RC filter → op-amp if LFO CV output added later                |
-| GP14 | 19       | I2C External          | —      | SDA 1 for I2C external comm                                          |
-| GP15 | 20       | I2C External          | —      | SCL 1 for I2C external comm                                          |
-| GP16 | 21       | Spare                 | —      | Future expansion                                                     |
-| GP17 | 22       | Spare                 | —      | Future expansion                                                     |
-| GP18 | 24       | Spare                 | —      | Future expansion                                                     |
-| GP19 | 25       | Spare                 | —      | Future expansion                                                     |
-| GP20 | 26       | Spare                 | —      | Future expansion                                                     |
-| GP21 | 27       | Spare                 | —      | Future expansion                                                     |
-| GP22 | 29       | Spare                 | —      | Future expansion                                                     |
-| GP26 | 31       | ADC0 — V/OCT pitch    | In     | Direct ADC, fast reads, 1V/oct tracking                              |
-| GP27 | 32       | ADC1 — FM IN          | In     | Direct ADC, audio-rate reads in updateAudio()                        |
-| GP28 | 34       | ADC2 — Mux signal     | In     | 74HC4067 SIG — all knobs + slow CVs + jack switches                  |
-| GP25 | internal | Onboard LED           | Out    | Debug only                                                           |
-| —    | 36       | 3.3V out              | Pwr    | Powers PCM5102, 74HC4067                                             |
-| —    | 39       | VSYS                  | Pwr    | System power from Eurorack via LDO                                   |
-| —    | 40       | VBUS                  | Pwr    | USB 5V                                                               |
+| GPIO | Pico Pin | Function            | In/Out | Notes                                                                |
+| ---- | -------- | ------------------- | ------ | -------------------------------------------------------------------- |
+| GP0  | 1        | Spare               | —      | Future expansion                                                     |
+| GP1  | 2        | Spare               | —      | Future expansion                                                     |
+| GP2  | 4        | Spare               | —      | Future expansion                                                     |
+| GP3  | 5        | Mux S0              | Out    | 74HC4067 select bit 0                                                |
+| GP4  | 6        | Mux S1              | Out    | 74HC4067 select bit 1                                                |
+| GP5  | 7        | Mux S2              | Out    | 74HC4067 select bit 2                                                |
+| GP6  | 9        | Mux S3              | Out    | 74HC4067 select bit 3                                                |
+| GP7  | 10       | Dotstar LED data    | Out    | LED chain (all 5 LEDs)                                               |
+| GP8  | 11       | Dotstar LED clk     | Out    | LED chain (all 5 LEDs)                                               |
+| GP9  | 12       | UART1 RX            | In     | Hardware MIDI in (TRS jack)                                          |
+| GP10 | 14       | MODE button         | In     | Internal pull-up — cycles voice modes                                |
+| GP11 | 15       | SHIFT button        | In     | Internal pull-up — secondary pot functions; MODE+SHIFT combo → drone |
+| GP12 | 16       | MODE Button LED     | Out    |                                                                      |
+| GP13 | 17       | SHIFT Button LED    | Out    |                                                                      |
+| GP14 | 19       | I2C External        | Out    | SDA 1 for I2C external comm                                          |
+| GP15 | 20       | I2C External        | Out    | SCL 1 for I2C external comm                                          |
+| GP16 | 21       | I2S BCK             | Out    | PCM5102 bit clock — PIO 0                                            |
+| GP17 | 22       | I2S LRCLK           | Out    | PCM5102 LR clock — PIO 0                                             |
+| GP18 | 24       | I2S DATA (SD)       | Out    | PCM5102 serial data — PIO 0                                          |
+| GP19 | 25       | Spare               | —      | Future? PWM → RC filter → op-amp if LFO CV output added later        |
+| GP20 | 26       | Spare               | —      | Future expansion                                                     |
+| GP21 | 27       | Spare               | —      | Future expansion                                                     |
+| GP22 | 29       | Normalization Probe | In     | Normalization Probe as in MI Modules                                 |
+| GP26 | 31       | ADC0 — V/OCT pitch  | In     | Direct ADC, fast reads, 1V/oct tracking                              |
+| GP27 | 32       | ADC1 — FM IN        | In     | Direct ADC, audio-rate reads in updateAudio()                        |
+| GP28 | 34       | ADC2 — Mux signal   | In     | 74HC4067 SIG — all knobs + slow CVs + jack switches                  |
+| GP25 | internal | Onboard LED         | Out    | Debug only                                                           |
+| —    | 36       | 3.3V out            | Pwr    | Powers PCM5102, 74HC4067                                             |
+| —    | 39       | VSYS                | Pwr    | System power from Eurorack via LDO                                   |
+| —    | 40       | VBUS                | Pwr    | USB 5V                                                               |
 
-**Spare GPIO: GP13–GP22 — 10 pins available for future features.**
+
+Create an expansion module in the future using the spare GPIOs.
 
 ---
 
 ## Power Architecture
 
 ```txt
-Eurorack +12V ──→ LDO (MCP1700-3302) ──→ 3.3V ──→ Pico 2 VSYS
-                                                    PCM5102A VCC
-                                                    74HC4067 VCC
+Eurorack +12V ──→ Buck Converter (AP63205WU) ──→ 5V ──→ Pico 2 VSYS
+                  Buck Converter ──→ LDO (MCP1700x-3302) ──→ 3.3V ──→ PCM5102A + 74HC4067
 Eurorack +12V / −12V ───────────────────────────→ TL072 op-amps
-Eurorack +12V ──→ ferrite bead + 100µF ─────────→ clean analog rail
+Eurorack +12V ──→ ferrite bead + 100µF ─────────→ clean analog rail for -10V Ref
 ```
 
-- Pico 2 runs from 3.3V via VSYS — cleaner for audio than 5V via VBUS
-- Check if MCP1700-3302 can supply enough current for both Pico 2 and PCM5102A + 74HC4067; if not, consider a higher current LDO or separate regulators
-- Check if better to use rail-to-rail op-amps to run from a separate 0-6V to provide full 0-5V headroom for the output
+- Pico 2 runs from 5V via VSYS
 - PCM5102A and 74HC4067 both on the same 3.3V LDO rail
 - Op-amps on ±12V directly for full Eurorack output swing
-- Add ferrite bead + 100µF electrolytic + 100nF ceramic on each rail before the circuit
-- Add P-channel MOSFET reverse polarity protection on the power header
 - Keep Pico 2 SMPS switching node away from analog signal traces on PCB — use ground plane separation
 
 ---
@@ -530,9 +510,9 @@ slot[0..7]  ROOT ± micro-detune (animated by MOTION)
 A voice allocator maps incoming note events to ROOT pitch:
 
 ```txt
-MIDI Note On  (note=60)  ─┬───────────────────────────────┐
+MIDI Note On  (note=60)  ─┬───────────────────────────────────────┐
 I2C command   (note=67)  ─┤  voice allocator → set ROOT freq      │
-V/OCT + GATE            ─┼───────────────────────────────┤
+V/OCT + GATE             ─┼───────────────────────────────────────┤
 MIDI Note Off (note=60)  ─┘  → release (trigger CURVE release phase)
 
 PAIR mode:  one logical note fans to [ROOT] and [ROOT + RELATION interval]
@@ -619,11 +599,25 @@ FATNESS = 1.0  —  sub at 50% of main level, very fat, reduce VOL to taste
 
 ### Sub Oscillator Characteristics
 
-- **Pitch**: always one octave below the voice’s ROOT frequency (`freq × 0.5`)
+- **Pitch**: one octave below (default, `freq × 0.5`) or two octaves below (`freq × 0.25`) — set with `suboct`
 - **Waveform**: fixed square (SHAPE = 0.75 in the 5-table spectrum) — never morphs
 - **Level**: 0 to 50% of main oscillator amplitude (FATNESS = 0.0 to 1.0)
 - **Per voice**: each voice (v1 L, v2 R) has its own independent sub oscillator
 - **SHAPE independence**: SHAPE knob changes the main voice character, sub is always square
+
+**Serial commands:**
+
+```txt
+fat <0–1>      — sub oscillator level: 0=off  1=full (50% of main)
+suboct <1|2>   — sub octave: 1=one octave below (default)  2=two octaves below
+```
+
+**Tonal character by octave setting:**
+
+| `suboct`      | Multiplier | Character                                                         |
+| ------------- | ---------- | ----------------------------------------------------------------- |
+| `1` (default) | ×0.5       | Classic Juno sub — warm, adds weight without crowding the bass    |
+| `2`           | ×0.25      | Deep sub — anchors the sound two octaves down, darker and heavier |
 
 ### FATNESS Hardware Interaction — Button Shift
 
@@ -637,8 +631,7 @@ SHAPE knob alone         —  adjusts main oscillator morph (sine → hollow)
 LED feedback while in shift mode: dim white fill on the shape LED
 ```
 
-This is the same interaction pattern used on many modern Eurorack modules (e.g. Make
-Noise Maths alt-function via button hold). No extra panel hardware required.
+This is the same interaction pattern used on many modern Eurorack modules. No extra panel hardware required.
 
 > Implementation note: the button-shift detection belongs in the UI state machine
 > (Milestone 30). For current development, `fat <0–1>` is the serial command.
@@ -932,6 +925,30 @@ This gives equal perceptual resolution at all speeds — the same physical trave
 
 Future gate sources: GP12 jack (M19), I2C (Teletype).
 
+### Runtime Envelope Selection (M5x)
+
+The envelope engine is runtime-selectable without recompilation. Both concrete instances (`AREnvelope`, `ADSREnvelope`) are always compiled into flash; a `gCurveEng` pointer selects the active one. Switching calls `reset()` then re-points the pointer — silent, zero-glitch.
+
+| Type           | Class                       | Params                                                      | Loop                   |
+| -------------- | --------------------------- | ----------------------------------------------------------- | ---------------------- |
+| `ar` (default) | `AREnvelope<SAMPLE_RATE>`   | `curve`, `curvetime`                                        | —                      |
+| `adsr`         | `ADSREnvelope<SAMPLE_RATE>` | `gAdsrAttack`, `gAdsrDecay`, `gAdsrSustain`, `gAdsrRelease` | optional (`gAdsrLoop`) |
+
+`ADSREnvelope::setADSR()` calls `expf()` × 3 at control rate; `next()` is multiply-only, safe in ISR.
+
+Loop mode (`adsr … loop`) auto-restarts attack after release hits 0 — turns the envelope into a free-running LFO at rates determined by the combined ADSR times.
+
+**Phase reset on retrigger (M5x):** on every rising gate edge, all oscillator phase accumulators are reset to zero. This ensures the attack always starts at the waveform zero-crossing, eliminating the metallic click artifact that occurs when retriggering during a release cycle at a random phase point.
+
+**Serial commands:**
+
+```txt
+env type ar           — switch to single-knob AR (default)
+env type adsr         — switch to full ADSR
+adsr <A> <D> <S> <R> [loop|noloop]  — set ADSR times (seconds) and sustain (0–1)
+env loop on|off       — toggle loop mode (envelope as cycling LFO)
+```
+
 ---
 
 ## Post-Effects Section (M26)
@@ -958,23 +975,40 @@ All four orderings are musically distinct and all determined at control rate —
 
 ### FilterEngine (M26a)
 
-Cytomic TVA-SVF (trapezoidal state-variable filter) — stereo, four modes.
+`FilterEngine` — pure-virtual abstract base class. Both concrete implementations are always compiled into flash; the `gFilterInst` pointer selects the active algorithm at runtime. Switching calls `reset()` then re-points the pointer — silent and glitch-free.
 
-| Parameter | Range              | Notes                                                             |
-| --------- | ------------------ | ----------------------------------------------------------------- |
-| Mode      | OFF/LP/HP/BP/NOTCH | OFF = hard bypass, zero CPU                                       |
-| Cutoff    | 20–16000 Hz        | `tanf()` called at 128 Hz only — never in ISR                     |
-| Resonance | 0.0–1.0            | 0=flat, 1=near self-oscillation; soft-clipped to prevent overflow |
+| Implementation | File                      | Mode(s)                    | Character                                    |
+| -------------- | ------------------------- | -------------------------- | -------------------------------------------- |
+| `SVFFilter`    | `include/dsp/SVFFilter.h` | LP / HP / BP / NOTCH / OFF | Clean, precise, all-mode                     |
+| `OTALadder`    | `include/dsp/OTALadder.h` | LP4 only                   | Warm, saturating, self-oscillates at res=1.0 |
 
-Coefficients (`g`, `k`, `a1`, `a2`, `a3`) are recomputed in `updateControl()` at 128 Hz using the Cytomic formulae. The audio-rate `process()` path uses only float multiply-add — no trig.
+**SVFFilter** — Cytomic TVA-SVF (trapezoidal state-variable filter). Coefficients (`g`, `k`, `a1`, `a2`, `a3`) recomputed in `updateControl()` at 128 Hz via `tanf()`. Audio path is pure float multiply-add — no trig in ISR. Both channels share coefficients but have independent integrator state.
 
-Both L and R channels share coefficients but have independent integrator state (`ic1L/ic2L`, `ic1R/ic2R`) — true stereo response.
+| Parameter | Range              | Notes                                         |
+| --------- | ------------------ | --------------------------------------------- |
+| Mode      | OFF/LP/HP/BP/NOTCH | OFF = hard bypass, zero CPU                   |
+| Cutoff    | 20–16000 Hz        | `tanf()` at 128 Hz only — never in ISR        |
+| Resonance | 0.0–1.0            | 0=flat, 1=near self-oscillation; soft-clipped |
+
+**OTALadder** — ZDF 4-pole Moog-style ladder filter with `tanh` saturation. LP4 mode only. Self-oscillates at resonance=1.0. Cutoff clamped to 8 kHz (sr/4 Nyquist guard). Fast piecewise `tanh` approximation — no `libm` in audio path.
+
+| Parameter | Range      | Notes                                      |
+| --------- | ---------- | ------------------------------------------ |
+| Mode      | LP4 only   | All other modes fall back to LP            |
+| Cutoff    | 20–8000 Hz | Hard-clamped at sr/4 to prevent aliasing   |
+| Resonance | 0.0–1.0    | 0=flat, 1.0=self-oscillation (sine output) |
 
 ```txt
-filter lp 2000 0.6   → low-pass at 2000 Hz, resonance 0.6
-filter hp 400        → high-pass at 400 Hz, default resonance
-filter off           → hard bypass
+filter lp 2000 0.6    → SVF low-pass at 2 kHz, resonance 0.6
+filter hp 400         → SVF high-pass at 400 Hz
+filter off            → hard bypass
+filter type svf       → switch to Cytomic SVF (default, all modes)
+filter type ladder    → switch to OTA 4-pole ladder (LP4, saturating)
 ```
+
+### Filter Algorithm Selection (M5x)
+
+Runtime filter switching via `filter type <svf|ladder>`. The type change is detected in `updateControl()` on the next 128 Hz tick — `reset()` is called then `gFilterInst` is re-pointed. No ISR disruption.
 
 ### FxChain Ordering (M26a)
 
@@ -1048,14 +1082,15 @@ delay off            → hard bypass (zero CPU)
 
 ### ISR Budget (M26)
 
-| Effect                  | Core | Cost      | Notes                                                           |
-| ----------------------- | ---- | --------- | --------------------------------------------------------------- |
-| Filter (OFF)            | 0    | ~0 µs     | Hard bypass — single branch                                     |
-| Filter (LP/HP/BP/NOTCH) | 0    | ~2–3 µs   | 10× float mul/add per channel                                   |
-| Delay (active)          | 0    | ~1–2 µs   | 8× float ops + 2 buffer reads/writes per channel; bypass = 0 µs |
-| Reverb mix-in           | 0    | ~0.5 µs   | 1 multiply + 1 add per channel (additive)                       |
-| Reverb DSP              | 1    | offloaded | Core 1 free-runs; never touches ISR budget                      |
-| FxOrder flags           | 0    | ~0 µs     | 2 branch predictions, static config                             |
+| Effect                      | Core | Cost      | Notes                                                           |
+| --------------------------- | ---- | --------- | --------------------------------------------------------------- |
+| Filter (OFF)                | 0    | ~0 µs     | Hard bypass — single branch                                     |
+| Filter SVF (LP/HP/BP/NOTCH) | 0    | ~2–3 µs   | 10× float mul/add per channel                                   |
+| Filter OTALadder (LP4)      | 0    | ~4–6 µs   | 4-stage ZDF + tanh per channel; piecewise tanh (no libm)        |
+| Delay (active)              | 0    | ~1–2 µs   | 8× float ops + 2 buffer reads/writes per channel; bypass = 0 µs |
+| Reverb mix-in               | 0    | ~0.5 µs   | 1 multiply + 1 add per channel (additive)                       |
+| Reverb DSP                  | 1    | offloaded | Core 1 free-runs; never touches ISR budget                      |
+| FxOrder flags               | 0    | ~0 µs     | 2 branch predictions, static config                             |
 
 ---
 
@@ -1160,33 +1195,12 @@ ROOT, RELATION, and FM knobs have no shift function — they occupy the full kno
 
 ## Panel Layout — 14HP
 
-```txt
-┌──────────────────────┐  14HP (70.96mm)
-│                      │
-│  ●  ROOT    ●  REL   │  2× WS2812B LEDs (top L and R)
-│                      │
-│  ◎  ROOT    ◎  RELN  │  2× large knobs — ROOT and RELATION
-│                      │  RELATION is the largest knob on panel
-│  ◉  SHAPE   ◉  MOTN  │  2× medium knobs
-│                      │
-│  ◉  FM      ◉  CURV  │  2× medium knobs
-│                      │
-│  ◉  SPACE             │  1× medium knob (centred)
-│                      │
-│     ●  [MODE]        │  1× WS2812B LED + 1× button
-│                      │
-├──────────────────────┤
-│ VOCT GATE MIDI RELCV │  ← input row 1 (4 jacks)
-│ SHPCV MTNCV FMIN SPCCV│  ← input row 2 (4 jacks)
-│      L OUT   R OUT   │  ← audio outputs (2 jacks)
-└──────────────────────┘
-```
 
 **HP:** 14HP (70.96mm panel width)
 **Jacks:** 10× Thonkiconn PJ398SM (switched, vertical mount)
 **Knobs:** 7× Alpha 9mm (ROOT and RELATION largest)
-**Buttons:** 1× tactile panel mount
-**LEDs:** 3× WS2812B addressable RGB chained on one data line (GP7)
+**Buttons:** 2× tactile panel mount
+**LEDs:** 5× APA102/SK9822 Dotstar RGB (GP7=data, GP8=clk, bitbang SPI in `updateControl()`)
 
 ---
 
@@ -1200,22 +1214,17 @@ ROOT, RELATION, and FM knobs have no shift function — they occupy the full kno
 | 2    | GATE   | Note trigger / envelope / articulation            | GP12 direct |
 | 3    | MIDI   | TRS MIDI in — Type A/B dual circuit               | GP9 UART1   |
 | 4    | REL CV | RELATION modulation — interval/detune/chord morph | Mux CH8     |
+| 5    | SHP CV | SHAPE CV — waveform morph modulation              | Mux CH9     |
 
-### Input Row 2 — Modulation Inputs
+### Input Row 2
 
-| Jack | Label  | Function                                   | Pin/Path    |
-| ---- | ------ | ------------------------------------------ | ----------- |
-| 5    | SHP CV | SHAPE CV — waveform morph modulation       | Mux CH9     |
-| 6    | MTN CV | MOTION CV — animation depth modulation     | Mux CH10    |
-| 7    | FM IN  | FM input — audio-rate capable, bipolar ±5V | GP27 direct |
-| 8    | SPC CV | SPACE CV — stereo width modulation         | Mux CH11    |
-
-### Output Row
-
-| Jack | Label | Function                                       |
-| ---- | ----- | ---------------------------------------------- |
-| 9    | L OUT | Left audio — passive mono sum when R unplugged |
-| 10   | R OUT | Right audio — stereo                           |
+| Jack | Label  | Function                                       | Pin/Path    |
+| ---- | ------ | ---------------------------------------------- | ----------- |
+| 6    | MTN CV | MOTION CV — animation depth modulation         | Mux CH10    |
+| 7    | FM IN  | FM input — audio-rate capable, bipolar ±5V     | GP27 direct |
+| 8    | SPC CV | SPACE CV — stereo width modulation             | Mux CH11    |
+| 9    | L OUT  | Left audio — passive mono sum when R unplugged |             |
+| 10   | R OUT  | Right audio — stereo                           |             |
 
 **Passive mono sum:** 10kΩ resistor from each output rail meets at the L jack NC (normally-closed) switching contact. When R OUT is unpatched, both channels sum passively to L OUT. Requires no firmware involvement.
 
@@ -1285,24 +1294,24 @@ Triggered by: power on while holding button. User patches two reference voltages
 
 ### Mux Channel Map
 
-| Ch   | Signal         | Type    | Notes                                              |
-| ---- | -------------- | ------- | -------------------------------------------------- |
-| CH0  | ROOT knob      | Pot     | Coarse pitch offset                                |
-| CH1  | RELATION knob  | Pot     | Signature control — interval/detune/chord/FM depth |
-| CH2  | SHAPE knob     | Pot     | Waveform morph position                            |
-| CH3  | MOTION knob    | Pot     | Animation depth                                    |
-| CH4  | FM knob        | Pot     | FM depth / attenuverter when FM IN patched         |
-| CH5  | CURVE knob     | Pot     | Envelope / articulation shaping                    |
-| CH6  | SPACE knob     | Pot     | Stereo width / placement                           |
-| CH7  | Spare          | —       | Future knob or CV                                  |
-| CH8  | REL CV jack    | Slow CV | RELATION modulation input                          |
-| CH9  | SHAPE CV jack  | Slow CV | SHAPE modulation input                             |
-| CH10 | MOTION CV jack | Slow CV | MOTION modulation input                            |
-| CH11 | SPACE CV jack  | Slow CV | SPACE modulation input                             |
-| CH12 | REL jack SW    | Digital | Thonkiconn NC — cable detect for REL CV            |
-| CH13 | SHAPE jack SW  | Digital | Thonkiconn NC — cable detect for SHAPE CV          |
-| CH14 | MOTION jack SW | Digital | Thonkiconn NC — cable detect for MOTION CV         |
-| CH15 | SPACE jack SW  | Digital | Thonkiconn NC — cable detect for SPACE CV          |
+| Ch   | Pin | Signal         | Type    | Notes                                              |
+| ---- | --- | -------------- | ------- | -------------------------------------------------- |
+| CH0  | 9   | Gate jack      | Slow CV | Gate Input                                         |
+| CH1  | 8   | REL CV jack    | Slow CV | RELATION modulation input                          |
+| CH2  | 7   | SHAPE CV jack  | Slow CV | SHAPE modulation input                             |
+| CH3  | 6   | MOTION CV jack | Slow CV | MOTION modulation input                            |
+| CH4  | 5   | SPACE CV jack  | Slow CV | SPACE modulation input                             |
+| CH5  | 4   | ROOT knob      | Pot     | Coarse pitch offset                                |
+| CH6  | 3   | RELATION knob  | Pot     | Signature control — interval/detune/chord/FM depth |
+| CH7  | 2   | SHAPE knob     | Pot     | Waveform morph position                            |
+| CH8  | 23  | MOTION knob    | Pot     | Animation depth                                    |
+| CH9  | 22  | SPACE knob     | Pot     | Stereo width / placement                           |
+| CH10 | 21  | FM knob        | Pot     | FM depth / attenuverter when FM IN patched         |
+| CH11 | 20  | CURVE knob     | Pot     | Envelope / articulation shaping                    |
+| CH12 |     | Spare          | —       | Future knob or CV                                  |
+| CH13 |     | Spare          | Digital | Future knob or CV                                  |
+| CH14 |     | Spare          | Digital | Future knob or CV                                  |
+| CH15 |     | Spare          | Digital | Future knob or CV                                  |
 
 **Select lines:** GP3 (S0), GP4 (S1), GP5 (S2), GP6 (S3)
 **Signal pin:** GP28 (ADC2)
@@ -1331,6 +1340,51 @@ Cable present (jack switch closed):
 | SPC CV   | SPACE    | Fixed stereo width    | Space CV depth + polarity  |
 
 FM IN / FM knob always functions as attenuverter — FM amount is always relative to input signal (or internal normalization when unpatched).
+
+### Normalization Probe — CV Jack Detection
+
+AlloyFlux uses the Mutable Instruments shared-bus normalization probe technique to detect cable presence on CV input jacks using a single GPIO pin (GP22). This allows the firmware to distinguish between an unpatched input (apply internal default) and a patched input (process external CV), with no dedicated detection pin per jack.
+
+#### Circuit Topology
+
+```txt
+          [ GP22 — PROBE_IN ]
+
+                    |
+           +--------+--------+  (Shared Bus Node)
+           |                 |
+        [ 10kΩ ]          [ 10kΩ ]
+
+           |                 |
+    [ Jack J7 Pin 3 ]  [ Jack J8 Pin 3 ]   ← Normalization switch contacts
+```
+
+- **GP22** drives a square-wave test signal onto the shared bus through individual 10 kΩ isolation resistors.
+- The jacks use Thonkiconn-style switching contacts (Pin 3). When **no cable is inserted**, Pin 3 is internally shorted to Pin 1 (tip), superimposing the probe signal onto the op-amp input path.
+- When a **cable is inserted**, the spring-switch opens, fully isolating Pin 3 from Pin 1. Only the external CV voltage reaches the op-amp.
+- The **V/Oct input is intentionally excluded** from the probe bus to prevent any charge-injection from the digital pin affecting sub-millivolt analog precision.
+
+#### Overvoltage Protection
+
+A BAT54S dual Schottky clamp diode (D18) is placed immediately at GP22 to clamp any incoming transients to the safe range ($0\text{ V} - 0.3\text{ V}$ to $3.3\text{ V} + 0.3\text{ V}$). This protects the MCU against accidental Eurorack-level voltages on the switch contact when partially inserting a patch cable.
+
+#### Detection Algorithm (firmware)
+
+The probe cycle runs inside `updateControl()` (128 Hz), spending only ~few microseconds:
+
+1. **Drive HIGH** — set GP22 HIGH ($3.3\text{ V}$), settle, read ADC → $V_{\text{high}}$
+2. **Drive LOW** — set GP22 LOW ($0\text{ V}$), settle, read ADC → $V_{\text{low}}$
+3. **Compute delta** — $\Delta V = |V_{\text{high}} - V_{\text{low}}|$
+4. **Decide:**
+
+| $\Delta V$                    | Interpretation                        | Firmware action                                 |
+| ----------------------------- | ------------------------------------- | ----------------------------------------------- |
+| $\Delta V > \text{threshold}$ | ADC tracks the probe — **jack empty** | Apply internal default / software normalization |
+| $\Delta V \approx 0$          | ADC stationary — **cable plugged in** | Process external CV directly; ignore probe      |
+
+#### Probed Jacks
+
+Currently J7 and J8 are on the shared probe bus (exact jack assignments finalized at PCB layout). The V/Oct input is excluded. Each probed jack independently reports cable presence via its own ADC channel through the mux.
 
 ---
 
@@ -1410,7 +1464,7 @@ Default: omni (responds to all channels). Configure via serial: `midichan 3` or 
 
 ## User Interface — Screenless
 
-**Philosophy:** All feedback via 3 WS2812B RGB LEDs + 1 button. No menus. No reading required during performance. Eyes stay on the patch, not a display.
+**Philosophy:** All feedback via 5 APA102/SK9822 Dotstar RGB LEDs + 2 buttons. No menus. No reading required during performance. Eyes stay on the patch, not a display.
 
 Hidden functions (behind long-hold) cover only: calibration, MIDI channel configuration, advanced settings. Core synthesis is always directly accessible.
 
@@ -1510,7 +1564,7 @@ Core 0 — deterministic control:
 ├── Attenuverter logic (jack switch state → knob mode)
 ├── Parameter smoothing (one-pole LPF on all params)
 ├── Modulation routing matrix
-├── LED update (WS2812B via PIO 1)
+├── LED update (APA102/SK9822 Dotstar, bitbang SPI on GP7/GP8)
 └── Button debounce and mode logic
 
 Core 1 — audio DSP (runs continuously):
@@ -1586,7 +1640,7 @@ void updateControl() {
     updateJackStates(); // attenuverter logic
     updateGateState();  // GP12 + MIDI + I2C → gGateHigh
     parseMIDI();        // non-blocking
-    updateLEDs();       // WS2812B via PIO
+    updateLEDs();       // APA102/SK9822 Dotstar bitbang SPI (GP7/GP8)
     routeModulation();  // CV → DSP param mapping
 }
 
@@ -1729,28 +1783,28 @@ One audio-cycle chorus latency (~30µs) — completely inaudible. Effectively do
 
 ## Component BOM
 
-| Component           | Part              | Qty                  | Purpose                                      |
-| ------------------- | ----------------- | -------------------- | -------------------------------------------- |
-| Raspberry Pi Pico 2 | RP2350            | 1                    | MCU — primary target                         |
-| PCM5102A board      | —                 | 1                    | I2S stereo DAC                               |
-| 74HC4067            | DIP-24 or SOIC    | 1                    | 16:1 analog mux                              |
-| TL072 or TL074      | DIP/SOIC          | 2× TL072 or 1× TL074 | Op-amps — audio out + scaling                |
-| MCP6002             | SOT-23 or DIP-8   | 1                    | Rail-to-rail op-amp for precision CV scaling |
-| 6N138               | DIP-8             | 1                    | MIDI input optocoupler                       |
-| MCP1700-3302        | SOT-89            | 1                    | 3.3V LDO regulator                           |
-| BAT48 Schottky      | DO-35             | 10–12                | CV clamp diodes                              |
-| 1N5817 or SS14      | —                 | 2                    | Reverse polarity protection                  |
-| Ferrite bead        | BLM21PG221        | 3                    | Rail noise filtering                         |
-| WS2812B LED         | 5mm or SMD        | 3                    | RGB status LEDs                              |
-| Thonkiconn PJ398SM  | —                 | 10                   | Switched Eurorack jacks                      |
-| Alpha 9mm pot       | RD901F            | 7                    | Panel knobs (2 large for ROOT/RELATION)      |
-| Tactile button      | 6×6mm panel mount | 1                    | Single button                                |
-| Eurorack header     | 16-pin shrouded   | 1                    | Power connector                              |
-| Film cap            | 10µF              | 2                    | Audio AC coupling (L + R output)             |
-| Electrolytic cap    | 100µF             | 3                    | Rail bypass                                  |
-| Ceramic cap         | 100nF             | 10+                  | IC decoupling                                |
-| Ceramic cap         | 10µF              | 1                    | LFO RC filter (if LFO CV out added)          |
-| Resistors 1%        | 10kΩ, 47kΩ, 100kΩ | ~30                  | Gain, dividers, pull-ups, mono sum           |
+| Component           | Part              | Qty                  | Purpose                                               |
+| ------------------- | ----------------- | -------------------- | ----------------------------------------------------- |
+| Raspberry Pi Pico 2 | RP2350            | 1                    | MCU — primary target                                  |
+| PCM5102A board      | —                 | 1                    | I2S stereo DAC                                        |
+| 74HC4067            | DIP-24 or SOIC    | 1                    | 16:1 analog mux                                       |
+| TL072 or TL074      | DIP/SOIC          | 2× TL072 or 1× TL074 | Op-amps — audio out + scaling                         |
+| MCP6002             | SOT-23 or DIP-8   | 1                    | Rail-to-rail op-amp for precision CV scaling          |
+| HCPL-0631           | SOIC8             | 1                    | MIDI input optocoupler                                |
+| MCP1700-3302        | SOT-89            | 1                    | 3.3V LDO regulator                                    |
+| BAT48 Schottky      | DO-35             | 10–12                | CV clamp diodes                                       |
+| 1N5817 or SS14      | —                 | 2                    | Reverse polarity protection                           |
+| Ferrite bead        | BLM21PG221        | 3                    | Rail noise filtering                                  |
+| APA102/SK9822       | 5mm or SMD        | 5                    | Dotstar RGB status LEDs (clocked SPI, interrupt-safe) |
+| Thonkiconn PJ398SM  | —                 | 10                   | Switched Eurorack jacks                               |
+| Alpha 9mm pot       | RD901F            | 7                    | Panel knobs (2 large for ROOT/RELATION)               |
+| Tactile button      | 6×6mm panel mount | 1                    | Single button                                         |
+| Eurorack header     | 16-pin shrouded   | 1                    | Power connector                                       |
+| Film cap            | 10µF              | 2                    | Audio AC coupling (L + R output)                      |
+| Electrolytic cap    | 100µF             | 3                    | Rail bypass                                           |
+| Ceramic cap         | 100nF             | 10+                  | IC decoupling                                         |
+| Ceramic cap         | 10µF              | 1                    | LFO RC filter (if LFO CV out added)                   |
+| Resistors 1%        | 10kΩ, 47kΩ, 100kΩ | ~30                  | Gain, dividers, pull-ups, mono sum                    |
 
 ---
 
@@ -1865,7 +1919,8 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 14. **MOTION control** — governs drift + chorus depth simultaneously
 - [x] 15. **CURVE engine** — AR envelope (audio-rate) + digital VCA; `CurveEngine<SAMPLE_RATE>` template; CURVE morphs attack (1ms–800ms) + release (80ms–1s); pluck mode auto-releases at peak (curve≤0.2); `gGatePatched=false` = drone bypass; serial `gate 1/0/free` + `curve <0–1>`
 - [ ] 16. **Mux wiring** — 74HC4067 connected, all 7 knobs + 4 slow CVs readable
-- [ ] 17. **Jack switch detection** — mux CH12–CH15, attenuverter mode switching
+- [ ] 17. **Jack switch detection**
+- [ ] 17b. **Normalization Probe** — GP22 shared-bus square-wave excitation; toggle high/low in `updateControl()`, read ADC delta per probed jack; unpatched → internal normalization/default; patched → pass external CV; BAT54S clamp on GP22 for overvoltage protection; V/Oct excluded from probe bus; J7 + J8 on bus (exact assignments at PCB layout)
 - [ ] 18. **V/OCT input** — precision scaling, oversampling, hysteresis, GP26
 - [ ] 19. **Gate input** — GP12, CURVE-shaped articulation trigger
 - [ ] 20. **V/Oct calibration** — two-point routine via button hold on power-up
@@ -1885,7 +1940,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 29c. **MIDI SysEx config backup/restore** — dump/load `AlloyConfig` struct as SysEx message; allows users to manage presets via external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator
 - [ ] 29d. **MIDI CC mapping configurator** — allow users to assign MIDI CCs to parameters via Web Configurator; store mappings in flash; update `paramMap_dispatchCC` to use dynamic mapping
 - [ ] 29e. **MIDI channel configurator** — allow users to set MIDI channel (0=omni, 1–16) via Web Configurator; store in flash; filter incoming MIDI messages accordingly
-- [ ] 30. **WS2812B LEDs** — PIO 1 on GP7, full LED language per mode
+- [ ] 30. **APA102/SK9822 Dotstar LEDs** — bitbang SPI on GP7/GP8, full LED language per mode
 - [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()`/`isDown()` events; **GP10 MODE** cycles PAIR→CHORD; **GP11 SHIFT** — trig fires on **release** (not press) so holding SHIFT for combos doesn’t accidentally trigger; `sShiftConsumed` file-scope flag suppresses trig-on-release whenever SHIFT is consumed by any combo or future SHIFT+knob handler; **MODE+SHIFT held** → drone mode (`gGatePatched=false`, `sShiftConsumed=true`); SHIFT+knob secondary pot functions pending (M31 remainder)
 - [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
 - [ ] 33. **Panel design** — Design final graphics and layout
@@ -1899,6 +1954,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 41. **Reverb freeze mode** — CC 114 (≥64=on, <64=off) and `reverb freeze on/off` serial command; `freeze()` virtual method on `ReverbEngine`; `DattorroReverb`: decay→1.0 + new input gated when frozen; tail holds indefinitely at full level; re-introducing input mixes in cleanly on next onset (partial — SHIFT+knob macro gesture pending)
 - [ ] 42. **Improve flash persistence data** Include additional parameters into preset saving like Reverb, Delay and other settings which are currently not saved and defined in either Web Configurator, Midi CCs or Shift+Knob macros. This will allow users to have more complete presets that cover all aspects of the module's sound, not just the core synthesis parameters.
 - [ ] 42a. **Factory reset + preset management** — `config save <slot>`, `config load <slot>`, `config reset` serial commands; preset slots 1–4; factory reset clears to defaults; Web Configurator UI for preset management
+- [x] 43. **Runtime-selectable DSP algorithms (M5x)** — abstract `FilterEngine` base + `SVFFilter` (moved to own `include/dsp/SVFFilter.h`) + `OTALadder` (ZDF 4-pole Moog-style, tanh-saturating, self-oscillating at res=1.0, LP4 only); abstract `EnvelopeEngine` base + `AREnvelope` (former `CurveEngine` alias retained) + `ADSREnvelope` (full ADSR + loop mode — turns envelope into cycling LFO); pointer-based runtime switching for both engines, change-detected in `updateControl()`; **phase reset on retrigger** — all oscillator phase accumulators reset to zero on gate rising edge, eliminating metallic/PWM artifact when retriggering during release; `filter type svf|ladder`, `env type ar|adsr`, `adsr <A> <D> <S> <R> [loop]`, `env loop on|off` serial commands; RAM 236KB (45.1%), Flash 3.0%
 
 
 ## Project Refinement
@@ -1959,7 +2015,7 @@ KNOBS (7)       ROOT, RELATION*, SHAPE, MOTION, FM, CURVE, SPACE
 JACKS (10)      V/OCT, GATE, MIDI TRS, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV,
                 L OUT (mono norm.), R OUT
 BUTTON (1)      Mode cycle, MIDI clock toggle, calibration routine
-LEDs (3)        WS2812B RGB — mode colour, voice activity, motion depth
+LEDs (5)        APA102/SK9822 Dotstar RGB — mode colour, voice activity, motion depth
 
 ATTENUVERTERS   REL CV, SHAPE CV, MOTION CV, SPACE CV — knob becomes attenuverter
                 when cable inserted (detected via Thonkiconn switch + mux)

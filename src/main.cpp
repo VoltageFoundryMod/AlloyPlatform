@@ -142,7 +142,9 @@ static void generateWavetables() {
 #include "dsp/DriftEngine.h"
 #include "dsp/FilterEngine.h"
 #include "dsp/FxChain.h"
+#include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
+#include "dsp/SVFFilter.h"
 #include "dsp_shared.h"
 #include "io/serial_console.h"
 #include "params.h"
@@ -174,6 +176,7 @@ float gBaseFreq = 440.0f;
 float gDetune = 0.0f;
 float gShape = 0.0f;
 float gFatness = 0.4f;                  // default: sub audible but not boomy
+uint8_t gSubOctave = 1;                 // 1 = one octave below (×0.5), 2 = two octaves below (×0.25)
 float gMotion = 0.0f;                   // 0.0 = static  …  1.0 = full drift
 float gDriftSpeed = 0.04f;              // one-pole glide coeff: 0.001–0.10
 VoiceMode gVoiceMode = VoiceMode::PAIR; // synthesis personality (default: PAIR)
@@ -196,9 +199,10 @@ static float sCurveTime = 1.0f; // smoothed time scale
 static float sVolume = 0.8f;
 static float sSpace = 1.0f;
 static float sRelation = 0.0f; // smoothed interval ratio input
-// Pre-scaled integer sub weight for the audio hot path (0..128 = 0..50% of main).
-// Computed once per control cycle; 32-bit aligned so ISR reads are atomic.
-static int32_t sSubW = 51;
+// Sub oscillator mix weight for the audio hot path (0.0..0.5 = 0..50% of main).
+// Float: same cost as integer on M33 FPU; avoids 128-step quantization zipper.
+// 32-bit aligned float — ISR reads are atomic on Cortex-M33.
+static float sSubWf = 0.2f; // initial = gFatness(0.4) * 0.5
 
 // Drift engine: per-voice slow frequency random-walk (Milestone 11)
 static DriftEngine<4> gDrift;
@@ -210,8 +214,14 @@ static uint8_t sActiveVoices = 2;
 static int16_t sPanL[4] = {256, 0, 0, 0};
 static int16_t sPanR[4] = {0, 256, 0, 0};
 
-// Curve engine: AR envelope + VCA (Milestone 15)
-static CurveEngine<MOZZI_AUDIO_RATE> gCurveEng;
+// Envelope engine: AR (default) or ADSR (runtime-selectable, M5x).
+// gCurveEng is the pointer used everywhere; sArEnv / sAdsrEnv are the
+// concrete instances — only one is active at a time.  Switch by pointing
+// gCurveEng at the other and calling reset().
+static AREnvelope<MOZZI_AUDIO_RATE> sArEnv;
+static ADSREnvelope<MOZZI_AUDIO_RATE> sAdsrEnv;
+EnvelopeEngine *gCurveEng = &sArEnv; // default: single-knob AR
+EnvelopeType gEnvelopeType = EnvelopeType::AR;
 
 // Chorus engine: phasor-LFO BBD-inspired stereo chorus (Milestone 12).
 // Declared here so updateAudio() can call it; 8 KB delay buffers live in BSS.
@@ -232,11 +242,22 @@ static bool sShiftConsumed = false;
 // M26 Post-effects engines and parameters
 // ---------------------------------------------------------------------------
 
-// Filter (M26a) — Cytomic TVA-SVF, stereo, coefficients computed at control rate.
-static FilterEngine gFilter;
+// Filter (M26a / M5x) — runtime-selectable algorithm.
+// gFilterInst is the active pointer; sSvfFilter / sOtaLadder are the
+// concrete instances.  Switch with cmd_filter_type in commands.cpp.
+static SVFFilter sSvfFilter;
+static OTALadder sOtaLadder;
+FilterEngine *gFilterInst = &sSvfFilter; // default: clean Cytomic SVF
+FilterType gFilterType = FilterType::SVF;
 float gFilterCutoff = 8000.0f;
 float gFilterRes = 0.0f;
 FilterMode gFilterMode = FilterMode::OFF;
+// ADSR envelope params (used when gEnvelopeType == ADSR)
+float gAdsrAttack = 0.05f;  // seconds
+float gAdsrDecay = 0.10f;   // seconds
+float gAdsrSustain = 0.8f;  // 0.0–1.0
+float gAdsrRelease = 0.30f; // seconds
+bool gAdsrLoop = false;
 
 // Effect ordering (M26a) — 2 bool flags → 4 chain orderings.
 FxOrder gFxOrder = {false, false}; // filter pre-chorus, delay pre-reverb
@@ -320,7 +341,7 @@ void setup() {
     for (uint8_t i = 0; i < 4; i++) {
         voices[i].setFreq(gBaseFreq);
         subVoices[i].setShape(0.75f); // fixed square shape for all sub oscillators
-        subVoices[i].setFreq(gBaseFreq * 0.5f);
+        subVoices[i].setFreq(gBaseFreq * ((gSubOctave == 2) ? 0.25f : 0.5f));
     }
     serialConsole_ready();
 #ifdef CPU_PROFILE
@@ -413,13 +434,28 @@ void updateControl() {
     sSpace += (gSpace - sSpace) * 0.1f;
     sRelation += (gRelation - sRelation) * 0.1f;
 
-    // Update CURVE engine: recompute A/R coefficients and forward gate edges.
-    gCurveEng.setCurve(sCurve, sCurveTime);
+    // Update envelope engine: AR or ADSR depending on gEnvelopeType.
+    if (gEnvelopeType == EnvelopeType::AR) {
+        static_cast<AREnvelope<MOZZI_AUDIO_RATE> *>(gCurveEng)->setCurve(sCurve, sCurveTime);
+    } else {
+        static_cast<ADSREnvelope<MOZZI_AUDIO_RATE> *>(gCurveEng)->setADSR(
+            gAdsrAttack, gAdsrDecay, gAdsrSustain, gAdsrRelease, gAdsrLoop);
+    }
     {
         static bool prevGate = false;
         const bool curGate = gGateHigh;
         if (curGate != prevGate) {
-            gCurveEng.setGate(curGate);
+            gCurveEng->setGate(curGate);
+            // On rising gate edge (retrigger), reset all oscillator phases so the
+            // attack always starts at the waveform zero-crossing.  Without this,
+            // re-triggering during release at a random phase point creates a click
+            // whose ring modulation sidebands sound metallic / PWM-like.
+            if (curGate) {
+                for (uint8_t i = 0; i < 4; i++) {
+                    voices[i].resetPhase();
+                    subVoices[i].resetPhase();
+                }
+            }
             prevGate = curGate;
         }
     }
@@ -446,8 +482,6 @@ void updateControl() {
         voiceFreqs[1] = max(gBaseFreq * cachedRatio2 + gDetune * 0.5f + gDrift.offset(1), 20.0f);
         voices[0].setFreq(voiceFreqs[0]);
         voices[1].setFreq(voiceFreqs[1]);
-        subVoices[0].setFreq(voiceFreqs[0] * 0.5f);
-        subVoices[1].setFreq(voiceFreqs[1] * 0.5f);
         voices[0].setShape(sShape);
         voices[1].setShape(sShape);
         sActiveVoices = 2;
@@ -459,6 +493,11 @@ void updateControl() {
         sPanR[1] = 256;
         sPanR[2] = 0;
         sPanR[3] = 0;
+        {
+            const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
+            subVoices[0].setFreq(voiceFreqs[0] * subMul);
+            subVoices[1].setFreq(voiceFreqs[1] * subMul);
+        }
         break;
     }
     case VoiceMode::CHORD: {
@@ -499,7 +538,10 @@ void updateControl() {
             voiceFreqs[i] = max(sCachedFreqs[i] + gDrift.offset(i), 20.0f);
             voices[i].setFreq(voiceFreqs[i]);
             voices[i].setShape(sShape);
-            subVoices[i].setFreq(voiceFreqs[i] * 0.5f);
+            {
+                const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
+                subVoices[i].setFreq(voiceFreqs[i] * subMul);
+            }
         }
         sActiveVoices = 4;
         // Stereo spread: hard-L, soft-L, soft-R, hard-R — normalized so sum(L)=sum(R)=256.
@@ -515,21 +557,44 @@ void updateControl() {
     }
     }
 
-    // sSubW: 0..128 maps fatness 0..1 to sub contributing 0..50% of main amplitude.
+    // sSubWf: fatness 0..1 → sub contributing 0..50% of main amplitude.
     // Written here (Core 0 control rate), read in updateAudio() ISR — atomic on M33.
-    sSubW = (int32_t)(sFatness * 128.0f);
+    sSubWf = sFatness * 0.5f;
 
     // Chorus depth — single float, atomic on M33, no mutex needed.
     gChorusDepth = sMotion;
 
-    // Filter (M26a) — smooth cutoff + resonance, recompute SVF coefficients at control rate.
-    // setParams() calls tanf() — safe here; never called from updateAudio() ISR.
+    // Filter (M26a / M5x) — runtime type switch + smooth coefficients.
+    // gFilterType drives re-pointing of gFilterInst; integrators cleared on switch.
+    {
+        static FilterType sPrevFilterType = FilterType::SVF;
+        if (gFilterType != sPrevFilterType) {
+            gFilterInst->reset(); // silence old integrators
+            gFilterInst = (gFilterType == FilterType::SVF)
+                              ? static_cast<FilterEngine *>(&sSvfFilter)
+                              : static_cast<FilterEngine *>(&sOtaLadder);
+            sPrevFilterType = gFilterType;
+        }
+    }
+    // Smooth cutoff + resonance, then recompute coefficients (tanf — safe at 128 Hz).
     {
         static float sFilterCutoff = 8000.0f;
         static float sFilterRes = 0.0f;
         sFilterCutoff += (gFilterCutoff - sFilterCutoff) * 0.1f;
         sFilterRes += (gFilterRes - sFilterRes) * 0.1f;
-        gFilter.setParams(sFilterCutoff, sFilterRes, gFilterMode);
+        gFilterInst->setParams(sFilterCutoff, sFilterRes, gFilterMode);
+    }
+
+    // Envelope type switch (M5x) — re-point gCurveEng and reset on change.
+    {
+        static EnvelopeType sPrevEnvType = EnvelopeType::AR;
+        if (gEnvelopeType != sPrevEnvType) {
+            gCurveEng->reset(); // silence old envelope
+            gCurveEng = (gEnvelopeType == EnvelopeType::AR)
+                            ? static_cast<EnvelopeEngine *>(&sArEnv)
+                            : static_cast<EnvelopeEngine *>(&sAdsrEnv);
+            sPrevEnvType = gEnvelopeType;
+        }
     }
 
     // Delay (M26c) — update params at control rate (stub; full implementation in M26c).
@@ -622,7 +687,7 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
     for (uint8_t i = 0; i < sActiveVoices; i++) {
         const int32_t s = voices[i].next();
         const int32_t sub = subVoices[i].next();
-        const int32_t m = s + ((sub * sSubW) >> 8);
+        const int32_t m = (int32_t)((float)s + (float)sub * sSubWf);
         left += (m * sPanL[i]) >> 8;
         right += (m * sPanR[i]) >> 8;
     }
@@ -638,11 +703,14 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
         right = -32512;
 
     // CURVE envelope VCA (Milestone 15): bypassed in drone mode (no gate patched).
-    // Volume and envelope are combined into a single integer multiply for efficiency.
-    const float envLevel = gGatePatched ? gCurveEng.next() : 1.0f;
-    const int32_t scale = (int32_t)(sVolume * envLevel * 256.0f);
-    left = (left * scale) >> 8;
-    right = (right * scale) >> 8;
+    // Float multiply — eliminates the 256-step integer quantization that produces
+    // audible zipper artifacts during exponential decay (steps space out as amplitude
+    // falls, creating periodic clicks at ~40 Hz early → sub-audio rate near zero).
+    // Cortex-M33 FPU: two float multiplies, same cost as the previous integer path.
+    const float envLevel = gGatePatched ? gCurveEng->next() : 1.0f;
+    const float gain = sVolume * envLevel;
+    left = (int32_t)((float)left * gain);
+    right = (int32_t)((float)right * gain);
 
     // ---------------------------------------------------------------------------
     // M26 Post-effects chain — 4 orderings via two bool flags (gFxOrder).
@@ -651,7 +719,7 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
 
     // [FILTER — PRE-CHORUS position]
     if (!gFxOrder.filterPostChorus) {
-        gFilter.process(left, right, &left, &right);
+        gFilterInst->process(left, right, &left, &right);
     }
 
     // Chorus — Core 0 ISR phasor LFO (~50 cycles, no trig).
@@ -662,7 +730,7 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
 
     // [FILTER — POST-CHORUS position]
     if (gFxOrder.filterPostChorus) {
-        gFilter.process(outL, outR, &outL, &outR);
+        gFilterInst->process(outL, outR, &outL, &outR);
     }
 
     // [DELAY — PRE-REVERB position]
@@ -681,9 +749,10 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
         gRevSampleSeq++;
         __asm volatile("sev"); // wake Core 1
         // Mix the wet return from Core 1 (1 sample old — inaudible for reverb tails).
-        const int32_t wetScale = (int32_t)(gRevMix * 256.0f);
-        outL += (gRevOut_L * wetScale) >> 8;
-        outR += (gRevOut_R * wetScale) >> 8;
+        // Float multiply — avoids 256-step quantization on gRevMix changes.
+        const float wetMix = gRevMix;
+        outL += (int32_t)((float)gRevOut_L * wetMix);
+        outR += (int32_t)((float)gRevOut_R * wetMix);
         // Soft-clip after wet addition (BP resonance + reverb can exceed ±32512).
         if (outL > 32512)
             outL = 32512;

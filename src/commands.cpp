@@ -1,6 +1,9 @@
 #include "io/commands.h"
 #include "config_store.h"
+#include "dsp/CurveEngine.h"
+#include "dsp/FilterEngine.h"
 #include "dsp/FxChain.h"
+#include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
 #include "params.h"
 #include <Arduino.h>
@@ -69,6 +72,17 @@ static void cmd_fat(const char *args, Print &out) {
     gFatness = constrain((float)atof(args), 0.0f, 1.0f);
     out.print(F("fat -> "));
     out.println(gFatness, 3);
+}
+
+static void cmd_sub_octave(const char *args, Print &out) {
+    const int v = atoi(args);
+    if (v != 1 && v != 2) {
+        out.println(F("sub octave: 1 or 2"));
+        return;
+    }
+    gSubOctave = (uint8_t)v;
+    out.print(F("sub octave -> "));
+    out.println(gSubOctave);
 }
 
 static void cmd_motion(const char *args, Print &out) {
@@ -201,6 +215,8 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gShape, 3);
     out.print(F(" fat="));
     out.print(gFatness, 3);
+    out.print(F(" suboct="));
+    out.print(gSubOctave);
     out.print(F(" motion="));
     out.print(gMotion, 3);
     out.print(F(" dspeed="));
@@ -719,6 +735,103 @@ static void cmd_delay(const char *args, Print &out) {
 // Columns: name | help text shown in listing | handler
 // ---------------------------------------------------------------------------
 
+// M5x — filter type selector: svf (Cytomic SVF) | ladder (OTA 4-pole)
+static void cmd_filter_type(const char *args, Print &out) {
+    if (strcmp(args, "svf") == 0) {
+        gFilterType = FilterType::SVF;
+        // gFilterInst is re-pointed in updateControl() on the next tick
+        out.println(F("filter type -> svf (Cytomic state-variable)"));
+    } else if (strcmp(args, "ladder") == 0) {
+        gFilterType = FilterType::LADDER;
+        out.println(F("filter type -> ladder (OTA 4-pole, LP only, self-oscillating)"));
+    } else {
+        out.print(F("filter type: "));
+        out.println(gFilterType == FilterType::SVF ? F("svf") : F("ladder"));
+        out.println(F("usage: filter type <svf|ladder>"));
+    }
+}
+
+// M5x — envelope type selector: ar | adsr
+static void cmd_env_type(const char *args, Print &out) {
+    if (strcmp(args, "ar") == 0 || strcmp(args, "AR") == 0) {
+        gEnvelopeType = EnvelopeType::AR;
+        gCurveEng->reset();
+        out.println(F("env type -> ar (single-knob AR with pluck mode)"));
+    } else if (strcmp(args, "adsr") == 0 || strcmp(args, "ADSR") == 0) {
+        gEnvelopeType = EnvelopeType::ADSR;
+        gCurveEng->reset();
+        out.println(F("env type -> adsr (A/D/S/R + optional loop)"));
+    } else {
+        out.print(F("env type: "));
+        out.println(gEnvelopeType == EnvelopeType::AR ? F("ar") : F("adsr"));
+        out.println(F("usage: env type <ar|adsr>"));
+    }
+}
+
+// M5x — set ADSR parameters: adsr <attack_s> <decay_s> <sustain> <release_s> [loop]
+static void cmd_adsr(const char *args, Print &out) {
+    if (!args || !*args) {
+        out.print(F("adsr: A="));
+        out.print(gAdsrAttack, 3);
+        out.print(F(" D="));
+        out.print(gAdsrDecay, 3);
+        out.print(F(" S="));
+        out.print(gAdsrSustain, 2);
+        out.print(F(" R="));
+        out.print(gAdsrRelease, 3);
+        out.print(F(" loop="));
+        out.println(gAdsrLoop ? F("on") : F("off"));
+        out.println(F("usage: adsr <A_s> <D_s> <S_0-1> <R_s> [loop]"));
+        return;
+    }
+    const char *p = args;
+    auto nextFloat = [&](float &v, float lo, float hi) {
+        while (*p == ' ')
+            p++;
+        if (!*p)
+            return;
+        v = constrain((float)atof(p), lo, hi);
+        while (*p && *p != ' ')
+            p++;
+    };
+    nextFloat(gAdsrAttack, 0.001f, 10.0f);
+    nextFloat(gAdsrDecay, 0.001f, 10.0f);
+    nextFloat(gAdsrSustain, 0.0f, 1.0f);
+    nextFloat(gAdsrRelease, 0.001f, 10.0f);
+    while (*p == ' ')
+        p++;
+    if (*p) {
+        if (strncmp(p, "loop", 4) == 0)
+            gAdsrLoop = true;
+        else if (strncmp(p, "noloop", 6) == 0)
+            gAdsrLoop = false;
+    }
+    out.print(F("adsr -> A="));
+    out.print(gAdsrAttack, 3);
+    out.print(F(" D="));
+    out.print(gAdsrDecay, 3);
+    out.print(F(" S="));
+    out.print(gAdsrSustain, 2);
+    out.print(F(" R="));
+    out.print(gAdsrRelease, 3);
+    out.print(F(" loop="));
+    out.println(gAdsrLoop ? F("on") : F("off"));
+}
+
+// M5x — standalone loop toggle: env loop <on|off>
+static void cmd_env_loop(const char *args, Print &out) {
+    if (strcmp(args, "on") == 0) {
+        gAdsrLoop = true;
+        out.println(F("env loop -> on"));
+    } else if (strcmp(args, "off") == 0) {
+        gAdsrLoop = false;
+        out.println(F("env loop -> off"));
+    } else {
+        out.print(F("env loop: "));
+        out.println(gAdsrLoop ? F("on") : F("off"));
+    }
+}
+
 // clang-format off
 const CommandEntry kCommands[] = {
     {"pitch",     "<hz>        base frequency (20-8000 Hz)",                              cmd_pitch},
@@ -728,6 +841,7 @@ const CommandEntry kCommands[] = {
     {"detune",    "<hz>        symmetric fine spread (0-200 Hz)",                         cmd_detune},
     {"shape",     "<0-1>       waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
     {"fat",       "<0-1>       sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
+    {"suboct",    "<1|2>       sub oscillator octave: 1=one below (default)  2=two below", cmd_sub_octave},
     {"motion",    "<0-1>       drift + chorus depth: 0=dry/static  1=full",              cmd_motion},
     {"dspeed",    "<0.001-0.1> drift glide speed: 0.001=glacial  0.04=default  0.1=fast", cmd_driftspeed},
     {"chorus",    "<off|I|II|I+II>  Juno chorus mode (default: I+II)",                   cmd_chorus},
@@ -738,10 +852,14 @@ const CommandEntry kCommands[] = {
     {"vol",       "<0-1>       master volume",                                             cmd_vol},
     {"space",     "<0-2>       stereo width: 0=mono  1=full stereo  2=hyper-wide (default: 1)", cmd_space},
     {"chord",     "<name|0-10> set chord shape (CHORD mode): unison power minor major sus2 sus4 maj7 min7 dom7 dim octaves", cmd_chord},
-    {"filter",    "<lp|hp|bp|notch|off> [cutoff_hz] [resonance]  SVF filter (M26a)",    cmd_filter},
-    {"fxorder",   "<filter|delay> <pre|post>   effect chain ordering (M26a)",           cmd_fxorder},
-    {"reverb",    "[off | <mix> [size] [damping]]   plate reverb, Core 1 (M26b)",       cmd_reverb},
-    {"delay",     "[off | <mix> [time_ms] [feedback]]   ping-pong delay (M26c)",        cmd_delay},
+    {"filter",       "<lp|hp|bp|notch|off> [cutoff_hz] [resonance]  SVF/ladder filter (M26a)", cmd_filter},
+    {"filter type",  "<svf|ladder>  switch filter algorithm (M5x)",                          cmd_filter_type},
+    {"fxorder",      "<filter|delay> <pre|post>   effect chain ordering (M26a)",             cmd_fxorder},
+    {"reverb",       "[off | <mix> [size] [damping]]   plate reverb, Core 1 (M26b)",         cmd_reverb},
+    {"delay",        "[off | <mix> [time_ms] [feedback]]   ping-pong delay (M26c)",          cmd_delay},
+    {"env type",     "<ar|adsr>  switch envelope algorithm (M5x)",                           cmd_env_type},
+    {"adsr",         "<A_s> <D_s> <S> <R_s> [loop|noloop]  ADSR params (M5x)",              cmd_adsr},
+    {"env loop",     "<on|off>  loop ADSR as LFO (M5x)",                                     cmd_env_loop},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset>  persist/restore all parameters to flash",          cmd_config},
     {"status",    "            print all current parameters",                              cmd_status},

@@ -1,6 +1,6 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b + M31(partial) + M40(partial) + M41(partial)** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter, Dattorro plate reverb with 4-LFO modulation + freeze mode, reverb modspeed/moddepth, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence, mode button cycling, drone-return via button combo or CC 119, SHIFT trig-on-release)
+> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b + M31(partial) + M40(partial) + M41(partial) + M5x** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter + OTA ladder filter, Dattorro plate reverb with 4-LFO modulation + freeze mode, reverb modspeed/moddepth, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence, mode button cycling, drone-return via button combo or CC 119, SHIFT trig-on-release, runtime-selectable filter/envelope algorithms, ADSR envelope + loop mode, oscillator phase reset on retrigger)
 > Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
 
 ---
@@ -399,7 +399,13 @@ space 2.0         # maximum anti-correlation — dramatic spatial effect
 
 ---
 
-The CURVE system gives the module basic articulation without an external envelope/VCA. When a gate is active, the module shapes each note with an Attack–Release (AR) envelope.
+The CURVE system gives the module basic articulation without an external envelope/VCA. Two envelope algorithms are available at runtime:
+
+**AR mode (default):** single-knob attack+release. CURVE and CURVETIME control the shape and speed.
+
+**ADSR mode:** full four-stage envelope with independent Attack, Decay, Sustain, and Release times. Optional loop mode turns the envelope into a free-running LFO.
+
+Switch envelope type without stopping audio:
 
 #### `gate <1 | 0 | free>` — Gate control
 
@@ -462,6 +468,56 @@ curvetime 1.0
 gate 1
 gate 0
 ```
+
+---
+
+### ADSR Envelope (M5x)
+
+When `env type adsr` is active the single-knob AR is replaced with a full four-stage envelope.
+
+#### `env type <ar|adsr>` — Envelope algorithm
+
+| Type           | Description                                                          |
+| -------------- | -------------------------------------------------------------------- |
+| `ar` (default) | Single-knob AR — CURVE + CURVETIME control both attack and release   |
+| `adsr`         | Full ADSR with independent attack, decay, sustain level, and release |
+
+```txt
+env type ar           # back to single-knob AR
+env type adsr         # switch to full ADSR
+```
+
+#### `adsr <A> <D> <S> <R> [loop|noloop]` — ADSR parameters
+
+All times in seconds. Sustain is a level (0.0–1.0).
+
+| Parameter | Range      | Default |
+| --------- | ---------- | ------- |
+| Attack    | 0.001–10 s | 0.05 s  |
+| Decay     | 0.001–10 s | 0.10 s  |
+| Sustain   | 0.0–1.0    | 0.80    |
+| Release   | 0.001–10 s | 0.30 s  |
+
+```txt
+adsr 0.01 0.2 0.7 0.4         # fast attack, medium decay, sustain 0.7, 0.4s release
+adsr 0.5 0.3 0.6 1.0          # slow attack pad
+adsr 0.001 0.1 0.0 0.05       # percussive pluck (zero sustain)
+adsr 0.05 0.1 0.8 0.3 loop    # looping ADSR — cycles continuously as LFO
+adsr 0.1 0.2 0.5 0.8 noloop   # remove loop flag
+```
+
+#### `env loop <on|off>` — ADSR loop mode
+
+When loop is on, after the release reaches zero the envelope automatically restarts from attack. This turns the ADSR into a free-running, cycling amplitude LFO. The cycle rate is determined by the total of all four stage times.
+
+```txt
+env loop on           # enable loop
+env loop off          # disable loop
+```
+
+> **Tip:** `adsr 0.1 0.05 0.0 0.1 loop` with `gate free` and a slow pad preset creates a tremolo effect driven by the ADSR loop. Adjust the times to change the tremolo rate.
+
+> **Oscillator phase reset:** every time a gate rises (note on), all oscillator phase accumulators are reset to zero. This prevents the metallic/PWM-like artifact that occurs when retriggering during a release cycle — the attack always starts from a clean waveform zero-crossing.
 
 ---
 
@@ -569,7 +625,7 @@ Effect positions are reorderable via `fxorder`.
 
 ### `filter <mode> [cutoff] [res]` — Multimode filter
 
-Stereo state-variable filter (Cytomic SVF) — coefficients updated at 128 Hz, audio-rate processing is trig-free.
+Stereo filter — two runtime-selectable algorithms (see `filter type`).
 
 | Mode    | Character                          |
 | ------- | ---------------------------------- |
@@ -590,6 +646,22 @@ filter hp 400         # high-pass at 400 Hz
 filter bp 1200 0.8    # band-pass at 1.2 kHz, high resonance
 filter off            # bypass
 ```
+
+### `filter type <svf|ladder>` — Filter algorithm
+
+Switches the filter engine at runtime. Both are always compiled into flash — switching is silent and glitch-free.
+
+| Type            | Algorithm                  | Modes                | Character                                          |
+| --------------- | -------------------------- | -------------------- | -------------------------------------------------- |
+| `svf` (default) | Cytomic TVA state-variable | LP / HP / BP / NOTCH | Clean, precise, all-mode                           |
+| `ladder`        | ZDF 4-pole Moog-style OTA  | LP4 only             | Warm, saturating; self-oscillates at resonance 1.0 |
+
+```txt
+filter type svf       # clean Cytomic SVF (default)
+filter type ladder    # OTA 4-pole ladder — lp mode forced, tanh saturation
+```
+
+> **Tip:** with `ladder` and `resonance 0.9–0.95`, turning up resonance on low cutoffs gives a deep, warm Moog-style squeal. At `resonance 1.0` the ladder self-oscillates — use as a sine wave source.
 
 ### `fxorder <filter|delay> <pre|post>` — Effect chain order
 
@@ -904,61 +976,69 @@ Enables or disables automatic CPU reporting every 5 seconds to the serial consol
 
 ## Command Quick Reference
 
-| Command                | Range                   | Description                                                    |
-| ---------------------- | ----------------------- | -------------------------------------------------------------- |
-| `pitch <hz>`           | 20–8000                 | Base frequency                                                 |
-| `note <name>`          | —                       | Set pitch by note name (C4, A#3, etc.)                         |
-| `mode <name>`          | pair/chord/…            | Voice mode (pair: M21, chord: M23)                             |
-| `rel <0–24>`           | 0–24 st                 | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)      |
-| `detune <hz>`          | 0–200                   | Symmetric fine spread between voices                           |
-| `shape <0–1>`          | 0–1                     | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow          |
-| `fat <0–1>`            | 0–1                     | Sub oscillator level (0=off, 1=50% of main)                    |
-| `motion <0–1>`         | 0–1                     | Frequency drift + chorus depth (0=dry/static, 1=full)          |
-| `dspeed <n>`           | 0.001–0.1               | Drift glide speed (τ coefficient)                              |
-| `chorus <mode>`        | off/I/II/I+II           | Chorus mode (default: I+II)                                    |
-| `space <0–2>`          | 0–2                     | Stereo width (0=mono, 1=full stereo, 2=hyper-wide, default: 1) |
-| `curve <0–1>`          | 0–1                     | Envelope shape (0=pluck, 1=swell)                              |
-| `curvetime <n>`        | 0.25–4                  | Envelope time scale (1=default)                                |
-| `gate <1\|0\|free>`    | —                       | Gate high / low / bypass (drone)                               |
-| `trig [ms]`            | —                       | One-shot gate pulse (default 100 ms)                           |
-| `vol <0–1>`            | 0–1                     | Master volume                                                  |
-| `filter <mode> …`      | off/lp/hp/bp/notch      | Multimode filter: mode [cutoff Hz] [resonance 0–1]             |
-| `fxorder <fx> <pos>`   | filter/delay × pre/post | Effect chain position                                          |
-| `reverb <mix> …`       | 0–1, 0–1, 0–1           | Plate reverb: mix size damping; `reverb on/off`                |
-| `reverb freeze on/off` | —                       | Hold reverb tail (decay→1.0, input gated) / release            |
-| `reverb modspeed <v>`  | 0.1–4.0                 | LFO rate multiplier (default 1.0)                              |
-| `reverb moddepth <v>`  | 0.0–1.0                 | LFO depth multiplier (default 1.0; 0=static)                   |
-| `delay <mix> …`        | 0–1, 10–300, 0–0.95     | Ping-pong delay: mix time_ms feedback; `delay on/off`          |
-| `midichan <n\|omni>`   | 1–16, omni              | MIDI receive channel (default: omni)                           |
-| `config <cmd>`         | save/load/reset         | Persist / restore / wipe all parameters to flash               |
-| `status`               | —                       | Print all current parameters                                   |
-| `cpu`                  | —                       | Audio ISR timing and headroom                                  |
-| `perf on\|off`         | —                       | Auto CPU reporting every 5 s                                   |
-| `help`                 | —                       | List all commands                                              |
+| Command                | Range                             | Description                                                                        |
+| ---------------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
+| `pitch <hz>`           | 20–8000                           | Base frequency                                                                     |
+| `note <name>`          | —                                 | Set pitch by note name (C4, A#3, etc.)                                             |
+| `mode <name>`          | pair/chord/…                      | Voice mode (pair: M21, chord: M23)                                                 |
+| `rel <0–24>`           | 0–24 st                           | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)                          |
+| `detune <hz>`          | 0–200                             | Symmetric fine spread between voices                                               |
+| `shape <0–1>`          | 0–1                               | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow                              |
+| `fat <0–1>`            | 0–1                               | Sub oscillator level (0=off, 1=50% of main)                                        |
+| `motion <0–1>`         | 0–1                               | Frequency drift + chorus depth (0=dry/static, 1=full)                              |
+| `dspeed <n>`           | 0.001–0.1                         | Drift glide speed (τ coefficient)                                                  |
+| `chorus <mode>`        | off/I/II/I+II                     | Chorus mode (default: I+II)                                                        |
+| `space <0–2>`          | 0–2                               | Stereo width (0=mono, 1=full stereo, 2=hyper-wide, default: 1)                     |
+| `curve <0–1>`          | 0–1                               | Envelope shape (0=pluck, 1=swell)                                                  |
+| `curvetime <n>`        | 0.25–4                            | Envelope time scale (1=default)                                                    |
+| `gate <1\|0\|free>`    | —                                 | Gate high / low / bypass (drone)                                                   |
+| `trig [ms]`            | —                                 | One-shot gate pulse (default 100 ms)                                               |
+| `vol <0–1>`            | 0–1                               | Master volume                                                                      |
+| `filter <mode> …`      | off/lp/hp/bp/notch                | Multimode filter: mode [cutoff Hz] [resonance 0–1]                                 |
+| `filter type <t>`      | svf / ladder                      | Filter algorithm: `svf` (clean, all modes) or `ladder` (LP4, saturating, self-osc) |
+| `fxorder <fx> <pos>`   | filter/delay × pre/post           | Effect chain position                                                              |
+| `reverb <mix> …`       | 0–1, 0–1, 0–1                     | Plate reverb: mix size damping; `reverb on/off`                                    |
+| `reverb freeze on/off` | —                                 | Hold reverb tail (decay→1.0, input gated) / release                                |
+| `reverb modspeed <v>`  | 0.1–4.0                           | LFO rate multiplier (default 1.0)                                                  |
+| `reverb moddepth <v>`  | 0.0–1.0                           | LFO depth multiplier (default 1.0; 0=static)                                       |
+| `delay <mix> …`        | 0–1, 10–300, 0–0.95               | Ping-pong delay: mix time_ms feedback; `delay on/off`                              |
+| `env type <t>`         | ar / adsr                         | Envelope algorithm: `ar` (single-knob) or `adsr` (full ADSR)                       |
+| `adsr <A> <D> <S> <R>` | 0.001–10, 0.001–10, 0–1, 0.001–10 | ADSR times (s) + sustain level; append `loop` for loop mode                        |
+| `env loop <on\|off>`   | —                                 | Toggle ADSR loop mode (envelope as cycling LFO)                                    |
+| `midichan <n\|omni>`   | 1–16, omni                        | MIDI receive channel (default: omni)                                               |
+| `config <cmd>`         | save/load/reset                   | Persist / restore / wipe all parameters to flash                                   |
+| `status`               | —                                 | Print all current parameters                                                       |
+| `cpu`                  | —                                 | Audio ISR timing and headroom                                                      |
+| `perf on\|off`         | —                                 | Auto CPU reporting every 5 s                                                       |
+| `help`                 | —                                 | List all commands                                                                  |
 
 ---
 
 ## Default Values
 
-| Parameter   | Default | Notes                             |
-| ----------- | ------- | --------------------------------- |
-| `pitch`     | 440 Hz  | A4                                |
-| `mode`      | pair    |                                   |
-| `rel`       | 0.0     | Unison (voice 2 at ROOT)          |
-| `detune`    | 0 Hz    | No fine spread                    |
-| `shape`     | 0.0     | Sine                              |
-| `fat`       | 0.4     | Sub slightly audible              |
-| `motion`    | 0.0     | Static                            |
-| `dspeed`    | 0.04    | ~0.20 s drift glide               |
-| `chorus`    | I+II    | Juno I+II stereo spread           |
-| `space`     | 1.0     | Full stereo (identity, range 0–2) |
-| `curve`     | 0.5     | Natural AR                        |
-| `curvetime` | 1.0     | Normal speed                      |
-| `gate`      | free    | Drone, envelope bypassed          |
-| `vol`       | 0.8     |                                   |
-| `filter`    | off     | Filter bypassed                   |
-| `reverb`    | off     | Reverb disabled                   |
-| `delay`     | off     | Delay bypassed (mix=0)            |
-| `midichan`  | omni    | All MIDI channels                 |
+| Parameter     | Default                   | Notes                                       |
+| ------------- | ------------------------- | ------------------------------------------- |
+| `pitch`       | 440 Hz                    | A4                                          |
+| `mode`        | pair                      |                                             |
+| `rel`         | 0.0                       | Unison (voice 2 at ROOT)                    |
+| `detune`      | 0 Hz                      | No fine spread                              |
+| `shape`       | 0.0                       | Sine                                        |
+| `fat`         | 0.4                       | Sub slightly audible                        |
+| `motion`      | 0.0                       | Static                                      |
+| `dspeed`      | 0.04                      | ~0.20 s drift glide                         |
+| `chorus`      | I+II                      | Juno I+II stereo spread                     |
+| `space`       | 1.0                       | Full stereo (identity, range 0–2)           |
+| `curve`       | 0.5                       | Natural AR                                  |
+| `curvetime`   | 1.0                       | Normal speed                                |
+| `gate`        | free                      | Drone, envelope bypassed                    |
+| `vol`         | 0.8                       |                                             |
+| `filter`      | off                       | Filter bypassed (SVF algorithm)             |
+| `filter type` | svf                       | Cytomic SVF                                 |
+| `env type`    | ar                        | Single-knob AR envelope                     |
+| `adsr`        | 0.05 / 0.10 / 0.80 / 0.30 | Attack / Decay / Sustain / Release defaults |
+| `env loop`    | off                       |                                             |
+| `reverb`      | off                       | Reverb disabled                             |
+| `delay`       | off                       | Delay bypassed (mix=0)                      |
+| `midichan`    | omni                      | All MIDI channels                           |
 
 > All parameters marked above are automatically restored on boot if `config save` has been used.

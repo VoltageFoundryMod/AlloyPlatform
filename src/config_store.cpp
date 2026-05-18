@@ -50,6 +50,7 @@ static void packConfig(AlloyConfig &cfg) {
     cfg.voiceMode = (uint8_t)gVoiceMode;
     cfg.shape = gShape;
     cfg.fatness = gFatness;
+    cfg.subOctave = gSubOctave;
     cfg.motion = gMotion;
     cfg.driftSpeed = gDriftSpeed;
     cfg.chorusMode = (uint8_t)gChorusMode;
@@ -68,6 +69,7 @@ static void applyConfig(const AlloyConfig &cfg) {
     gVoiceMode = (VoiceMode)cfg.voiceMode;
     gShape = cfg.shape;
     gFatness = cfg.fatness;
+    gSubOctave = (cfg.subOctave == 2) ? 2u : 1u;
     gMotion = cfg.motion;
     gDriftSpeed = cfg.driftSpeed;
     gChorusMode = (ChorusMode)cfg.chorusMode;

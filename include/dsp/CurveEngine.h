@@ -3,102 +3,80 @@
 #include <math.h>
 #include <stdint.h>
 
-/**
- * CurveEngine<AUDIO_RATE> — single-knob AR envelope generator and digital VCA.
- *
- * CURVE knob (0.0–1.0) morphs both attack and release simultaneously:
- *   0.0  — pluck:   ~1 ms attack, ~80 ms release; decays regardless of gate length
- *   0.5  — natural: ~50 ms attack, ~300 ms release; sustains while gate held
- *   1.0  — swell:   ~800 ms attack, ~1 s release; slow pad-like bloom
- *
- * GATE PATCHED behaviour (controlled by gGatePatched flag, written by Core 0):
- *   false — bypass: envelope fixed at 1.0 (drone; module sounds without a gate patch)
- *   true  — AR envelope active, triggered by rising/falling edges on gGateHigh
- *
- * USAGE
- * -----
- *   CurveEngine<MOZZI_AUDIO_RATE> curveEng;
- *
- *   // in updateControl() @ 128 Hz:
- *   curveEng.setCurve(sCurve);       // recomputes A/R coefficients (may call expf)
- *   curveEng.setGate(gGateHigh);     // detects edges, advances state machine
- *
- *   // in updateAudio() @ AUDIO_RATE Hz:
- *   float env = curveEng.next();     // returns 0.0..1.0 envelope amplitude
- *
- * PLUCK MODE (curve < 0.2)
- * -------------------------
- * Below curve=0.2 the attack peak automatically triggers release — the envelope
- * decays regardless of whether the gate remains high.  This mimics the character
- * of a plucked string or percussive hit.
- *
- * Above curve=0.2, holding the gate sustains at full amplitude between the attack
- * peak and the release phase (classic ASR / gated-sustain behaviour).
- *
- * DESIGN NOTES
- * ------------
- * - setCurve() calls expf() — safe at control rate (128 Hz), never in the audio ISR.
- * - next() is pure one-pole multiply/add — no exp, no division, fast on Cortex-M33.
- * - All members are ≤32-bit and naturally aligned; reads/writes are atomic on M33,
- *   so no mutex is needed for Core-0-only shared access between two priority levels
- *   (updateControl and updateAudio ISR).
- * - Retrigger: a new gate-high edge during RELEASE or SUSTAIN restarts ATTACK cleanly.
- */
-template <uint32_t SAMPLE_RATE>
-class CurveEngine {
+// ---------------------------------------------------------------------------
+// EnvelopeType — selects which concrete algorithm is active at runtime.
+// ---------------------------------------------------------------------------
+
+enum class EnvelopeType : uint8_t {
+    AR = 0,   // Single-knob AR with pluck mode (default — original CurveEngine)
+    ADSR = 1, // Full ADSR with separate A/D/S/R params + optional loop mode
+};
+
+// ---------------------------------------------------------------------------
+// EnvelopeEngine — abstract envelope + VCA interface
+//
+// Concrete subclasses: AREnvelope (original CurveEngine), ADSREnvelope.
+// Runtime selection: change gEnvInst pointer in main.cpp.
+//
+// setGate()  : call every control tick (128 Hz); may call expf().
+// next()     : call every audio sample; no expf, branch-minimal.
+// level()    : read current value without advancing.
+// reset()    : silence immediately (mode switch, mute).
+// ---------------------------------------------------------------------------
+
+class EnvelopeEngine {
   public:
-    /**
-     * Pre-compute attack and release one-pole coefficients from CURVE position.
-     * @param curve      0.0 = pluck … 1.0 = swell (shape)
-     * @param timeScale  overall speed multiplier; 1.0 = default, 0.25 = 4× faster, 4.0 = 4× slower
-     * Uses expf() — call only from updateControl(), never from updateAudio().
-     */
+    virtual ~EnvelopeEngine() {}
+
+    /** Detect gate edge and advance state machine.  Call at 128 Hz. */
+    virtual void setGate(bool high) = 0;
+
+    /** Advance by one sample.  Returns 0.0–1.0.  Call at audio rate. */
+    virtual float next() = 0;
+
+    /** Current level without advancing. */
+    virtual float level() const = 0;
+
+    /** Reset to silent idle (e.g. on type switch). */
+    virtual void reset() = 0;
+};
+
+// ---------------------------------------------------------------------------
+// AREnvelope — original single-knob AR envelope (= former CurveEngine).
+//
+// CURVE knob (0.0–1.0) morphs attack and release simultaneously.
+// Below curve=0.2 → pluck mode: auto-releases at peak regardless of gate.
+// setCurve() calls expf() — safe at 128 Hz; next() is multiply-only.
+// ---------------------------------------------------------------------------
+
+template <uint32_t SAMPLE_RATE>
+class AREnvelope : public EnvelopeEngine {
+  public:
     void setCurve(float curve, float timeScale = 1.0f) {
         _curve = curve;
         const float c2 = curve * curve;
-        // Base attack: 1 ms … 800 ms; base release: 80 ms … 1000 ms
-        // Both scaled uniformly by timeScale so CURVE shape is preserved.
-        const float ts = (timeScale < 0.01f) ? 0.01f : timeScale; // clamp > 0
+        const float ts = (timeScale < 0.01f) ? 0.01f : timeScale;
         const float attTime = (0.001f + c2 * 0.799f) * ts;
         const float relTime = (0.080f + c2 * 0.920f) * ts;
         _attCoeff = 1.0f - expf(-1.0f / (attTime * (float)SAMPLE_RATE));
         _relDecay = expf(-1.0f / (relTime * (float)SAMPLE_RATE));
     }
 
-    /**
-     * Signal a gate level change.  Detects rising/falling edges and advances
-     * the envelope state machine accordingly.
-     * Call once per updateControl() tick (128 Hz).
-     */
-    void setGate(bool high) {
-        if (high && !_gateHigh) {
-            // Rising edge: (re)trigger attack from any state
+    void setGate(bool high) override {
+        if (high && !_gateHigh)
             _state = ATTACK;
-        } else if (!high && _gateHigh) {
-            // Falling edge: begin release if currently in ATTACK or SUSTAIN
-            if (_state == ATTACK || _state == SUSTAIN) {
+        else if (!high && _gateHigh)
+            if (_state == ATTACK || _state == SUSTAIN)
                 _state = RELEASE;
-            }
-        }
         _gateHigh = high;
     }
 
-    /**
-     * Advance envelope by one audio sample.
-     * Call from updateAudio() at AUDIO_RATE — no expf, branch-minimal.
-     * Returns 0.0..1.0.
-     */
-    float __attribute__((always_inline)) next() {
+    float next() override {
         switch (_state) {
         case ATTACK:
             _env += _attCoeff * (1.0f - _env);
             if (_env >= 0.99f) {
-                // Sustain only if curve is above the pluck threshold AND gate held
-                if (_curve > 0.2f && _gateHigh) {
-                    _state = SUSTAIN;
-                } else {
-                    _state = RELEASE; // pluck mode: auto-release at peak
-                }
+                _state = (_curve > 0.2f && _gateHigh) ? SUSTAIN : RELEASE;
             }
             break;
         case SUSTAIN:
@@ -111,18 +89,15 @@ class CurveEngine {
                 _state = IDLE;
             }
             break;
-        case IDLE:
         default:
-            break; // _env stays at 0
+            break;
         }
         return _env;
     }
 
-    /** Current envelope level 0.0..1.0 — reads without advancing state. */
-    float level() const { return _env; }
+    float level() const override { return _env; }
 
-    /** Reset to silent (e.g. on initialisation or mode change). */
-    void reset() {
+    void reset() override {
         _state = IDLE;
         _env = 0.0f;
     }
@@ -132,10 +107,126 @@ class CurveEngine {
                            ATTACK,
                            SUSTAIN,
                            RELEASE } _state = IDLE;
+    float _env = 0.0f;
+    float _attCoeff = 0.001f;
+    float _relDecay = 0.999f;
+    float _curve = 0.5f;
+    bool _gateHigh = false;
+};
 
-    float _env = 0.0f;        // current envelope amplitude
-    float _attCoeff = 0.001f; // one-pole attack coefficient (toward 1.0)
-    float _relDecay = 0.999f; // per-sample release multiplier (toward 0.0)
-    float _curve = 0.5f;      // stored for pluck threshold check in next()
-    bool _gateHigh = false;   // last gate state seen by setGate() (edge detection)
+// Backwards-compatibility alias — existing code that uses CurveEngine<RATE> still compiles.
+template <uint32_t SAMPLE_RATE>
+using CurveEngine = AREnvelope<SAMPLE_RATE>;
+
+// ---------------------------------------------------------------------------
+// ADSREnvelope — full Attack / Decay / Sustain / Release envelope.
+//
+// All four times are independent.  Optional loop mode makes the envelope
+// cycle continuously as an LFO (restarts attack automatically after release).
+//
+// setADSR()   : set times + sustain level + loop flag; calls expf() × 3.
+// setGate()   : edge detection.  In loop mode gate is ignored.
+// next()      : audio-rate; no expf; one-pole multiply-only per tick.
+// ---------------------------------------------------------------------------
+
+template <uint32_t SAMPLE_RATE>
+class ADSREnvelope : public EnvelopeEngine {
+  public:
+    /**
+     * Configure ADSR parameters.  Call at control rate when values change.
+     * @param attackTime   seconds  (0.001–10.0)
+     * @param decayTime    seconds  (0.001–10.0)
+     * @param sustainLevel 0.0–1.0
+     * @param releaseTime  seconds  (0.001–10.0)
+     * @param loop         true = re-trigger automatically after release reaches 0
+     */
+    void setADSR(float attackTime, float decayTime, float sustainLevel,
+                 float releaseTime, bool loop = false) {
+        _sustain = (sustainLevel < 0.0f) ? 0.0f : (sustainLevel > 1.0f ? 1.0f : sustainLevel);
+        _loop = loop;
+        const float sr = (float)SAMPLE_RATE;
+        _attCoeff = _coeff(attackTime, sr);
+        _decCoeff = _coeff(decayTime, sr);
+        _relCoeff = _coeff(releaseTime, sr);
+    }
+
+    void setGate(bool high) override {
+        if (_loop)
+            return; // loop mode ignores external gate
+        if (high && !_gateHigh)
+            _state = ATTACK;
+        else if (!high && _gateHigh)
+            if (_state == ATTACK || _state == DECAY || _state == SUSTAIN)
+                _state = RELEASE;
+        _gateHigh = high;
+    }
+
+    float next() override {
+        switch (_state) {
+        case ATTACK:
+            _env += _attCoeff * (1.0f - _env);
+            if (_env >= 0.99f) {
+                _env = 1.0f;
+                _state = DECAY;
+            }
+            break;
+        case DECAY:
+            _env += _decCoeff * (_sustain - _env);
+            if (fabsf(_env - _sustain) < 0.001f) {
+                _env = _sustain;
+                _state = (_sustain < 0.001f) ? RELEASE : SUSTAIN;
+            }
+            break;
+        case SUSTAIN:
+            _env = _sustain;
+            break;
+        case RELEASE:
+            _env *= _relCoeff;
+            if (_env < 0.001f) {
+                _env = 0.0f;
+                _state = IDLE;
+                if (_loop)
+                    _state = ATTACK; // loop: auto-restart
+            }
+            break;
+        default:
+            break;
+        }
+        return _env;
+    }
+
+    float level() const override { return _env; }
+
+    void reset() override {
+        _state = IDLE;
+        _env = 0.0f;
+    }
+
+    /** Start a one-shot attack (useful for trig commands and SHIFT button). */
+    void trigger() { _state = ATTACK; }
+
+  private:
+    // Continuous one-pole decay coefficient toward a target.
+    // attCoeff = 1 - exp(-1/(time*sr)):  env += coeff*(target - env) per sample.
+    // relCoeff = exp(-1/(time*sr)):      env *= coeff per sample.
+    static float _coeff(float time_s, float sr) {
+        if (time_s < 0.001f)
+            time_s = 0.001f;
+        if (time_s > 10.0f)
+            time_s = 10.0f;
+        return expf(-1.0f / (time_s * sr));
+    }
+
+    enum State : uint8_t { IDLE,
+                           ATTACK,
+                           DECAY,
+                           SUSTAIN,
+                           RELEASE } _state = IDLE;
+    float _env = 0.0f;
+    float _sustain = 0.8f;
+    float _attCoeff = 0.0f;   // toward 1.0: env += coeff*(1-env)
+    float _decCoeff = 0.0f;   // toward sustain
+    float _relCoeff = 0.999f; // decay multiplier (per-sample)
+    bool _loop = false;
+    bool _gateHigh = false;
 };

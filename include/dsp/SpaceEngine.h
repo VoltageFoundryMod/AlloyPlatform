@@ -22,8 +22,8 @@
  * At width > 1.0 the output can exceed ±32512; output is clamped to prevent
  * downstream clipping in StereoOutput::from16Bit().
  *
- * Stateless — all arithmetic is integer; no state or init needed.
- * ~8 integer operations (+ 2 clamping branches at width ≠ 1.0).
+ * Stateless — float arithmetic on M33 FPU; no state or init needed.
+ * ~8 FPU operations (+ 2 clamping branches at width ≠ 1.0).
  *
  * With AlloyFlux's stereo topology (v1→L, v2→R, independent chorus LFOs),
  * width=2.0 maximally exaggerates the detune and chorus LFO independence
@@ -44,9 +44,12 @@ class SpaceEngine {
                                                        int32_t *outL, int32_t *outR) {
         const int32_t mid = (inL + inR) >> 1;
         const int32_t side = (inL - inR) >> 1;
-        const int32_t iW = (int32_t)(width * 256.0f);
-        int32_t L = mid + ((side * iW) >> 8);
-        int32_t R = mid - ((side * iW) >> 8);
+        // Float multiply — eliminates the 256-step integer quantization that
+        // produces zipper artifacts when sSpace changes (same pattern as VCA fix).
+        // M33 FPU: two float muls cost the same as the previous integer path.
+        const float fSide = (float)side;
+        int32_t L = (int32_t)((float)mid + fSide * width);
+        int32_t R = (int32_t)((float)mid - fSide * width);
         // Clamp: widths > 1.0 can push output beyond ±32512
         if (L > 32512)
             L = 32512;

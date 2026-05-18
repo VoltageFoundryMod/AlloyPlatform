@@ -2,7 +2,8 @@
 
 #include "VoiceMode.h"        // VoiceMode enum
 #include "dsp/ChorusEngine.h" // ChorusMode enum
-#include "dsp/FilterEngine.h" // FilterMode enum (M26a)
+#include "dsp/CurveEngine.h"  // EnvelopeType enum (M5x)
+#include "dsp/FilterEngine.h" // FilterMode, FilterType enums (M26a / M5x)
 
 /**
  * Shared synthesis parameters — defined in main.cpp.
@@ -21,8 +22,9 @@ extern VoiceMode gVoiceMode; // synthesis personality (default: PAIR)
 extern float gRelation;      // semitones above ROOT for voice 2: 0=unison, 7=fifth, 12=octave, 24=max (PAIR mode)
 
 // Timbre
-extern float gShape;   // 0.0 = sine  0.25 = tri  0.50 = saw  0.75 = pulse  1.0 = hollow
-extern float gFatness; // 0.0 = no sub osc  …  1.0 = sub at 50% of main level
+extern float gShape;       // 0.0 = sine  0.25 = tri  0.50 = saw  0.75 = pulse  1.0 = hollow
+extern float gFatness;     // 0.0 = no sub osc  …  1.0 = sub at 50% of main level
+extern uint8_t gSubOctave; // 1 = one octave below (÷2), 2 = two octaves below (÷4)
 
 // Animation
 extern float gMotion;     // 0.0 = static  …  1.0 = full drift + chorus depth
@@ -59,10 +61,30 @@ extern volatile uint32_t gAudioOverruns;
 // M26 Post-effects section
 // ---------------------------------------------------------------------------
 
-// Filter (M26a)
+// Filter (M26a / M5x)
 extern float gFilterCutoff;    // Hz, 20–16000, default 8000 (i.e. OFF-but-ready)
 extern float gFilterRes;       // 0.0 (flat) – 1.0 (near self-oscillation), default 0.0
 extern FilterMode gFilterMode; // OFF by default — zero CPU cost when bypassed
+extern FilterType gFilterType; // SVF (default) or LADDER — runtime-selectable (M5x)
+
+// Abstract filter instance pointer — dereferences to SVFFilter or OTALadder.
+// Defined in main.cpp.  commands.cpp uses this to avoid including the concrete headers.
+class FilterEngine;
+extern FilterEngine *gFilterInst;
+
+// Envelope / VCA type (M5x — runtime-selectable)
+extern EnvelopeType gEnvelopeType; // AR (default) or ADSR
+
+// Abstract envelope instance pointer — dereferences to AREnvelope or ADSREnvelope.
+class EnvelopeEngine;
+extern EnvelopeEngine *gCurveEng;
+
+// ADSR envelope parameters (used when gEnvelopeType == ADSR)
+extern float gAdsrAttack;  // seconds, 0.001–10.0
+extern float gAdsrDecay;   // seconds, 0.001–10.0
+extern float gAdsrSustain; // 0.0–1.0
+extern float gAdsrRelease; // seconds, 0.001–10.0
+extern bool gAdsrLoop;     // loop mode: envelope restarts automatically after release
 
 // Reverb (M26b — active when gRevEnabled; NullReverb stub until DattorroReverb)
 extern float gRevSize;     // 0.0 (small room) – 1.0 (long plate), default 0.5
