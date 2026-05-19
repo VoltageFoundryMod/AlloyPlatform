@@ -182,9 +182,28 @@ function createMidi() {
     sendCC(123, 0);
   }
 
+  function disconnect() {
+    if (access) {
+      // Close all ports
+      for (const output of access.outputs.values()) output.close();
+      for (const input of access.inputs.values()) input.close();
+      access = null;
+    }
+    store.update((s) => ({
+      ...s,
+      connected: false,
+      outputs: [],
+      inputs: [],
+      selectedOutput: null,
+      selectedInput: null,
+      error: null,
+    }));
+  }
+
   return {
     subscribe: store.subscribe,
     connect,
+    disconnect,
     setChannel,
     sendCC,
     sendNoteOn,

@@ -33,6 +33,7 @@ function createSerial() {
 
   let port: SerialPort | null = null;
   let writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
 
@@ -64,13 +65,23 @@ function createSerial() {
 
   async function disconnect() {
     try {
+      await activeReader?.cancel();
+    } catch {
+      /* ignore */
+    }
+    activeReader = null;
+    try {
       writer?.releaseLock();
+    } catch {
+      /* ignore */
+    }
+    writer = null;
+    try {
       await port?.close();
     } catch {
-      // ignore
+      /* ignore */
     }
     port = null;
-    writer = null;
     store.update((s) => ({ ...s, connected: false }));
   }
 
@@ -90,6 +101,7 @@ function createSerial() {
   async function _startReader() {
     if (!port?.readable) return;
     const reader = port.readable.getReader();
+    activeReader = reader;
     let buf = "";
     try {
       while (true) {
@@ -103,9 +115,10 @@ function createSerial() {
         }
       }
     } catch {
-      // port closed
+      // port closed or cancelled
     } finally {
       reader.releaseLock();
+      activeReader = null;
       store.update((s) => ({ ...s, connected: false }));
     }
   }

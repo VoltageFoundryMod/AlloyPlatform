@@ -34,6 +34,7 @@ export interface CCParam {
   default: number; // slider: default float value; select: default CC raw value
   unit?: string; // slider display suffix
   step?: number; // slider drag granularity (defaults to 0.001)
+  scale?: "log"; // optional: use logarithmic mapping for the slider
   type?: ParamType; // defaults to "slider"
   options?: SelectOption[]; // select type only
 }
@@ -275,6 +276,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 8000,
     unit: "Hz",
     step: 1,
+    scale: "log",
   },
   {
     cc: 76,
@@ -476,10 +478,19 @@ export const PARAMS_BY_CATEGORY = Object.fromEntries(
 
 /** Convert a 0–127 MIDI CC value to the parameter's float range (slider params only). */
 export function ccToFloat(param: CCParam, ccValue: number): number {
+  if (param.scale === "log") {
+    // Log mapping: CC 0 → min, CC 127 → max
+    return param.min * Math.pow(param.max / param.min, ccValue / 127);
+  }
   return param.min + (ccValue / 127) * (param.max - param.min);
 }
 
 /** Convert a float value to a 0–127 MIDI CC value (slider params only). */
 export function floatToCC(param: CCParam, value: number): number {
+  if (param.scale === "log") {
+    return Math.round(
+      (Math.log(value / param.min) / Math.log(param.max / param.min)) * 127,
+    );
+  }
   return Math.round(((value - param.min) / (param.max - param.min)) * 127);
 }

@@ -96,6 +96,7 @@ static void handleLine() {
 // ---------------------------------------------------------------------------
 
 void serialConsole_init() {
+    Serial.setStringDescriptor("Alloy Flux Serial");
     Serial.begin(115200);
     // Wait for USB CDC host to open the port so the banner is visible.
     // Timeout after 3 s so the module boots standalone without blocking.

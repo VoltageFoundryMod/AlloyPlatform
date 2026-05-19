@@ -282,6 +282,20 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gFxOrder.filterPostChorus ? F("post") : F("pre"));
     out.print(F(",delay:"));
     out.print(gFxOrder.delayPostReverb ? F("post") : F("pre"));
+    out.print(F(" ftype="));
+    out.print(gFilterType == FilterType::SVF ? F("svf") : F("ladder"));
+    out.print(F(" env="));
+    out.print(gEnvelopeType == EnvelopeType::AR ? F("ar") : F("adsr"));
+    if (gEnvelopeType == EnvelopeType::ADSR) {
+        out.print(F(" a="));
+        out.print(gAdsrAttack, 3);
+        out.print(F(" d="));
+        out.print(gAdsrDecay, 3);
+        out.print(F(" s="));
+        out.print(gAdsrSustain, 2);
+        out.print(F(" r="));
+        out.print(gAdsrRelease, 3);
+    }
     out.print(F(" reverb="));
     if (!gRevEnabled) {
         out.print(F("off"));

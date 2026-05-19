@@ -222,6 +222,61 @@
       }
     })(),
   );
+  // ── Serial console drawer ────────────────────────────────────────────────
+  let serialLines = $state<string[]>([]);
+  let consoleOpen = $state(false);
+  let consoleBodyEl = $state<HTMLElement | null>(null);
+  let consoleInput = $state("");
+  let cmdHistory = $state<string[]>([]);
+  let historyIdx = $state(-1); // -1 = current (not browsing history)
+
+  function handleConsoleKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      sendConsoleCommand();
+      historyIdx = -1;
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (cmdHistory.length === 0) return;
+      const next =
+        historyIdx === -1 ? 0 : Math.min(historyIdx + 1, cmdHistory.length - 1);
+      historyIdx = next;
+      consoleInput = cmdHistory[cmdHistory.length - 1 - next];
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (historyIdx <= 0) {
+        historyIdx = -1;
+        consoleInput = "";
+      } else {
+        historyIdx -= 1;
+        consoleInput = cmdHistory[cmdHistory.length - 1 - historyIdx];
+      }
+    }
+  }
+
+  $effect(() => {
+    return serial.onLine((line: string) => {
+      serialLines = [...serialLines.slice(-499), line];
+      // Auto-scroll to bottom when open
+      if (consoleBodyEl) {
+        setTimeout(() => {
+          if (consoleBodyEl)
+            consoleBodyEl.scrollTop = consoleBodyEl.scrollHeight;
+        }, 0);
+      }
+    });
+  });
+
+  function sendConsoleCommand() {
+    const cmd = consoleInput.trim();
+    if (!cmd || !$serial.connected) return;
+    serial.send(cmd);
+    // Push to history (dedupe consecutive identical)
+    if (cmdHistory.length === 0 || cmdHistory[cmdHistory.length - 1] !== cmd) {
+      cmdHistory = [...cmdHistory.slice(-99), cmd];
+    }
+    historyIdx = -1;
+    consoleInput = "";
+  }
 </script>
 
 <div class="app-shell">
@@ -291,6 +346,46 @@
     <small class="footer-label"
       >Alloy Flux Web Configurator — Voltage Foundry Modular - ©2026</small
     >
+  </div>
+
+  <!-- Serial console drawer -->
+  <div class="console-drawer" class:open={consoleOpen}>
+    <button class="console-tab" onclick={() => (consoleOpen = !consoleOpen)}>
+      <span class="console-conn-dot" class:connected={$serial.connected}></span>
+      Serial Console {consoleOpen ? "▼" : "▲"}
+    </button>
+    {#if consoleOpen}
+      <div class="console-body" bind:this={consoleBodyEl}>
+        {#each serialLines as line}
+          <div class="console-line">{line}</div>
+        {/each}
+        {#if serialLines.length === 0}
+          <div class="console-empty">No output yet.</div>
+        {/if}
+      </div>
+      <div class="console-input-row">
+        <input
+          class="console-input"
+          type="text"
+          placeholder={$serial.connected ? "Type a command…" : "Not connected"}
+          disabled={!$serial.connected}
+          bind:value={consoleInput}
+          onkeydown={handleConsoleKeydown}
+        />
+        <button
+          class="console-send"
+          disabled={!$serial.connected}
+          onclick={sendConsoleCommand}>Send</button
+        >
+        <button
+          class="console-send"
+          disabled={!$serial.connected}
+          onclick={() => {
+            serial.send("help");
+          }}>Help</button
+        >
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -374,5 +469,100 @@
     padding: 0.5rem;
     color: #888;
     min-width: 3rem;
+  }
+  .console-drawer {
+    position: sticky;
+    bottom: 0;
+    background: #111120;
+    border-top: 1px solid #333;
+    z-index: 100;
+  }
+  .console-tab {
+    width: 100%;
+    padding: 0.35rem 1rem;
+    background: #1a1a30;
+    border: none;
+    border-bottom: 1px solid #2a2a44;
+    color: #888;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .console-conn-dot {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: #444;
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .console-conn-dot.connected {
+    background: #4caf50;
+    box-shadow: 0 0 5px #4caf5088;
+  }
+  .console-tab:hover {
+    background: #22223a;
+    color: #aaa;
+  }
+  .console-body {
+    height: 180px;
+    overflow-y: auto;
+    padding: 0.4rem 0.75rem;
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: #9f9;
+    background: #0b0b18;
+  }
+  .console-line {
+    white-space: pre-wrap;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+  .console-empty {
+    color: #444;
+    font-style: italic;
+  }
+  .console-input-row {
+    display: flex;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    background: #111120;
+    border-top: 1px solid #222;
+  }
+  .console-input {
+    flex: 1;
+    background: #0d0d20;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #ccc;
+    font-family: monospace;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+  }
+  .console-input:disabled {
+    opacity: 0.4;
+  }
+  .console-send {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.8rem;
+    background: #2a2a50;
+    color: #aab;
+    border: 1px solid #555;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .console-send:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .console-send:not(:disabled):hover {
+    background: #3a3a70;
   }
 </style>

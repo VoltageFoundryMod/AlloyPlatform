@@ -40,6 +40,11 @@
           <option value={port.id}>{port.name}</option>
         {/each}
       </select>
+      <button
+        class="btn-disconnect"
+        onclick={() => midi.disconnect()}
+        title="Disconnect MIDI">✕</button
+      >
     {/if}
     {#if $midi.error}
       <span class="badge error">{$midi.error}</span>
@@ -55,6 +60,11 @@
       <button onclick={connectSerial}>Connect Serial</button>
     {:else}
       <span class="badge ok">Connected</span>
+      <button
+        class="btn-disconnect"
+        onclick={() => serial.disconnect()}
+        title="Disconnect Serial">✕</button
+      >
     {/if}
     {#if $serial.error}
       <span class="badge error">{$serial.error}</span>
@@ -128,5 +138,19 @@
   }
   button:hover {
     background: #3a3a70;
+  }
+  .btn-disconnect {
+    background: transparent;
+    border: 1px solid #554;
+    color: #a66;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.75rem;
+    line-height: 1;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .btn-disconnect:hover {
+    background: #3d1a1a;
+    color: #cf6f6f;
   }
 </style>

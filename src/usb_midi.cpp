@@ -318,6 +318,8 @@ static void onSysEx(uint8_t *data, unsigned int length) {
 // ---------------------------------------------------------------------------
 
 void usbMidi_init() {
+    TinyUSBDevice.setManufacturerDescriptor("Voltage Foundry Modular");
+    TinyUSBDevice.setProductDescriptor("Alloy Flux");
     sUsbMidiTransport.setStringDescriptor("AlloyFlux MIDI");
     MidiUsb.begin(MIDI_CHANNEL_OMNI);
     MidiUsb.setHandleNoteOn(onNoteOn);

@@ -17,6 +17,32 @@
     hint = undefined,
   }: { param: CCParam; value?: number; hint?: string } = $props();
 
+  // For log-scale params the HTML range input operates in normalized [0,1] space.
+  // For linear params it operates directly in the param's native range.
+  let sliderMin = $derived(param.scale === "log" ? 0 : param.min);
+  let sliderMax = $derived(param.scale === "log" ? 1 : param.max);
+  let sliderStep = $derived(
+    param.scale === "log" ? 0.0001 : (param.step ?? 0.001),
+  );
+
+  /** Convert native value → slider position */
+  function valueToPos(v: number): number {
+    if (param.scale === "log") {
+      return Math.log(v / param.min) / Math.log(param.max / param.min);
+    }
+    return v;
+  }
+
+  /** Convert slider position → native value */
+  function posToValue(pos: number): number {
+    if (param.scale === "log") {
+      return param.min * Math.pow(param.max / param.min, pos);
+    }
+    return pos;
+  }
+
+  let sliderPos = $derived(valueToPos(value));
+
   // Derived display string
   let displayValue = $derived(
     param.unit
@@ -25,9 +51,10 @@
   );
 
   function handleInput(e: Event) {
-    const raw = parseFloat((e.target as HTMLInputElement).value);
-    value = raw;
-    const cc7bit = floatToCC(param, raw);
+    const pos = parseFloat((e.target as HTMLInputElement).value);
+    const native = posToValue(pos);
+    value = native;
+    const cc7bit = floatToCC(param, native);
     midi.sendCC(param.cc, cc7bit);
   }
 
@@ -47,10 +74,10 @@
   </div>
   <input
     type="range"
-    min={param.min}
-    max={param.max}
-    step={param.step ?? 0.001}
-    {value}
+    min={sliderMin}
+    max={sliderMax}
+    step={sliderStep}
+    value={sliderPos}
     oninput={handleInput}
     aria-label={param.label}
   />
