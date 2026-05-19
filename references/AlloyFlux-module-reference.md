@@ -97,7 +97,18 @@
     - [MIDI Channel](#midi-channel)
   - [User Interface — Screenless](#user-interface--screenless)
     - [LED Language](#led-language)
-    - [LED Behavior Per Mode](#led-behavior-per-mode)
+      - [Hardware Layout](#hardware-layout)
+      - [LED Role Assignment](#led-role-assignment)
+      - [Colour Language](#colour-language)
+      - [Brightness Language](#brightness-language)
+      - [D12 + D16 — Voice Activity (always)](#d12--d16--voice-activity-always)
+      - [D13 — Mode Indicator (near MODE\_SW)](#d13--mode-indicator-near-mode_sw)
+      - [D15 — Shift / Drone State (near SHIFT\_SW)](#d15--shift--drone-state-near-shift_sw)
+      - [D14 — Centre Heartbeat / Global](#d14--centre-heartbeat--global)
+      - [Mode Change Animation](#mode-change-animation)
+  - [Drone Mode Entry / Exit](#drone-mode-entry--exit)
+    - [SHIFT Button Interaction (D15 context)](#shift-button-interaction-d15-context)
+    - [Calibration Routine Visual](#calibration-routine-visual)
     - [Button Interaction Map](#button-interaction-map)
   - [Internal Modulation Philosophy](#internal-modulation-philosophy)
   - [Default Behavior](#default-behavior)
@@ -1472,42 +1483,187 @@ The crucial UX distinction: mode changes are deliberate and infrequent. You choo
 
 ### LED Language
 
-**Consistent colour meaning across all contexts:**
+---
 
-| Colour       | Meaning                                                |
-| ------------ | ------------------------------------------------------ |
-| Warm red     | ROOT voice activity / left channel                     |
-| Cool blue    | RELATION voice activity / right channel                |
-| Green        | Motion / drift / animation activity                    |
-| Purple       | Chorus active / STRING mode                            |
-| Cyan         | CLOUD mode                                             |
-| Amber/orange | CHORD mode / harmonic activity                         |
-| White flash  | Confirmation — mode change, calibration complete, save |
-| Off          | Idle / feature inactive                                |
+#### Hardware Layout
 
-**Brightness meaning:**
+```txt
+D12  ·  ·  ·  D16       ← top: voice activity (left / right)
+D13  ·  ·  ·  D15       ← mid: mode indicator / shift state
+     ·  D14  ·           ← centre: heartbeat / motion / global
 
-| Brightness     | Meaning                           |
-| -------------- | --------------------------------- |
-| Full           | Maximum value / strongly active   |
-| Medium         | Moderate activity                 |
-| Dim pulse      | Idle / minimal value              |
-| Rhythmic pulse | Tracks internal motion / LFO rate |
-| Off            | Inactive / disabled               |
+SW2 = MODE_SW   (left button  — near D13)
+SW3 = SHIFT_SW  (right button — near D15)
+```
 
-### LED Behavior Per Mode
+---
 
-| Mode    | LED 1 (ROOT)                       | LED 2 (RELATION)                    | LED 3 (MODE/center)            |
-| ------- | ---------------------------------- | ----------------------------------- | ------------------------------ |
-| PAIR    | Warm red — root envelope level     | Cool blue — relation envelope level | Dim white pulse — motion depth |
-| CLOUD   | Cyan — shifts with stereo position | Cyan — shifts opposite to LED 1     | Cyan pulse — ensemble motion   |
-| CHORD   | Amber — root note activity         | Amber shift — chord interval spread | Amber — chord shape position   |
-| CASCADE | Red/blue shift — FM interaction    | Red/blue — modulation activity      | Green pulse — FM depth         |
-| STRING  | Purple — slow drift and width      | Purple — offset drift from LED 1    | Purple slow breathe — ensemble |
+#### LED Role Assignment
 
-**Mode change:** Button tap → all three LEDs flash white briefly → settle into new mode colour. Immediate, unambiguous confirmation.
+| LED | Position  | Primary Role            | Secondary Role              |
+| --- | --------- | ----------------------- | --------------------------- |
+| D12 | Top left  | ROOT voice activity     | Left channel stereo energy  |
+| D16 | Top right | RELATION voice activity | Right channel stereo energy |
+| D13 | Mid left  | Current voice mode      | MODE_SW feedback            |
+| D15 | Mid right | Shift state / drone     | SHIFT_SW feedback           |
+| D14 | Centre    | Motion / heartbeat      | Global event confirmation   |
 
-**Calibration (long hold):** LEDs cycle through white → flash confirmation pattern → return to normal.
+---
+
+#### Colour Language
+
+| Colour      | Meaning                                       |
+| ----------- | --------------------------------------------- |
+| Warm red    | ROOT voice / left channel activity            |
+| Cool blue   | RELATION voice / right channel activity       |
+| Green       | Motion / drift / animation active             |
+| Purple      | STRING mode / chorus dominant                 |
+| Cyan        | CLOUD mode / ensemble                         |
+| Amber       | CHORD mode / harmonic stack                   |
+| Magenta     | CASCADE mode / FM interaction                 |
+| Soft white  | PAIR mode (default) / neutral state           |
+| White flash | Confirmation — mode change, save, calibration |
+| Off         | Inactive / feature not engaged                |
+
+---
+
+#### Brightness Language
+
+| Brightness     | Meaning                                 |
+| -------------- | --------------------------------------- |
+| Full           | Maximum value / peak activity           |
+| Medium steady  | Active, moderate value                  |
+| Slow breathe   | Drone mode / idle but running           |
+| Rhythmic pulse | Tracks MOTION rate / LFO / gate rhythm  |
+| Single flash   | Event confirmation (tap, save, note on) |
+| Off            | Inactive / silent / disabled            |
+
+---
+
+#### D12 + D16 — Voice Activity (always)
+
+D12 and D16 always reflect voice activity — they breathe with the audio envelope in all modes. Bright on attack, fading on release. Readable without mode awareness.
+
+| Mode    | D12 (ROOT / Left)                        | D16 (RELATION / Right)                      |
+| ------- | ---------------------------------------- | ------------------------------------------- |
+| PAIR    | Warm red — envelope level, gate response | Cool blue — relation envelope, detune depth |
+| CLOUD   | Cyan — shifts with left voice position   | Cyan — shifts opposite, stereo spread       |
+| CHORD   | Amber — root note envelope               | Amber dimmer — chord interval spread amount |
+| CASCADE | Magenta — FM carrier activity            | Magenta brighter — modulator depth          |
+| STRING  | Purple — slow drift, breathes            | Purple — offset phase from D12              |
+
+---
+
+#### D13 — Mode Indicator (near MODE_SW)
+
+One LED, one job. Always shows the current voice mode as a steady colour. The only LED the user needs to learn once.
+
+| State         | Colour      | Pattern                             |
+| ------------- | ----------- | ----------------------------------- |
+| PAIR          | Soft white  | Steady dim                          |
+| CLOUD         | Cyan        | Steady                              |
+| CHORD         | Amber       | Steady                              |
+| CASCADE       | Magenta     | Steady                              |
+| STRING        | Purple      | Steady                              |
+| Mode changing | White flash | Brief flash → settles to new colour |
+
+---
+
+#### D15 — Shift / Drone State (near SHIFT_SW)
+
+Dark in normal operation — lights up only when something state-level is active.
+
+| State              | Colour     | Pattern                       |
+| ------------------ | ---------- | ----------------------------- |
+| Normal gated mode  | Off        | Dark — nothing special        |
+| SHIFT held         | White      | Steady while held             |
+| Drone mode active  | Warm white | Slow breathe — always visible |
+| Drone + SHIFT held | White      | Brighter steady while held    |
+| Calibration active | White      | Slow pulse during routine     |
+| Calibration done   | White      | Three quick flashes → off     |
+
+---
+
+#### D14 — Centre Heartbeat / Global
+
+The module's pulse. Shows overall animation and event state. Even without understanding any other LED, D14 tells you if the module is doing something.
+
+| State                 | Colour      | Pattern                             |
+| --------------------- | ----------- | ----------------------------------- |
+| MOTION = 0, silent    | Off         | Dark — module is static             |
+| MOTION > 0            | Green       | Pulses at internal drift rate       |
+| Gate active           | White       | Bright on attack, fades with CURVE  |
+| MIDI note active      | White       | Same as gate                        |
+| Drone, no MOTION      | Green dim   | Very slow breathe — alive but still |
+| Drone + MOTION        | Green       | Rhythmic pulse — shows drift rate   |
+| CASCADE / FM active   | Magenta dim | Pulses with FM depth                |
+| STRING / chorus heavy | Purple dim  | Slow movement matching chorus rate  |
+
+---
+
+#### Mode Change Animation
+
+Triggered by MODE_SW tap.
+
+```txt
+1. D14 white flash       ← centre ignites first
+2. D12, D13, D16, D15   ← ripple outward, all flash white
+3. Settle               ← D13 → new mode colour
+                           D12/D16 → new mode voice colours
+                           D14 → resumes heartbeat role
+Total duration: ~300ms
+```
+
+---
+
+## Drone Mode Entry / Exit
+
+**Entering drone** (SHIFT_SW tap or auto on power-on with no gate):
+
+```txt
+D15 → fades up to warm white slow breathe   (drone is on)
+D14 → fades to dim green slow breathe       (module is running)
+D12/D16 → hold steady voice colours         (no gate pulsing)
+```
+
+**Exiting drone** (first gate received, or SHIFT_SW tap):
+
+```txt
+D15 → fades down to off                     (gated mode active)
+D12/D16 → begin responding to gate/envelope (pulsing resumes)
+D14 → pulses with gate and MOTION           (heartbeat resumes)
+```
+
+---
+
+### SHIFT Button Interaction (D15 context)
+
+| Action              | Result                                              |
+| ------------------- | --------------------------------------------------- |
+| SHIFT tap           | Toggle drone / gated mode — D15 indicates state     |
+| SHIFT held          | D15 white steady — secondary layer active           |
+| SHIFT + MODE_SW tap | Cycle secondary parameter (CASCADE FM type, etc.)   |
+|                     | D13 flashes twice to confirm secondary change       |
+| MODE_SW long hold   | Enter calibration — D15 pulses white during routine |
+
+---
+
+### Calibration Routine Visual
+
+```txt
+Long hold MODE_SW (3s):
+    D15 begins slow white pulse          (calibration mode entered)
+    D14 white steady                     (awaiting input)
+
+Per calibration point (tap to confirm each voltage):
+    D14 brief white flash                (point accepted)
+    D12 or D16 shows progress            (point 1→5 brightness steps)
+
+Calibration complete:
+    All LEDs → white ripple centre-out   (same as mode change)
+    D15 → three quick flashes → off      (confirms saved)
+    All LEDs → return to normal
+```
 
 ### Button Interaction Map
 
@@ -1937,7 +2093,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 28. **Central param/CC dispatch table** — `include/param_map.h` + `src/param_map.cpp`; `CCParam` struct with `{cc, valMin, valMax, *target, name}`; `paramMap_dispatchCC()` shared by all transports; 10 parameters mapped (CC 1/7/71/72/73/74/91/92/93/94); `onControlChange` in USB MIDI reduced to 3 lines + specials (CC 64 sustain, CC 123 panic)
 - [x] 29. **USB MIDI + MIDI channel config** — `Adafruit_USBD_MIDI` + `MIDI Library` via `-DUSE_TINYUSB`; composite CDC+MIDI device (serial console + MIDI coexist on same USB); Note On/Off → `gBaseFreq`/`gGateHigh` (monophonic, last-note priority); full CC map via `paramMap_dispatchCC`; Program Change 1–5 → VoiceMode; `usbMidi_init()` before `Serial.begin()` with `TinyUSBDevice.mounted()` wait; Web MIDI compatible (Chrome/Edge via `navigator.requestMIDIAccess`); `gMidiChannel` (0=omni, 1–16) set via `midichan` serial command; channel filter in all MIDI callbacks
 - [x] 29b. **Flash config persistence** — `include/config_store.h` / `src/config_store.cpp`; Earle Philhower EEPROM emulation (wear-levelled circular buffer); `AlloyConfig` struct covers all synthesis + effects parameters (see M42/M42a); `configStore_load()` in `setup()` auto-restores on boot; `config save|load|reset [slot|all]` serial commands; three-layer flash protection: dirty check (memcmp), 10 s rate limit (live slot only), magic+version invalidation on struct change; 10-slot layout (`kMaxPresets=10`): slot 0 = auto-save live state, slots 1–9 = user presets; `config reset all` = factory reset
-- [ ] 29c. **MIDI SysEx config backup/restore** — dump/load `AlloyConfig` struct as SysEx message; allows users to manage presets via external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator
+- [x] 29c. **MIDI SysEx config backup/restore** — dump/load `AlloyConfig` struct as SysEx message; allows users to manage presets via external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator
 - [ ] 29d. **MIDI CC mapping configurator** — allow users to assign MIDI CCs to parameters via Web Configurator; store mappings in flash; update `paramMap_dispatchCC` to use dynamic mapping
 - [ ] 29e. **MIDI channel configurator** — allow users to set MIDI channel (0=omni, 1–16) via Web Configurator; store in flash; filter incoming MIDI messages accordingly
 - [ ] 30. **APA102/SK9822 Dotstar LEDs** — bitbang SPI on GP7/GP8, full LED language per mode
@@ -1946,10 +2102,13 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 33. **Panel design** — Design final graphics and layout
 - [ ] 34. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
 - [ ] 35. **Implement Teletype-support in it's firmware** — Inspired by Just Friends, add custom command set for controlling Alloy Flux parameters and presets via I2C from Teletype scripts
-- [ ] 36. **Implement Web Configurator and Editor** — browser-based UI for configuration, calibration, preset management. Also can change parameters in real-time via Web MIDI API for performance control and visualization of internal state (e.g. chord shape, LFO waveforms, etc.)
+- [x] 36a. **Web Configurator MIDI CC control** — allow real-time parameter changes via Web MIDI API; visualize internal state (e.g. chord shape, LFO waveforms) in the UI for performance feedback
+- [x] 36b. **Web Configurator preset management** — create, save, load presets from the browser; store in flash via SysEx or direct USB commands; backup/restore presets to/from files on the user's computer
+- [ ] 36c. **Web Configurator parameter editing** — advanced configuration options like chord shape table editing, LFO wavetable upload, envelope curve configuration, MIDI CC mapping, etc.
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 - [ ] 38. **Expand voice count and polyphony** - Enable multiple voices so polyphony is possible in all modes, not just CLOUD and CHORD. Evaluate CPU load and optimize as needed.
-- [ ] 39. **Implement load/save presets via MIDI SysEx** — allows users to store and recall presets from external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator.
+- [x] 39a. **Implement load/save presets via MIDI Sysex** — allows users to store and recall presets from web configurator
+- [ ] 39b. **Document MIDI implementation and SysEx format** — provide clear documentation on the MIDI CC mappings, SysEx message structure for presets, and how to integrate with external controllers or software
 - [x] 40. **Expose reverb modulation parameters via MIDI CC** — `gRevModSpeed` (CC 112, 0.1–4.0) and `gRevModDepth` (CC 113, 0.0–1.0) added to central param map; `reverb modspeed/moddepth` serial sub-commands; `setModulation()` virtual method on `ReverbEngine`; change-detected in `updateControl()` at 128 Hz (partial — Web Configurator UI pending)
 - [x] 41. **Reverb freeze mode** — CC 114 (≥64=on, <64=off) and `reverb freeze on/off` serial command; `freeze()` virtual method on `ReverbEngine`; `DattorroReverb`: decay→1.0 + new input gated when frozen; tail holds indefinitely at full level; re-introducing input mixes in cleanly on next onset (partial — SHIFT+knob macro gesture pending)
 - [x] 42. **Improve flash persistence data** — all synthesis + effects parameters now persisted; `AlloyConfig` extended with filter (cutoff/res/mode/type), envelope (AR vs ADSR, full ADSR params + loop), reverb (enabled/mix/size/damping/modSpeed/modDepth/frozen), delay (time/feedback/mix), and FxOrder (filterPostChorus/delayPostReverb); `kConfigVersion` bumped 2→3 (old configs invalidated, safe defaults applied); RAM 236KB (45.2%), Flash 3.0%
