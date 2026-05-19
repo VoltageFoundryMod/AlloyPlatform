@@ -87,9 +87,13 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     // CC 114 — reverb freeze
     buf[n++] = 114;
     buf[n++] = gRevFrozen ? 127 : 0;
-    // CC 115 — voice mode: PAIR=0, CHORD=96
+    // CC 115 — voice mode: PAIR=0, CLOUD=48, CHORD=80, POLY=112
     buf[n++] = 115;
-    buf[n++] = (gVoiceMode == VoiceMode::PAIR) ? 0 : 96;
+    buf[n++] = (gVoiceMode == VoiceMode::PAIR)    ? 0
+               : (gVoiceMode == VoiceMode::CLOUD) ? 48
+               : (gVoiceMode == VoiceMode::CHORD) ? 80
+               : (gVoiceMode == VoiceMode::POLY)  ? 112
+                                                  : 0;
     // CC 116 — reverb on/off
     buf[n++] = 116;
     buf[n++] = gRevEnabled ? 127 : 0;
@@ -130,13 +134,43 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
         return;
     if (velocity == 0) {
         // NoteOn with velocity 0 is a NoteOff (running-status MIDI convention).
-        if (sActiveNote == note) {
+        if (gVoiceMode == VoiceMode::POLY) {
+            for (uint8_t i = 0; i < 4; i++) {
+                if (sPolySlots[i].midiNote == note) {
+                    sPolyEnvs[i]->setGate(false);
+                    sPolySlots[i].midiNote = 255;
+                }
+            }
+        } else if (sActiveNote == note) {
             gGateHigh = false;
-            gCurveEng->setGate(false); // arm release immediately — closes ISR window
+            gCurveEng->setGate(false);
             sActiveNote = 255;
         }
         return;
     }
+
+    if (gVoiceMode == VoiceMode::POLY) {
+        // POLY voice allocation: find a free slot ('free' = midiNote 255).
+        // If all busy, steal the round-robin next slot (oldest by sPolyRR).
+        uint8_t slot = 255;
+        for (uint8_t i = 0; i < 4; i++) {
+            if (sPolySlots[i].midiNote == 255) {
+                slot = i;
+                break;
+            }
+        }
+        if (slot == 255) {
+            // All slots occupied — steal round-robin
+            slot = sPolyRR % 4;
+        }
+        sPolyRR = (sPolyRR + 1) % 4;
+        sPolySlots[slot].freq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
+        sPolySlots[slot].velocity = velocity / 127.0f;
+        sPolySlots[slot].midiNote = note;
+        sPolyEnvs[slot]->setGate(true);
+        return;
+    }
+
     sActiveNote = note;
     gBaseFreq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
     gMidiVelocity = velocity / 127.0f; // scale output volume by note velocity
@@ -148,6 +182,15 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
 static void onNoteOff(byte channel, byte note, byte /*velocity*/) {
     if (!channelMatches(channel))
         return;
+    if (gVoiceMode == VoiceMode::POLY) {
+        for (uint8_t i = 0; i < 4; i++) {
+            if (sPolySlots[i].midiNote == note) {
+                sPolyEnvs[i]->setGate(false);
+                sPolySlots[i].midiNote = 255;
+            }
+        }
+        return;
+    }
     // Monophonic last-note priority: only release if this is the active note.
     if (sActiveNote == note) {
         gGateHigh = false;
@@ -221,8 +264,15 @@ static void onControlChange(byte channel, byte cc, byte value) {
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);
         break;
-    case 115: // Voice Mode — 0–63 = PAIR, 64–127 = CHORD (ranges subdivide as modes are added)
-        gVoiceMode = (value < 64) ? VoiceMode::PAIR : VoiceMode::CHORD;
+    case 115: // Voice Mode — 4 bands of 32: 0-31=PAIR, 32-63=CLOUD, 64-95=CHORD, 96-127=POLY
+        if (value < 32)
+            gVoiceMode = VoiceMode::PAIR;
+        else if (value < 64)
+            gVoiceMode = VoiceMode::CLOUD;
+        else if (value < 96)
+            gVoiceMode = VoiceMode::CHORD;
+        else
+            gVoiceMode = VoiceMode::POLY;
         break;
     case 116: // Reverb on/off — ≥64 = on
         gRevEnabled = (value >= 64);
@@ -245,8 +295,8 @@ static void onControlChange(byte channel, byte cc, byte value) {
 static void onProgramChange(byte channel, byte program) {
     if (!channelMatches(channel))
         return;
-    // Programs 1–5 map to VoiceMode PAIR/CLOUD/CHORD/CASCADE/STRING.
-    if (program >= 1 && program <= 5)
+    // Programs 1–6 map to VoiceMode PAIR/CLOUD/CHORD/CASCADE/STRING/POLY.
+    if (program >= 1 && program <= 6)
         gVoiceMode = static_cast<VoiceMode>(program - 1);
 }
 

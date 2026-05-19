@@ -148,12 +148,13 @@ static void cmd_mode(const char *args, Print &out) {
         bool active;
     } modes[] = {
         {"pair", VoiceMode::PAIR, true},
-        {"cloud", VoiceMode::CLOUD, false},
+        {"cloud", VoiceMode::CLOUD, true},
         {"chord", VoiceMode::CHORD, true},
         {"cascade", VoiceMode::CASCADE, false},
         {"string", VoiceMode::STRING, false},
+        {"poly", VoiceMode::POLY, true},
     };
-    for (uint8_t i = 0; i < 5; i++) {
+    for (uint8_t i = 0; i < 6; i++) {
         if (strcasecmp(args, modes[i].name) == 0) {
             if (!modes[i].active) {
                 out.print(F("mode -> "));
@@ -168,8 +169,8 @@ static void cmd_mode(const char *args, Print &out) {
             return;
         }
     }
-    out.println(F("usage: mode <pair|cloud|chord|cascade|string>"));
-    out.print(F("active modes: pair chord  current: "));
+    out.println(F("usage: mode <pair|cloud|chord|cascade|string|poly>"));
+    out.print(F("active modes: pair cloud chord poly  current: "));
     out.println(voiceModeName(gVoiceMode));
 }
 

@@ -15,7 +15,13 @@
     param,
     value = $bindable(param.default),
     hint = undefined,
-  }: { param: CCParam; value?: number; hint?: string } = $props();
+    displayOverride = undefined,
+  }: {
+    param: CCParam;
+    value?: number;
+    hint?: string;
+    displayOverride?: string;
+  } = $props();
 
   // For log-scale params the HTML range input operates in normalized [0,1] space.
   // For linear params it operates directly in the param's native range.
@@ -43,11 +49,12 @@
 
   let sliderPos = $derived(valueToPos(value));
 
-  // Derived display string
+  // Derived display string — can be overridden by the parent for mode-contextual display
   let displayValue = $derived(
-    param.unit
-      ? `${value.toFixed(param.step && param.step >= 1 ? 0 : 2)} ${param.unit}`
-      : value.toFixed(2),
+    displayOverride ??
+      (param.unit
+        ? `${value.toFixed(param.step && param.step >= 1 ? 0 : 2)} ${param.unit}`
+        : value.toFixed(2)),
   );
 
   function handleInput(e: Event) {

@@ -57,8 +57,7 @@ export type ParamCategory = (typeof PARAM_CATEGORIES)[number];
 
 export const PARAM_MAP: CCParam[] = [
   // ── Voice ────────────────────────────────────────────────────────────────
-  // CC 115: voice mode — CC range subdivides as new modes are implemented.
-  // 0–63 = PAIR, 64–127 = CHORD (firmware: src/usb_midi.cpp case 115)
+  // CC 115: voice mode — 4 bands of 32: 0-31=PAIR, 32-63=CLOUD, 64-95=CHORD, 96-127=POLY
   {
     cc: 115,
     name: "mode",
@@ -69,8 +68,10 @@ export const PARAM_MAP: CCParam[] = [
     default: 0,
     type: "select",
     options: [
-      { label: "Pair", ccMin: 0, ccMax: 63 },
-      { label: "Chord", ccMin: 64, ccMax: 127 },
+      { label: "Pair", ccMin: 0, ccMax: 31 },
+      { label: "Cloud", ccMin: 32, ccMax: 63 },
+      { label: "Chord", ccMin: 64, ccMax: 95 },
+      { label: "Poly", ccMin: 96, ccMax: 127 },
     ],
   },
 

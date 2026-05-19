@@ -15,12 +15,7 @@
 </script>
 
 <header class="connection-bar">
-  <img
-    src="/public/VFM_Logo_Stripped.png"
-    alt="Logo"
-    class="logo-img"
-    width="50px"
-  />
+  <img src="/VFM_Logo_Stripped.png" alt="Logo" class="logo-img" width="50px" />
   <div class="conn-title">Alloy Flux Web Configurator</div>
   <!-- MIDI -->
   <div class="conn-section">

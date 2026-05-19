@@ -225,6 +225,16 @@ static ADSREnvelope<MOZZI_AUDIO_RATE> sAdsrEnv;
 EnvelopeEngine *gCurveEng = &sArEnv; // default: single-knob AR
 EnvelopeType gEnvelopeType = EnvelopeType::AR;
 
+// POLY mode voice allocator (M2x) — 4 independent voice slots.
+// sPolySlots written by MIDI handlers in usbMidi_update() (Core 0, between ISR ticks).
+// sPolyEnvArr instances' next() is called in the ISR; setCurve() in updateControl().
+static AREnvelope<MOZZI_AUDIO_RATE> sPolyEnvArr[4];
+PolySlot sPolySlots[4] = {{440.0f, 1.0f, 255}, {440.0f, 1.0f, 255}, {440.0f, 1.0f, 255}, {440.0f, 1.0f, 255}};
+EnvelopeEngine *sPolyEnvs[4] = {&sPolyEnvArr[0], &sPolyEnvArr[1],
+                                &sPolyEnvArr[2], &sPolyEnvArr[3]};
+// Round-robin allocator index — wraps across 4 slots; written by MIDI handlers only.
+uint8_t sPolyRR = 0;
+
 // Chorus engine: phasor-LFO BBD-inspired stereo chorus (Milestone 12).
 // Declared here so updateAudio() can call it; 8 KB delay buffers live in BSS.
 static ChorusEngine<MOZZI_AUDIO_RATE> gChorus;
@@ -389,7 +399,8 @@ void updateControl() {
             if (gBtnMode.pressed()) {
                 // Cycle through implemented voice modes only.
                 // Add to kActiveModes[] as each milestone lands.
-                static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CHORD};
+                static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CLOUD,
+                                                         VoiceMode::CHORD, VoiceMode::POLY};
                 static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
                 uint8_t idx = 0;
                 for (uint8_t i = 0; i < kN; i++) {
@@ -448,7 +459,9 @@ void updateControl() {
     {
         static bool prevGate = false;
         const bool curGate = gGateHigh;
-        if (curGate != prevGate) {
+        // POLY mode: per-voice envelopes (sPolyEnvs[]) are gated exclusively from
+        // MIDI Note On/Off in usb_midi.cpp.  Skip the shared gCurveEng gate path.
+        if (gVoiceMode != VoiceMode::POLY && curGate != prevGate) {
             gCurveEng->setGate(curGate);
             // Only reset oscillator phases when the envelope is already near-silent.
             // Resetting phase while the envelope is non-zero creates a waveform
@@ -564,6 +577,91 @@ void updateControl() {
         sPanR[3] = 128;
         break;
     }
+    case VoiceMode::CLOUD: {
+        // 4-voice micro-detuned ensemble (M22).
+        // RELATION (0–24 st) controls the total spread in cents:
+        //   sRelation=0  → all voices unison (RELATION fully CCW)
+        //   sRelation=24 → ±25 cents outer voices, ±8.3 cents inner voices
+        // Voice positions: -3/6, -1/6, +1/6, +3/6 of total spreadCents.
+        // DriftEngine adds slow organic wander on top (MOTION controls depth).
+        static float sCachedRelCloud = -99.0f;
+        static float sCachedBaseCloud = -1.0f;
+        static float sCachedCloudFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
+        if (fabsf(sRelation - sCachedRelCloud) > 0.05f ||
+            fabsf(gBaseFreq - sCachedBaseCloud) > 0.01f || sModeChanged) {
+            // Total span = RELATION/24 * 50 cents.  Voices at ±50%, ±1/6 of span.
+            const float spreadCents = (sRelation / 24.0f) * 50.0f;
+            const float offCents[4] = {
+                -spreadCents * 0.5f,
+                -spreadCents * (1.0f / 6.0f),
+                spreadCents * (1.0f / 6.0f),
+                spreadCents * 0.5f,
+            };
+            for (int i = 0; i < 4; i++) {
+                sCachedCloudFreqs[i] = gBaseFreq * powf(2.0f, offCents[i] / 1200.0f);
+            }
+            sCachedRelCloud = sRelation;
+            sCachedBaseCloud = gBaseFreq;
+        }
+        for (int i = 0; i < 4; i++) {
+            // 1.5× drift multiplier in CLOUD for more organic ensemble movement.
+            voiceFreqs[i] = max(sCachedCloudFreqs[i] + gDrift.offset(i) * 1.5f, 20.0f);
+            voices[i].setFreq(voiceFreqs[i]);
+            voices[i].setShape(sShape);
+            const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
+            subVoices[i].setFreq(voiceFreqs[i] * subMul);
+        }
+        sActiveVoices = 4;
+        // Same wide stereo spread as CHORD — voices distributed hard-L to hard-R.
+        sPanL[0] = 128;
+        sPanL[1] = 90;
+        sPanL[2] = 38;
+        sPanL[3] = 0;
+        sPanR[0] = 0;
+        sPanR[1] = 38;
+        sPanR[2] = 90;
+        sPanR[3] = 128;
+        break;
+    }
+    case VoiceMode::POLY: {
+        // 4-voice polyphonic mode (M2x).
+        // Each voice slot carries an independent MIDI note, frequency, and
+        // per-voice AREnvelope (sPolyEnvArr[]).  The shared gCurveEng is NOT
+        // used — the ISR applies sPolyEnvs[i]->next() per voice instead.
+        // setCurve() on all poly envelopes here keeps them in sync with CURVE knob.
+        //
+        // Sub-voices track each poly voice at the sub-octave (same as all other
+        // modes), so FATNESS produces the same "fat wave" thickening that PAIR/
+        // CHORD/CLOUD provide.  Shape is fixed square (0.75) for a classic sub-osc
+        // sound — independent of the main voice shape morph.
+        const float subMult = (gSubOctave == 2) ? 0.25f : 0.5f;
+        sActiveVoices = 4;
+        for (int i = 0; i < 4; i++) {
+            const float f = max(sPolySlots[i].freq + gDrift.offset(i) * 0.3f, 20.0f);
+            voices[i].setFreq(f);
+            voices[i].setShape(sShape);
+            sPolyEnvArr[i].setCurve(sCurve, gCurveTime);
+            // Sub-voice: sub-octave below each poly note (same as PAIR/CHORD/CLOUD).
+            subVoices[i].setFreq(max(f * subMult, 20.0f));
+            subVoices[i].setShape(0.75f);
+            // Bake per-voice velocity into pan weights (max 64 per voice = 256 total).
+            // Free slots (midiNote==255, velocity=1.0) still get the neutral weight.
+            const int16_t w = (int16_t)(64.0f * sPolySlots[i].velocity);
+            sPanL[i] = w;
+            sPanR[i] = w;
+        }
+        break;
+    }
+    }
+
+    // On mode switch: reset poly envelopes and free all POLY slots so there are
+    // no stuck notes when entering/leaving POLY mode.
+    if (sModeChanged) {
+        for (int i = 0; i < 4; i++) {
+            sPolyEnvArr[i].reset();
+            sPolySlots[i].midiNote = 255;
+        }
+        sPolyRR = 0;
     }
 
     // sSubWf: fatness 0..1 → sub contributing 0..50% of main amplitude.
@@ -692,11 +790,19 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
 
     // Sum sActiveVoices into L/R via fixed-point pan weights (×256).
     // sum(sPanL) = sum(sPanR) = 256 keeps each channel within ±32512 max.
+    // POLY mode: per-voice envelopes are applied inside the loop.
+    // All other modes: shared gCurveEng envelope is applied after the loop.
+    const bool isPolyMode = (gVoiceMode == VoiceMode::POLY);
     int32_t left = 0, right = 0;
     for (uint8_t i = 0; i < sActiveVoices; i++) {
         const int32_t s = voices[i].next();
         const int32_t sub = subVoices[i].next();
-        const int32_t m = (int32_t)((float)s + (float)sub * sSubWf);
+        int32_t m = (int32_t)((float)s + (float)sub * sSubWf);
+        if (isPolyMode) {
+            // Per-voice envelope: scales this voice by its independent envelope.
+            // Velocity is baked into sPanL/sPanR in updateControl() via sPolySlots.
+            m = (int32_t)((float)m * sPolyEnvs[i]->next());
+        }
         left += (m * sPanL[i]) >> 8;
         right += (m * sPanR[i]) >> 8;
     }
@@ -711,20 +817,13 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
     else if (right < -32512)
         right = -32512;
 
-    // CURVE envelope VCA (Milestone 15): bypassed in drone mode (no gate patched).
-    // Float multiply — eliminates the 256-step integer quantization that produces
-    // audible zipper artifacts during exponential decay (steps space out as amplitude
-    // falls, creating periodic clicks at ~40 Hz early → sub-audio rate near zero).
-    // Cortex-M33 FPU: two float multiplies, same cost as the previous integer path.
-    //
+    // CURVE envelope VCA (Milestone 15): bypassed in drone mode (no gate patched)
+    // and in POLY mode (per-voice envelopes applied above).
     // De-click: asymmetric one-pole smoother on the final gain.
-    // The two unavoidable gain discontinuities are:
-    //   (a) Drone → gate: gain jumps 1.0 → 0 when the envelope arms from idle.
-    //   (b) Retrigger from release: gain may be non-zero when a new note arrives.
     // Downward transitions ramp at coeff=0.2/sample (τ≈0.15ms, floor after ~5 samples).
     // Upward transitions pass through instantly so pluck / fast attacks are unaffected.
     static float sGainSmooth = 1.0f;
-    const float envLevel = gGatePatched ? gCurveEng->next() : 1.0f;
+    const float envLevel = (!isPolyMode && gGatePatched) ? gCurveEng->next() : 1.0f;
     const float gainTarget = sVolume * sMidiVelocity * envLevel;
     if (gainTarget < sGainSmooth)
         sGainSmooth += (gainTarget - sGainSmooth) * 0.2f; // smooth downward only

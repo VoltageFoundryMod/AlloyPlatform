@@ -165,8 +165,8 @@
     return unsubLine;
   });
 
-  // ── Chord / interval hint for the Relation slider ──────────────────────────
-  // CHORD mode: CC 115 ≥ 64.  Index maps exactly to kChordTable rows in firmware.
+  // ── Relation slider — mode-contextual display ──────────────────────────────
+  // CC 115 bands: 0-31=PAIR, 32-63=CLOUD, 64-95=CHORD, 96-127=POLY
   const CHORD_NAMES = [
     "Unison",
     "Power",
@@ -180,7 +180,7 @@
     "Dim",
     "Octaves",
   ];
-  // PAIR mode: integer-semitone interval names, 0–24 st.
+  // PAIR / POLY mode: integer-semitone interval names, 0–24 st.
   const INTERVAL_NAMES = [
     "Unison",
     "Min 2nd",
@@ -209,17 +209,50 @@
     "+Oct",
   ];
 
+  type RelMode = "pair" | "cloud" | "chord" | "poly";
+  let relMode = $derived.by((): RelMode => {
+    const m = selectValues[115] ?? 0;
+    if (m < 32) return "pair";
+    if (m < 64) return "cloud";
+    if (m < 96) return "chord";
+    return "poly";
+  });
+
   let relHint = $derived(
     (() => {
-      const isChord = (selectValues[115] ?? 0) >= 64;
       const rel = paramValues[94] ?? 0;
-      if (isChord) {
+      if (relMode === "chord") {
         const idx = Math.min(10, Math.round((rel / 24) * 10));
         return CHORD_NAMES[idx];
-      } else {
-        const st = Math.min(24, Math.max(0, Math.round(rel)));
-        return INTERVAL_NAMES[st];
       }
+      if (relMode === "cloud") {
+        const cents = Math.round((rel / 24) * 50);
+        return `±${(cents / 2).toFixed(0)} ¢ / voice`;
+      }
+      if (relMode === "poly") return "sub oct";
+      // PAIR — show interval name
+      const st = Math.min(24, Math.max(0, Math.round(rel)));
+      return INTERVAL_NAMES[st];
+    })(),
+  );
+
+  let relDisplayOverride = $derived(
+    (() => {
+      const rel = paramValues[94] ?? 0;
+      if (relMode === "chord") {
+        // Show the chord-table index as "shape X / 11"
+        const idx = Math.min(10, Math.round((rel / 24) * 10));
+        return `${idx} / 10`;
+      }
+      if (relMode === "cloud") {
+        // Total spread in cents: rel/24 * 50
+        const cents = Math.round((rel / 24) * 50);
+        return `${cents} ¢`;
+      }
+      if (relMode === "poly") return undefined;
+      // PAIR: semitones (integer)
+      const st = Math.min(24, Math.max(0, Math.round(rel)));
+      return `${st} st`;
     })(),
   );
   // ── Serial console drawer ────────────────────────────────────────────────
@@ -322,6 +355,9 @@
                   bind:value={paramValues[param.cc]}
                   bind:this={sliderRefs[param.cc]}
                   hint={param.cc === 94 ? relHint : undefined}
+                  displayOverride={param.cc === 94
+                    ? relDisplayOverride
+                    : undefined}
                 />
               {/each}
             </div>
