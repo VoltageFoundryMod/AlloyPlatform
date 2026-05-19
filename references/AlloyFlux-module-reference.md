@@ -25,7 +25,7 @@
     - [CHORD](#chord)
     - [CASCADE](#cascade)
     - [STRING](#string)
-  - [Oscillator Architecture](#oscillator-architecture)
+    - [POLY](#poly)
   - [Voice and Polyphony Architecture](#voice-and-polyphony-architecture)
     - [Voice Slot Definition](#voice-slot-definition)
     - [Per-Mode Slot Layout](#per-mode-slot-layout)
@@ -110,8 +110,6 @@
     - [SHIFT Button Interaction (D15 context)](#shift-button-interaction-d15-context)
     - [Calibration Routine Visual](#calibration-routine-visual)
     - [Button Interaction Map](#button-interaction-map)
-  - [Internal Modulation Philosophy](#internal-modulation-philosophy)
-  - [Default Behavior](#default-behavior)
   - [Firmware Architecture](#firmware-architecture)
     - [Dual Core DSP Split](#dual-core-dsp-split)
     - [DSP Components](#dsp-components)
@@ -138,7 +136,6 @@
     - [Software](#software)
     - [Hardware](#hardware)
   - [Future Expansion](#future-expansion)
-  - [Full Feature Summary](#full-feature-summary)
 
 ---
 
@@ -163,7 +160,7 @@ The module combines inspiration from:
 - polyphonic harmonic distribution
 - digitally controlled but musically restrained oscillator interaction
 
-The goal is a Eurorack instrument that sounds rich and dimensional even when minimally patched.
+The goal is a Eurorack instrument that sounds rich and dimensional even when minimally patched — compelling with nothing more than one V/OCT cable and one gate. With that minimal setup a user should immediately hear stereo movement, harmonic richness from RELATION, gentle animation from MOTION, and subtle drift on held notes. This is a critical design principle, not an optional feature.
 
 ---
 
@@ -206,21 +203,21 @@ The RELATION knob is the signature control of the module. It is the most express
 
 ## Technical Overview
 
-| Parameter   | Value                                                                              |
-| ----------- | ---------------------------------------------------------------------------------- |
-| Format      | Eurorack                                                                           |
-| Width       | 14HP                                                                               |
-| MCU         | Raspberry Pi Pico 2 — RP2350 (dual Cortex-M33 @ 150MHz)                            |
-| DAC         | PCM5102A (I2S, 16-bit, 112dB SNR)                                                  |
-| Output      | Stereo L/R — passive mono normalled on Left when R unplugged                       |
-| Voice modes | PAIR / CLOUD / CHORD / CASCADE / STRING                                            |
-| Framework   | Arduino + Mozzi 2.x                                                                |
-| Build tool  | PlatformIO                                                                         |
-| Knobs       | 7 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE)                                |
-| Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT) |
-| Buttons     | 2 (MODE + SHIFT)                                                                   |
-| LEDs        | 5× APA102/SK9822 Dotstar RGB                                                       |
-| Power draw  | ~100mA +12V, ~5mA −12V (estimate)                                                  |
+| Parameter   | Value                                                                               |
+| ----------- | ----------------------------------------------------------------------------------- |
+| Format      | Eurorack                                                                            |
+| Width       | 14HP                                                                                |
+| MCU         | Raspberry Pi Pico 2 — RP2350 (dual Cortex-M33 @ 150MHz)                             |
+| DAC         | PCM5102A (I2S, 16-bit, 112dB SNR)                                                   |
+| Output      | Stereo L/R — passive mono normalled on Left when R unplugged                        |
+| Voice modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY                                      |
+| Framework   | Arduino + Mozzi 2.x, custom DSP engines (ShapeOsc, ChorusEngine, CurveEngine, etc.) |
+| Build tool  | PlatformIO                                                                          |
+| Knobs       | 7 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE)                                 |
+| Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT)  |
+| Buttons     | 2 (MODE + SHIFT)                                                                    |
+| LEDs        | 5× APA102/SK9822 Dotstar RGB                                                        |
+| Power draw  | ~100mA +12V, ~5mA −12V (estimate)                                                   |
 
 ---
 
@@ -278,11 +275,10 @@ All pins accounted for. No pin used twice.
 | GP28 | 34       | ADC2 — Mux signal   | In     | 74HC4067 SIG — all knobs + slow CVs + jack switches                  |
 | GP25 | internal | Onboard LED         | Out    | Debug only                                                           |
 | —    | 36       | 3.3V out            | Pwr    | Powers PCM5102, 74HC4067                                             |
-| —    | 39       | VSYS                | Pwr    | System power from Eurorack via LDO                                   |
+| —    | 39       | VSYS                | Pwr    | System power — 5V from AP63205WU buck converter                      |
 | —    | 40       | VBUS                | Pwr    | USB 5V                                                               |
 
-
-Create an expansion module in the future using the spare GPIOs.
+> Spare GPIO (GP0–GP2, GP19–GP21) are reserved for future expansion. See [Future Expansion](#future-expansion).
 
 ---
 
@@ -374,7 +370,7 @@ L OUT jack      R OUT jack
 
 ## Voice Modes
 
-Mode is selected by tapping the single button. LED pattern confirms the current mode. Five modes cycle in sequence.
+Mode is selected by tapping MODE. D13 confirms the current mode colour. Six modes cycle in sequence: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PAIR.
 
 ### PAIR (default)
 
@@ -425,16 +421,27 @@ Future: alternate chord tables, scale quantization, adaptive harmony.
 
 ### CASCADE
 
-Oscillator interaction mode. Musical and restrained FM.
+Oscillator interaction mode. Musical and restrained FM. RELATION becomes the FM operator modulating ROOT, producing harmonically rich timbres through controlled frequency modulation.
 
-- chained modulation relationships between ROOT and RELATION
-- FM interaction with soft-clipped depth
-- phase influence and animated harmonic motion
-- RELATION knob controls interaction depth and character
-- deliberately bounded to avoid metallic FM harshness
-- soft-clipped internally — FM depth ranges are musically scaled
+- RELATION oscillator runs at a ratio relationship to ROOT (not just detuned)
+- RELATION modulates ROOT's frequency linearly — linear FM preferred for musical sidebands
+- FM depth is soft-clipped and bounded — prevents the harsh, abrasive character of unconstrained FM
+- RELATION knob controls the interaction depth and harmonic ratio character
+- at low RELATION values: subtle harmonic warming and beating
+- at mid RELATION values: recognisable FM timbres — bell-like, metallic-warm
+- at high RELATION values: dramatic spectral content, still bounded by soft-clip
+- MOTION applies drift to both carrier and modulator independently — the FM relationship itself wanders slightly, producing organic harmonic animation
+- FM depth from the external FM IN jack stacks additively with the internal RELATION modulation
 
-> Implementation note: depth limiting, ratio constraints, and soft clipping must be in place before this mode is considered complete. The goal is harmonic warmth, not noise.
+**Implementation notes:**
+
+- FM ratio derived from RELATION position: simple integer and half-integer ratios (1:1, 1:2, 2:3, 3:2, etc.) at detent-like positions produce the most musical results
+- soft-clip function applied to FM index before phase accumulator update — `tanh(index × 0.7)` keeps output bounded
+- depth range deliberately scaled: knob at maximum = FM index ~3.0 (perceptually loud but not chaotic)
+- ratio constraints should snap toward simple ratios as RELATION approaches certain positions (optional future hysteresis)
+- both ROOT and RELATION voices still pass through chorus and SPACE independently — FM interaction happens pre-chorus
+
+> **Completion criteria:** depth limiting, ratio snap behaviour, and soft clipping must all be validated before CASCADE is considered production-ready. The defining test: sweep RELATION from 0 to 1 while a held note plays — the timbre should move through recognisable harmonic territories without ever becoming unpleasantly harsh.
 
 ### STRING
 
@@ -447,27 +454,43 @@ Vintage ensemble inspired mode. The most atmospheric mode.
 - slow ensemble movement inspired by vintage string machines
 - Juno chorus character embedded into the synthesis layer
 
----
+### POLY
 
-## Oscillator Architecture
+True 4-voice polyphonic mode. Each incoming MIDI note or I2C voice command is allocated to its own independent voice slot, allowing up to four simultaneous pitches — each with its own CURVE envelope, drift, and stereo position.
 
-Oscillators should:
+- 4 independent voice slots, each a full `ShapeOsc` instance
+- round-robin voice allocation — oldest note stolen on 5th note
+- each voice has its own independent AR envelope triggered per note
+- voices distributed across the stereo field: slot 0 → hard L, slot 1 → soft L, slot 2 → soft R, slot 3 → hard R
+- RELATION knob sets a global detune spread applied symmetrically across all active voices
+- SHAPE, MOTION, and CHORUS settings are shared across all voices — timbre is consistent
+- V/OCT + GATE input plays monophonically into slot 0; MIDI/I2C fill slots 1–3
+- works with CHORD mode chord table: each POLY voice can itself fan into chord intervals (future)
 
-- remain anti-aliased across the full pitch range
-- preserve low-end warmth
-- support soft waveform transitions without zipper noise
-- maintain tuning stability — no drift from temperature or load
-- support smooth interpolation between shapes
+**Voice allocation algorithm:**
 
-**Implementation approaches (choose or combine):**
+```txt
+Note On received:
+    1. If a free slot exists → assign note to lowest free slot
+    2. If all 4 slots occupied → steal oldest active slot (lowest note age)
+    3. Trigger CURVE attack on assigned slot
+    4. D12/D16 brightness reflects number of active voices
 
-- polyBLEP for anti-aliasing at waveform discontinuities
-- wavetable interpolation for morphing between shapes
-- band-limited additive for specific timbres
+Note Off received:
+    1. Find slot matching note
+    2. Trigger CURVE release on that slot only
+    3. Other voices unaffected
+```
+
+**LED behaviour in POLY mode:**
+
+D13 shows a distinct yellow-green colour (lime) to distinguish POLY from CHORD (amber). D12 brightness tracks the number of active voices (dim = 1, full = 4). D16 reflects the chord spread width.
 
 ---
 
 ## Voice and Polyphony Architecture
+
+Oscillators are anti-aliased wavetable-based (`ShapeOsc`), preserving low-end warmth and supporting smooth waveform transitions without zipper noise. Tuning is stable — no drift from temperature or load. Band-limited additive synthesis with Lanczos sigma smoothing generates the five wavetables at startup.
 
 ### Voice Slot Definition
 
@@ -516,19 +539,32 @@ slot[0..7]  ROOT ± micro-detune (animated by MOTION)
             stereo position drifts slowly per slot
 ```
 
+**POLY** (up to 4 voices, Milestone 38):
+
+```txt
+slot[0]  MIDI/I2C note 1  →  hard L    independent AR envelope
+slot[1]  MIDI/I2C note 2  →  soft L    independent AR envelope
+slot[2]  MIDI/I2C note 3  →  soft R    independent AR envelope
+slot[3]  MIDI/I2C note 4  →  hard R    independent AR envelope
+
+Round-robin allocation, oldest-note steal on overflow.
+V/OCT + GATE always plays into slot 0.
+```
+
 ### Polyphony from MIDI / I2C
 
-A voice allocator maps incoming note events to ROOT pitch:
+A voice allocator maps incoming note events to voice slots. Behaviour is mode-dependent:
 
 ```txt
 MIDI Note On  (note=60)  ─┬───────────────────────────────────────┐
-I2C command   (note=67)  ─┤  voice allocator → set ROOT freq      │
+I2C command   (note=67)  ─┤  voice allocator → assign to slot     │
 V/OCT + GATE             ─┼───────────────────────────────────────┤
-MIDI Note Off (note=60)  ─┘  → release (trigger CURVE release phase)
+MIDI Note Off (note=60)  ─┘  → release that slot's CURVE envelope
 
 PAIR mode:  one logical note fans to [ROOT] and [ROOT + RELATION interval]
 CHORD mode: one logical note fans to 4 calculated interval slots
 CLOUD mode: one logical note fans to N micro-detuned, drifting slots
+POLY mode:  each note gets its own independent slot (up to 4 simultaneous)
 ```
 
 ### Summing and Normalisation
@@ -690,6 +726,8 @@ One of the most important synthesis layers. Movement should exist at multiple le
 The MOTION knob controls the overall depth of all drift and animation. At zero, the module is stable and static. As MOTION increases, the module becomes more alive. At maximum, the movement is substantial but remains musical.
 
 **MOTION CV** allows external control of animation depth — an envelope into MOTION gives notes that bloom and settle organically.
+
+This layered internal animation means a single V/OCT cable and gate already produces a living, breathing sound — not a static tone. The module is internally alive without requiring extensive patching.
 
 ### Implementation — Frequency Drift (Milestone 11)
 
@@ -1290,7 +1328,26 @@ Eurorack gate (0–5V) ──→ 10kΩ series ──→ BAT48 clamp ──→ GP
 
 ### V/Oct Calibration Routine
 
-Triggered by: power on while holding button. User patches two reference voltages (1 and 3V) with user clicking for each CV and voltage, module measures CV at each, builds a correction table. Confirmed by LED white flash. No trimmer pots required.
+Triggered by holding MODE while powering on. The module enters calibration mode before audio starts. User patches two reference voltages in sequence — 1V then 3V — confirming each with a MODE tap. The module measures the ADC reading at each voltage, builds a two-point linear correction table (offset + gain), and saves it to flash. Confirmed by LED white flash sequence. No trimmer pots required.
+
+```txt
+Entry: hold MODE during power-on
+    D15 begins slow white pulse      (calibration mode active)
+    D14 white steady                 (awaiting 1V input)
+
+Step 1 — patch 1V, tap MODE:
+    D14 brief white flash            (1V point accepted)
+    D12 full brightness              (point 1 of 2 confirmed)
+
+Step 2 — patch 3V, tap MODE:
+    D14 brief white flash            (3V point accepted)
+    D16 full brightness              (point 2 of 2 confirmed)
+
+Complete:
+    All LEDs → white ripple centre-out
+    D15 → three quick flashes → off  (saved to flash)
+    Module boots normally
+```
 
 ---
 
@@ -1329,18 +1386,18 @@ Triggered by: power on while holding button. User patches two reference voltages
 
 ### Attenuverter Logic via Jack Switch Detection
 
-Thonkiconn switching contacts are read through mux CH12–CH15. When a cable is detected:
+Cable presence on CV input jacks is detected via the Normalization Probe (GP22) — see [Normalization Probe](#normalization-probe--cv-jack-detection) below. When a cable is detected on a jack, the associated knob switches from direct parameter control to attenuverter mode:
 
 ```txt
-No cable (jack switch open):
+No cable detected (probe signal tracks — jack empty):
     Knob → sets parameter value directly
 
-Cable present (jack switch closed):
+Cable detected (probe signal stationary — cable present):
     Knob → attenuverter for that CV
     parameter = lerp(knob_pos, -1.0, +1.0) × CV_voltage
     knob centre = CV has zero effect
-    knob CW = full positive CV depth
-    knob CCW = full negative CV depth (inverted)
+    knob CW     = full positive CV depth
+    knob CCW    = full negative CV depth (inverted)
 ```
 
 | Jack     | Knob     | No cable              | Cable present              |
@@ -1350,7 +1407,7 @@ Cable present (jack switch closed):
 | MTN CV   | MOTION   | Fixed animation depth | Motion CV depth + polarity |
 | SPC CV   | SPACE    | Fixed stereo width    | Space CV depth + polarity  |
 
-FM IN / FM knob always functions as attenuverter — FM amount is always relative to input signal (or internal normalization when unpatched).
+FM IN / FM knob always functions as attenuverter — FM amount is always relative to the external signal (or internal normalization when unpatched), regardless of cable state.
 
 ### Normalization Probe — CV Jack Detection
 
@@ -1479,7 +1536,7 @@ Default: omni (responds to all channels). Configure via serial: `midichan 3` or 
 
 Hidden functions (behind long-hold) cover only: calibration, MIDI channel configuration, advanced settings. Core synthesis is always directly accessible.
 
-The crucial UX distinction: mode changes are deliberate and infrequent. You choose a mode, you play, you hear the difference immediately. You don't need to remember what color means what — you just made that choice. This is why fixed-function jacks beat assignable jacks, and why 1 button with a clear mode cycle beats a menu.
+The crucial UX distinction: mode changes are deliberate and infrequent. You choose a mode, you play, you hear the difference immediately. You don't need to remember what color means what — you just made that choice. This is why fixed-function jacks beat assignable jacks, and why a clear mode cycle with LED confirmation beats a menu.
 
 ### LED Language
 
@@ -1512,18 +1569,19 @@ SW3 = SHIFT_SW  (right button — near D15)
 
 #### Colour Language
 
-| Colour      | Meaning                                       |
-| ----------- | --------------------------------------------- |
-| Warm red    | ROOT voice / left channel activity            |
-| Cool blue   | RELATION voice / right channel activity       |
-| Green       | Motion / drift / animation active             |
-| Purple      | STRING mode / chorus dominant                 |
-| Cyan        | CLOUD mode / ensemble                         |
-| Amber       | CHORD mode / harmonic stack                   |
-| Magenta     | CASCADE mode / FM interaction                 |
-| Soft white  | PAIR mode (default) / neutral state           |
-| White flash | Confirmation — mode change, save, calibration |
-| Off         | Inactive / feature not engaged                |
+| Colour            | Meaning                                       |
+| ----------------- | --------------------------------------------- |
+| Warm red          | ROOT voice / left channel activity            |
+| Cool blue         | RELATION voice / right channel activity       |
+| Green             | Motion / drift / animation active             |
+| Purple            | STRING mode / chorus dominant                 |
+| Cyan              | CLOUD mode / ensemble                         |
+| Amber             | CHORD mode / harmonic stack                   |
+| Magenta           | CASCADE mode / FM interaction                 |
+| Lime/yellow-green | POLY mode / independent voice allocation      |
+| Soft white        | PAIR mode (default) / neutral state           |
+| White flash       | Confirmation — mode change, save, calibration |
+| Off               | Inactive / feature not engaged                |
 
 ---
 
@@ -1544,13 +1602,14 @@ SW3 = SHIFT_SW  (right button — near D15)
 
 D12 and D16 always reflect voice activity — they breathe with the audio envelope in all modes. Bright on attack, fading on release. Readable without mode awareness.
 
-| Mode    | D12 (ROOT / Left)                        | D16 (RELATION / Right)                      |
-| ------- | ---------------------------------------- | ------------------------------------------- |
-| PAIR    | Warm red — envelope level, gate response | Cool blue — relation envelope, detune depth |
-| CLOUD   | Cyan — shifts with left voice position   | Cyan — shifts opposite, stereo spread       |
-| CHORD   | Amber — root note envelope               | Amber dimmer — chord interval spread amount |
-| CASCADE | Magenta — FM carrier activity            | Magenta brighter — modulator depth          |
-| STRING  | Purple — slow drift, breathes            | Purple — offset phase from D12              |
+| Mode    | D12 (ROOT / Left)                          | D16 (RELATION / Right)                      |
+| ------- | ------------------------------------------ | ------------------------------------------- |
+| PAIR    | Warm red — envelope level, gate response   | Cool blue — relation envelope, detune depth |
+| CLOUD   | Cyan — shifts with left voice position     | Cyan — shifts opposite, stereo spread       |
+| CHORD   | Amber — root note envelope                 | Amber dimmer — chord interval spread amount |
+| CASCADE | Magenta — FM carrier activity              | Magenta brighter — modulator depth          |
+| STRING  | Purple — slow drift, breathes              | Purple — offset phase from D12              |
+| POLY    | Warm red — brightness = active voice count | Cool blue — chord spread / detune width     |
 
 ---
 
@@ -1558,14 +1617,15 @@ D12 and D16 always reflect voice activity — they breathe with the audio envelo
 
 One LED, one job. Always shows the current voice mode as a steady colour. The only LED the user needs to learn once.
 
-| State         | Colour      | Pattern                             |
-| ------------- | ----------- | ----------------------------------- |
-| PAIR          | Soft white  | Steady dim                          |
-| CLOUD         | Cyan        | Steady                              |
-| CHORD         | Amber       | Steady                              |
-| CASCADE       | Magenta     | Steady                              |
-| STRING        | Purple      | Steady                              |
-| Mode changing | White flash | Brief flash → settles to new colour |
+| State         | Colour            | Pattern                             |
+| ------------- | ----------------- | ----------------------------------- |
+| PAIR          | Soft white        | Steady dim                          |
+| CLOUD         | Cyan              | Steady                              |
+| CHORD         | Amber             | Steady                              |
+| CASCADE       | Magenta           | Steady                              |
+| STRING        | Purple            | Steady                              |
+| POLY          | Lime/yellow-green | Steady                              |
+| Mode changing | White flash       | Brief flash → settles to new colour |
 
 ---
 
@@ -1618,7 +1678,7 @@ Total duration: ~300ms
 
 ## Drone Mode Entry / Exit
 
-**Entering drone** (SHIFT_SW tap or auto on power-on with no gate):
+**Entering drone** (hold SHIFT then tap MODE, or automatically on power-on before any gate is received):
 
 ```txt
 D15 → fades up to warm white slow breathe   (drone is on)
@@ -1626,7 +1686,7 @@ D14 → fades to dim green slow breathe       (module is running)
 D12/D16 → hold steady voice colours         (no gate pulsing)
 ```
 
-**Exiting drone** (first gate received, or SHIFT_SW tap):
+**Exiting drone** (first gate received automatically, or hold SHIFT then tap MODE to toggle back to gated):
 
 ```txt
 D15 → fades down to off                     (gated mode active)
@@ -1638,70 +1698,48 @@ D14 → pulses with gate and MOTION           (heartbeat resumes)
 
 ### SHIFT Button Interaction (D15 context)
 
-| Action              | Result                                              |
-| ------------------- | --------------------------------------------------- |
-| SHIFT tap           | Toggle drone / gated mode — D15 indicates state     |
-| SHIFT held          | D15 white steady — secondary layer active           |
-| SHIFT + MODE_SW tap | Cycle secondary parameter (CASCADE FM type, etc.)   |
-|                     | D13 flashes twice to confirm secondary change       |
-| MODE_SW long hold   | Enter calibration — D15 pulses white during routine |
+| Action                    | Result                                                              |
+| ------------------------- | ------------------------------------------------------------------- |
+| SHIFT hold + MODE tap     | Toggle drone / gated mode — D15 breathes warm white in drone        |
+| SHIFT held                | D15 white steady — secondary layer active                           |
+| SHIFT held + turn knob    | Access secondary parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL) |
+| Hold MODE during power-on | Enter V/OCT calibration — D15 pulses white during routine           |
 
 ---
 
 ### Calibration Routine Visual
 
 ```txt
-Long hold MODE_SW (3s):
-    D15 begins slow white pulse          (calibration mode entered)
-    D14 white steady                     (awaiting input)
+Entry: hold MODE during power-on
+    D15 begins slow white pulse          (calibration mode active)
+    D14 white steady                     (awaiting 1V input)
 
-Per calibration point (tap to confirm each voltage):
-    D14 brief white flash                (point accepted)
-    D12 or D16 shows progress            (point 1→5 brightness steps)
+Step 1 — patch 1V, tap MODE:
+    D14 brief white flash                (1V point accepted)
+    D12 full brightness                  (point 1 of 2 confirmed)
+
+Step 2 — patch 3V, tap MODE:
+    D14 brief white flash                (3V point accepted)
+    D16 full brightness                  (point 2 of 2 confirmed)
 
 Calibration complete:
     All LEDs → white ripple centre-out   (same as mode change)
-    D15 → three quick flashes → off      (confirms saved)
-    All LEDs → return to normal
+    D15 → three quick flashes → off      (confirms saved to flash)
+    Module boots normally into PAIR mode
 ```
 
 ### Button Interaction Map
 
-| Action                           | Result                                                                            |
-| -------------------------------- | --------------------------------------------------------------------------------- |
-| MODE tap (Shift not held)        | Cycle voice mode: PAIR → CHORD → (→ CLOUD/CASCADE/STRING when implemented) → PAIR |
-| SHIFT hold + turn knob           | Access secondary pot parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL)           |
-| MODE + SHIFT held simultaneously | Return to drone mode — clears gate arm regardless of current mode                 |
-| MODE long hold (3 s)             | Enter V/OCT calibration routine (future)                                          |
+| Action                    | Result                                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------------- |
+| MODE tap (SHIFT not held) | Cycle voice mode: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PAIR                   |
+| SHIFT hold + turn knob    | Access secondary pot parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL)                   |
+| SHIFT hold + MODE tap     | Return to drone mode — hold SHIFT then tap MODE; clears gate arm, D15 breathes warm white |
+| Hold MODE during power-on | Enter V/OCT calibration routine (2-point: 1V then 3V)                                     |
 
-That is the complete button interaction surface. Nothing else is hidden. No color memorization required for performance — mode is chosen deliberately, confirmed by LED, heard immediately.
+MODE may also serve as a third shift layer in future firmware — SHIFT+MODE for secondary parameters, a potential future third combination for deeper configuration without adding buttons.
 
----
-
-## Internal Modulation Philosophy
-
-Alloy Flux should internally generate subtle movement even without patching. At zero MOTION, the module is stable. As MOTION increases, internal sources awaken:
-
-- slow drift generators — independent per voice, not synchronized
-- randomized LFO variance — no two chorus cycles are identical
-- phase offsets between voices — constructive/destructive interference shifts slowly
-- chorus modulation — always active, depth controlled by MOTION
-- stereo movement — voice positions animate slowly in the field
-
-This means a single V/OCT cable and gate produces a living, breathing sound — not a static tone.
-
----
-
-## Default Behavior
-
-The module should sound compelling with nothing more than one V/OCT cable and one gate. This is a critical design principle, not an optional feature.
-
-With minimal patching, a user should immediately hear:
-
-- stereo movement — voices spread naturally across the field
-- harmonic richness — RELATION adds depth even at default position
-- ensemble behavior — MOTION at default gives gentle animation
-- subtle drift — the module breathes slightly even on held notes
+That is the complete button interaction surface. Nothing else is hidden. No colour memorization required during performance — mode is chosen deliberately, confirmed by LED, heard immediately.
 
 ---
 
@@ -1713,11 +1751,12 @@ The RP2350 dual core is the key architectural advantage. Core 0 handles all dete
 
 ```txt
 Core 0 — deterministic control:
-├── ADC scanning via 74HC4067 (all knobs + slow CVs + jack switches)
+├── ADC scanning via 74HC4067 (all knobs + slow CVs)
 ├── Pitch CV reading (GP26 — oversampled, averaged, hysteresis)
 ├── Gate input reading (GP12)
+├── Normalization probe scanning (GP22 — detects cable presence per jack)
 ├── MIDI parsing — UART1 + USB MIDI
-├── Attenuverter logic (jack switch state → knob mode)
+├── Attenuverter logic (probe state → knob mode switch)
 ├── Parameter smoothing (one-pole LPF on all params)
 ├── Modulation routing matrix
 ├── LED update (APA102/SK9822 Dotstar, bitbang SPI on GP7/GP8)
@@ -2081,7 +2120,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 19. **Gate input** — GP12, CURVE-shaped articulation trigger
 - [ ] 20. **V/Oct calibration** — two-point routine via button hold on power-up
 - [x] 21. **RELATION engine** — `gRelation` (semitones 0–24) maps voice 2 via `powf(2, rel/12)` in `updateControl()`; `gDetune` retained as Hz fine-spread; `VoiceMode` enum (PAIR/CLOUD/CHORD/CASCADE/STRING) with `mode` serial command; only PAIR active; framework ready for M22–M25
-- [ ] 22. **CLOUD mode** — multi-voice ensemble, animated stereo positioning
+- [x] 22. **CLOUD mode** — multi-voice ensemble, animated stereo positioning
 - [x] 23. **CHORD mode** — 4-voice interval table (11 shapes: Unison→Octaves); `voices[4]`/`subVoices[4]` arrays; `sActiveVoices` (2 for PAIR, 4 for CHORD); RELATION (0–24 st) sweeps + interpolates between chord shapes; hard-L/soft-L/soft-R/hard-R stereo pan (normalized ×256 fixed-point); `DriftEngine<4>`; cached 4× `powf` per shape/base-freq change; PAIR mode backward-compatible; `chord <name|0-10>` serial command as convenience shim over `rel`
 - [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
 - [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
@@ -2097,7 +2136,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 29d. **MIDI CC mapping configurator** — allow users to assign MIDI CCs to parameters via Web Configurator; store mappings in flash; update `paramMap_dispatchCC` to use dynamic mapping
 - [ ] 29e. **MIDI channel configurator** — allow users to set MIDI channel (0=omni, 1–16) via Web Configurator; store in flash; filter incoming MIDI messages accordingly
 - [ ] 30. **APA102/SK9822 Dotstar LEDs** — bitbang SPI on GP7/GP8, full LED language per mode
-- [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()`/`isDown()` events; **GP10 MODE** cycles PAIR→CHORD; **GP11 SHIFT** — trig fires on **release** (not press) so holding SHIFT for combos doesn’t accidentally trigger; `sShiftConsumed` file-scope flag suppresses trig-on-release whenever SHIFT is consumed by any combo or future SHIFT+knob handler; **MODE+SHIFT held** → drone mode (`gGatePatched=false`, `sShiftConsumed=true`); SHIFT+knob secondary pot functions pending (M31 remainder)
+- [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()`/`isDown()` events; **GP10 MODE** cycles PAIR→CHORD; **GP11 SHIFT** — trig fires on **release** (not press) so holding SHIFT for combos doesn’t accidentally trigger; `sShiftConsumed` file-scope flag suppresses trig-on-release whenever SHIFT is consumed by any combo or future SHIFT+knob handler; **SHIFT held + MODE tap** → drone mode (`gGatePatched=false`, `sShiftConsumed=true`); SHIFT+knob secondary pot functions pending (M31 remainder); MODE reserved as potential third shift layer for future use
 - [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
 - [ ] 33. **Panel design** — Design final graphics and layout
 - [ ] 34. **Expose I2C bus for Teletype** — I2C pins available on GP14 (SDA) and GP15 (SCL) for Teletype integration (like Mannequins Just Friends)
@@ -2106,7 +2145,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 36b. **Web Configurator preset management** — create, save, load presets from the browser; store in flash via SysEx or direct USB commands; backup/restore presets to/from files on the user's computer
 - [ ] 36c. **Web Configurator parameter editing** — advanced configuration options like chord shape table editing, LFO wavetable upload, envelope curve configuration, MIDI CC mapping, etc.
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
-- [ ] 38. **Expand voice count and polyphony** - Enable multiple voices so polyphony is possible in all modes, not just CLOUD and CHORD. Evaluate CPU load and optimize as needed.
+- [x] 38. **POLY mode — 4-voice true polyphony** — implement independent voice allocator for POLY mode; each MIDI note gets its own `ShapeOsc` + independent `CurveEngine` instance; round-robin allocation with oldest-note steal; voices distributed L→R across stereo field; V/OCT+GATE always slot 0; Program Change 6 → POLY mode; `mode poly` serial command; LED: D13 lime/yellow-green, D12 brightness tracks active voice count; evaluate CPU load on RP2350 with 4 independent envelopes + chorus
 - [x] 39a. **Implement load/save presets via MIDI Sysex** — allows users to store and recall presets from web configurator
 - [ ] 39b. **Document MIDI implementation and SysEx format** — provide clear documentation on the MIDI CC mappings, SysEx message structure for presets, and how to integrate with external controllers or software
 - [x] 40. **Expose reverb modulation parameters via MIDI CC** — `gRevModSpeed` (CC 112, 0.1–4.0) and `gRevModDepth` (CC 113, 0.0–1.0) added to central param map; `reverb modspeed/moddepth` serial sub-commands; `setModulation()` virtual method on `ReverbEngine`; change-detected in `updateControl()` at 128 Hz (partial — Web Configurator UI pending)
@@ -2126,7 +2165,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 ### Hardware
 
 - [ ] Evaluate adding CV inputs for all/most parameters
-- [ ] Evaluate if will use the audio jack detection. Seems too complex to implement reliably with the mux and may not add much value. Could be reserved for future expansion if needed.
+- [x] Commit to normalization probe (GP22) for CV jack cable detection — MI-style shared bus approach; mux jack switch approach abandoned as more complex with less clean analog path
 - [ ] Evaluate adding an expansion module (2hp) for future features with additional inputs and outputs
 
 ---
@@ -2138,58 +2177,14 @@ Possible future firmware additions:
 - alternate chord tables (user-defined via Web USB)
 - scale quantization for CHORD mode
 - adaptive harmony — chord voicings follow scale context
+- POLY + CHORD combined — each POLY voice fans into chord intervals
 - alternate oscillator models (FM operator, additive)
 - harmonic quantization engine
 - I2C voice networking — chain multiple Alloy Flux modules
 - external sync behavior (clock in, reset)
 - internal modulation matrix expansion
 - MPE-inspired per-note expression via MIDI
-
----
-
-## Full Feature Summary
-
-```txt
-FORMAT          14HP Eurorack
-MCU             Raspberry Pi Pico 2 — RP2350, dual Cortex-M33 @ 150MHz, 4MB flash
-DAC             PCM5102A — I2S, 16-bit, 112dB SNR, stereo
-MUX             74HC4067 — 16:1 analog, 7 knobs + 4 CVs + 4 jack switches + 1 spare
-
-VOICE MODES     PAIR     — ROOT + RELATION dual voice, interval + detune
-                CLOUD    — multi-voice ensemble, animated stereo density
-                CHORD    — harmonic interval stack, REL CV morphs chord shape
-                CASCADE  — restrained oscillator FM interaction
-                STRING   — microdetune ensemble, Juno chorus character
-
-OSCILLATORS     ROOT + RELATION — relationship-based, not independent
-SHAPE           Continuous morph: sine → triangle → saw → pulse → hollow pulse
-FM              Linear, soft-clipped, musically bounded, audio-rate external input
-DRIFT           Per-voice phase, detune, stereo position — animated by MOTION
-CHORUS          BBD-inspired, multi-tap, stereo, randomized variance, part of synthesis
-CURVE           Pluck ↔ swell articulation — basic VCA-like behavior built in
-SPACE           Stereo width, voice placement, phase offsets
-
-KNOBS (7)       ROOT, RELATION*, SHAPE, MOTION, FM, CURVE, SPACE
-                * RELATION is the signature control — largest knob on panel
-JACKS (10)      V/OCT, GATE, MIDI TRS, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV,
-                L OUT (mono norm.), R OUT
-BUTTON (1)      Mode cycle, MIDI clock toggle, calibration routine
-LEDs (5)        APA102/SK9822 Dotstar RGB — mode colour, voice activity, motion depth
-
-ATTENUVERTERS   REL CV, SHAPE CV, MOTION CV, SPACE CV — knob becomes attenuverter
-                when cable inserted (detected via Thonkiconn switch + mux)
-
-MIDI            TRS Type A/B dual + USB MIDI device — simultaneous
-                Note, pitch bend, CC (RELATION/SHAPE/MOTION/SPACE/FM), clock, panic
-
-OUTPUT          Stereo L/R — passive mono sum on L when R unplugged (10kΩ)
-POWER           +12V via LDO → 3.3V for Pico 2 / PCM5102 / mux
-                ±12V direct to TL072 op-amps
-
-FRAMEWORK       Arduino + Mozzi 2.x via PlatformIO
-ARCHITECTURE    Dual core: Core 0 = control / UI / ADC / MIDI
-                           Core 1 = audio DSP / oscillators / chorus / drift
-```
+- expansion module (2HP) using spare GPIO (GP0–GP2, GP19–GP21) for additional CV inputs and outputs
 
 ---
 
