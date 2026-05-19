@@ -14,11 +14,14 @@
   let {
     param,
     value = $bindable(param.default),
-  }: { param: CCParam; value?: number } = $props();
+    hint = undefined,
+  }: { param: CCParam; value?: number; hint?: string } = $props();
 
   // Derived display string
   let displayValue = $derived(
-    param.unit ? `${value.toFixed(param.step && param.step >= 1 ? 0 : 2)} ${param.unit}` : value.toFixed(2)
+    param.unit
+      ? `${value.toFixed(param.step && param.step >= 1 ? 0 : 2)} ${param.unit}`
+      : value.toFixed(2),
   );
 
   function handleInput(e: Event) {
@@ -56,6 +59,9 @@
     <span class="cc-badge">CC {param.cc}</span>
     <span>{param.max}</span>
   </div>
+  {#if hint}
+    <div class="param-hint">{hint}</div>
+  {/if}
 </div>
 
 <style>
@@ -100,5 +106,13 @@
   .cc-badge {
     color: #555;
     font-size: 0.65rem;
+  }
+  .param-hint {
+    text-align: center;
+    font-size: 0.7rem;
+    color: #6fcf6f;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    margin-top: -0.1rem;
   }
 </style>

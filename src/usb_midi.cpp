@@ -43,6 +43,7 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
         // NoteOn with velocity 0 is a NoteOff (running-status MIDI convention).
         if (sActiveNote == note) {
             gGateHigh = false;
+            gCurveEng->setGate(false); // arm release immediately — closes ISR window
             sActiveNote = 255;
         }
         return;
@@ -52,6 +53,7 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
     gMidiVelocity = velocity / 127.0f; // scale output volume by note velocity
     gGatePatched = true;               // arm envelope — MIDI is now the gate source
     gGateHigh = true;
+    gCurveEng->setGate(true); // arm attack immediately — closes ISR window
 }
 
 static void onNoteOff(byte channel, byte note, byte /*velocity*/) {
@@ -60,6 +62,7 @@ static void onNoteOff(byte channel, byte note, byte /*velocity*/) {
     // Monophonic last-note priority: only release if this is the active note.
     if (sActiveNote == note) {
         gGateHigh = false;
+        gCurveEng->setGate(false); // arm release immediately — closes ISR window
         sActiveNote = 255;
     }
 }
@@ -79,6 +82,9 @@ static void onControlChange(byte channel, byte cc, byte value) {
         break;
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);
+        break;
+    case 115: // Voice Mode — 0–63 = PAIR, 64–127 = CHORD (ranges subdivide as modes are added)
+        gVoiceMode = (value < 64) ? VoiceMode::PAIR : VoiceMode::CHORD;
         break;
     case 119: // Drone return — clears gGatePatched, module returns to continuous drone
         gGatePatched = false;

@@ -41,6 +41,10 @@ extern float gCurve;               // 0.0 = pluck … 1.0 = swell
 extern float gCurveTime;           // envelope time scale: 0.25=4×faster  1.0=default  4.0=4×slower
 extern volatile bool gGateHigh;    // true while gate is asserted (attack phase)
 extern volatile bool gGatePatched; // false = drone (bypass VCA); true = AR envelope active
+// Active envelope engine pointer (concrete type: AREnvelope or ADSREnvelope).
+// Arming setGate() on this from any gate source ensures the ISR never sees
+// gGatePatched=true while the envelope is still in IDLE (which caused a click).
+extern EnvelopeEngine *gCurveEng;
 
 // Level
 extern float gVolume;       // 0.0 – 1.0 master output

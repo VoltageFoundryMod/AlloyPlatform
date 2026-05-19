@@ -15,6 +15,13 @@
 </script>
 
 <header class="connection-bar">
+  <img
+    src="/public/VFM_Logo_Stripped.png"
+    alt="Logo"
+    class="logo-img"
+    width="50px"
+  />
+  <div class="cat-title">Alloy Flux Web Configurator</div>
   <!-- MIDI -->
   <div class="conn-section">
     <span class="conn-label">MIDI</span>
@@ -26,7 +33,8 @@
       <span class="badge ok">Connected</span>
       <select
         value={$midi.selectedOutput}
-        onchange={(e) => midi.selectOutput((e.target as HTMLSelectElement).value)}
+        onchange={(e) =>
+          midi.selectOutput((e.target as HTMLSelectElement).value)}
       >
         {#each $midi.outputs as port}
           <option value={port.id}>{port.name}</option>
@@ -81,9 +89,18 @@
     padding: 0.15rem 0.5rem;
     border-radius: 999px;
   }
-  .badge.ok     { background: #1a3d1a; color: #6fcf6f; }
-  .badge.error  { background: #3d1a1a; color: #cf6f6f; }
-  .badge.warn   { background: #3d3010; color: #cfb86f; }
+  .badge.ok {
+    background: #1a3d1a;
+    color: #6fcf6f;
+  }
+  .badge.error {
+    background: #3d1a1a;
+    color: #cf6f6f;
+  }
+  .badge.warn {
+    background: #3d3010;
+    color: #cfb86f;
+  }
   select {
     background: #252540;
     color: #ccc;
@@ -102,5 +119,7 @@
     color: #aab;
     border: 1px solid #555;
   }
-  button:hover { background: #3a3a70; }
+  button:hover {
+    background: #3a3a70;
+  }
 </style>

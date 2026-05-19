@@ -450,11 +450,12 @@ void updateControl() {
         const bool curGate = gGateHigh;
         if (curGate != prevGate) {
             gCurveEng->setGate(curGate);
-            // On rising gate edge (retrigger), reset all oscillator phases so the
-            // attack always starts at the waveform zero-crossing.  Without this,
-            // re-triggering during release at a random phase point creates a click
-            // whose ring modulation sidebands sound metallic / PWM-like.
-            if (curGate) {
+            // Only reset oscillator phases when the envelope is already near-silent.
+            // Resetting phase while the envelope is non-zero creates a waveform
+            // discontinuity at the current amplitude — audible as a click on retrigger.
+            // Free-running oscillators (no reset) avoid this; the result is a
+            // smooth frequency transition instead of the previous metallic artifact.
+            if (curGate && gCurveEng->level() < 0.01f) {
                 for (uint8_t i = 0; i < 4; i++) {
                     voices[i].resetPhase();
                     subVoices[i].resetPhase();
@@ -465,22 +466,30 @@ void updateControl() {
     }
 
     // Apply per-voice drift offsets; sub oscillators track their main automatically.
-    // PAIR mode: voice 2 is offset by gRelation semitones above ROOT (0=unison, 12=octave).
-    // gDetune adds a symmetric Hz fine-spread on both voices.
-    // powf() only recomputed when sRelation changes meaningfully; never called in the ISR.
+    // PAIR mode: voice 1 is gRelation integer semitones above ROOT (0=unison, 12=octave).
+    // CHORD mode: gRelation (0–24) selects one of 11 chord shapes from kChordTable.
+    // gDetune adds a symmetric Hz fine-spread on both voices (PAIR only).
+    // powf() only recomputed when the quantised relation or base freq changes.
     gDrift.setSpeed(gDriftSpeed);
     gDrift.update(sMotion);
     float voiceFreqs[4] = {gBaseFreq, gBaseFreq, gBaseFreq, gBaseFreq};
+    // Detect mode transitions: bust per-mode frequency caches on the first frame
+    // in a new mode so voices update even when sRelation/gBaseFreq are unchanged.
+    static VoiceMode sPrevVoiceMode = gVoiceMode;
+    const bool sModeChanged = (gVoiceMode != sPrevVoiceMode);
+    sPrevVoiceMode = gVoiceMode;
     switch (gVoiceMode) {
     case VoiceMode::PAIR:
     default: {
-        // ratio = 2^(semitones/12) — standard equal-temperament semitone-to-ratio
-        // Cache result — powf is expensive on first call (flash miss); recompute only on change.
+        // Quantise to the nearest integer semitone — equal temperament is discrete;
+        // sub-semitone float values just create detuning beating in PAIR mode.
+        const float semitones = roundf(sRelation);
+        // Cache ratio — powf is expensive; recompute only when semitone or mode changes.
         static float cachedRelation = -1.0f;
         static float cachedRatio2 = 1.0f;
-        if (fabsf(sRelation - cachedRelation) > 0.005f) {
-            cachedRatio2 = powf(2.0f, sRelation / 12.0f);
-            cachedRelation = sRelation;
+        if (semitones != cachedRelation || sModeChanged) {
+            cachedRatio2 = powf(2.0f, semitones / 12.0f);
+            cachedRelation = semitones;
         }
         voiceFreqs[0] = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
         voiceFreqs[1] = max(gBaseFreq * cachedRatio2 + gDetune * 0.5f + gDrift.offset(1), 20.0f);
@@ -505,37 +514,33 @@ void updateControl() {
         break;
     }
     case VoiceMode::CHORD: {
-        // 11 chord shapes — RELATION (0–24 semitones) sweeps continuously through them.
-        // Columns: semitone offsets for voices 0–3 from ROOT pitch.
+        // 11 chord shapes — RELATION (0–24 st) snaps to one of the 11 rows.
+        // Each column gives the semitone offset for voices 0–3 from ROOT.
         static const int8_t kChordTable[11][4] = {
-            {0, 0, 0, 0},    // 0.0  Unison
-            {0, 7, 12, 19},  // 0.1  Power
-            {0, 3, 7, 12},   // 0.2  Minor
-            {0, 4, 7, 12},   // 0.3  Major
-            {0, 2, 7, 12},   // 0.4  Sus2
-            {0, 5, 7, 12},   // 0.5  Sus4
-            {0, 4, 7, 11},   // 0.6  Major 7
-            {0, 3, 7, 10},   // 0.7  Minor 7
-            {0, 4, 7, 10},   // 0.8  Dominant 7
-            {0, 3, 6, 9},    // 0.9  Diminished
-            {0, 12, 24, 36}, // 1.0  Octaves
+            {0, 0, 0, 0},    //  0  Unison
+            {0, 7, 12, 19},  //  1  Power
+            {0, 3, 7, 12},   //  2  Minor
+            {0, 4, 7, 12},   //  3  Major
+            {0, 2, 7, 12},   //  4  Sus2
+            {0, 5, 7, 12},   //  5  Sus4
+            {0, 4, 7, 11},   //  6  Major 7
+            {0, 3, 7, 10},   //  7  Minor 7
+            {0, 4, 7, 10},   //  8  Dominant 7
+            {0, 3, 6, 9},    //  9  Diminished
+            {0, 12, 24, 36}, // 10  Octaves
         };
-        // sRelation 0–24 st → continuous position 0.0–10.0 across table rows.
-        const float chordFrac = (sRelation / 24.0f) * 10.0f;
-        const int idx0 = (int)chordFrac < 9 ? (int)chordFrac : 9;
-        const float blend = chordFrac - (float)idx0;
-        // Cache: only recompute 4× powf when base freq or relation changes.
-        static float sCachedChordRel = -1.0f;
+        // sRelation 0–24 st → chord index 0–10 (quantised; no inter-row blending).
+        const int chordIdx = min(10, (int)roundf((sRelation / 24.0f) * 10.0f));
+        // Cache: recompute 4× powf only when chord row, base freq, or mode changes.
+        static int sCachedChordIdx = -1;
         static float sCachedChordBase = -1.0f;
         static float sCachedFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
-        if (fabsf(sRelation - sCachedChordRel) > 0.05f ||
-            fabsf(gBaseFreq - sCachedChordBase) > 0.01f) {
+        if (chordIdx != sCachedChordIdx ||
+            fabsf(gBaseFreq - sCachedChordBase) > 0.01f || sModeChanged) {
             for (int i = 0; i < 4; i++) {
-                const float st = kChordTable[idx0][i] * (1.0f - blend) +
-                                 kChordTable[idx0 + 1][i] * blend;
-                sCachedFreqs[i] = gBaseFreq * powf(2.0f, st / 12.0f);
+                sCachedFreqs[i] = gBaseFreq * powf(2.0f, kChordTable[chordIdx][i] / 12.0f);
             }
-            sCachedChordRel = sRelation;
+            sCachedChordIdx = chordIdx;
             sCachedChordBase = gBaseFreq;
         }
         for (int i = 0; i < 4; i++) {
@@ -711,8 +716,21 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
     // audible zipper artifacts during exponential decay (steps space out as amplitude
     // falls, creating periodic clicks at ~40 Hz early → sub-audio rate near zero).
     // Cortex-M33 FPU: two float multiplies, same cost as the previous integer path.
+    //
+    // De-click: asymmetric one-pole smoother on the final gain.
+    // The two unavoidable gain discontinuities are:
+    //   (a) Drone → gate: gain jumps 1.0 → 0 when the envelope arms from idle.
+    //   (b) Retrigger from release: gain may be non-zero when a new note arrives.
+    // Downward transitions ramp at coeff=0.2/sample (τ≈0.15ms, floor after ~5 samples).
+    // Upward transitions pass through instantly so pluck / fast attacks are unaffected.
+    static float sGainSmooth = 1.0f;
     const float envLevel = gGatePatched ? gCurveEng->next() : 1.0f;
-    const float gain = sVolume * sMidiVelocity * envLevel;
+    const float gainTarget = sVolume * sMidiVelocity * envLevel;
+    if (gainTarget < sGainSmooth)
+        sGainSmooth += (gainTarget - sGainSmooth) * 0.2f; // smooth downward only
+    else
+        sGainSmooth = gainTarget; // instant upward (attack)
+    const float gain = sGainSmooth;
     left = (int32_t)((float)left * gain);
     right = (int32_t)((float)right * gain);
 
