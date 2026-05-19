@@ -1,6 +1,8 @@
 #ifdef USE_TINYUSB
 
 #include "io/usb_midi.h"
+#include "dsp/ChorusEngine.h"
+#include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
 #include "params.h"
 #include <Adafruit_TinyUSB.h>
@@ -80,11 +82,35 @@ static void onControlChange(byte channel, byte cc, byte value) {
         gGatePatched = true;
         gGateHigh = (value >= 64);
         break;
+    case 85: { // Delay on/off — ≥64 = on, <64 = off (zeroes mix; CC 88 restores it)
+        static float sStoredDelayMix = 0.5f;
+        if (value >= 64) {
+            gDelayMix = sStoredDelayMix; // restore last-used mix
+        } else {
+            if (gDelayMix > 0.001f)
+                sStoredDelayMix = gDelayMix; // remember before zeroing
+            gDelayMix = 0.0f;
+        }
+        break;
+    }
+    case 89: // Chorus mode — 0-31=OFF, 32-63=I, 64-95=II, 96-127=I+II
+        if (value < 32)
+            gChorusMode = ChorusMode::OFF;
+        else if (value < 64)
+            gChorusMode = ChorusMode::I;
+        else if (value < 96)
+            gChorusMode = ChorusMode::II;
+        else
+            gChorusMode = ChorusMode::I_II;
+        break;
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);
         break;
     case 115: // Voice Mode — 0–63 = PAIR, 64–127 = CHORD (ranges subdivide as modes are added)
         gVoiceMode = (value < 64) ? VoiceMode::PAIR : VoiceMode::CHORD;
+        break;
+    case 116: // Reverb on/off — ≥64 = on
+        gRevEnabled = (value >= 64);
         break;
     case 119: // Drone return — clears gGatePatched, module returns to continuous drone
         gGatePatched = false;
