@@ -169,8 +169,10 @@
       </section>
     </aside>
   </main>
-  <div class="footer">
-    <small>Alloy Flux Web Configurator — Voltage Foundry Modular - 2026</small>
+  <div class="footer cat-section">
+    <small class="footer-label"
+      >Alloy Flux Web Configurator — Voltage Foundry Modular - ©2026</small
+    >
   </div>
 </div>
 
@@ -246,5 +248,13 @@
   .presets-panel {
     display: flex;
     flex-direction: column;
+  }
+  .footer-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 0.5rem;
+    color: #888;
+    min-width: 3rem;
   }
 </style>

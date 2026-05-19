@@ -21,7 +21,7 @@
     class="logo-img"
     width="50px"
   />
-  <div class="cat-title">Alloy Flux Web Configurator</div>
+  <div class="conn-title">Alloy Flux Web Configurator</div>
   <!-- MIDI -->
   <div class="conn-section">
     <span class="conn-label">MIDI</span>
@@ -76,6 +76,13 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+  .conn-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: #888;
+    min-width: 3rem;
   }
   .conn-label {
     font-size: 0.75rem;
