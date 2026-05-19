@@ -49,7 +49,8 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
     }
     sActiveNote = note;
     gBaseFreq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
-    gGatePatched = true; // arm envelope — MIDI is now the gate source
+    gMidiVelocity = velocity / 127.0f; // scale output volume by note velocity
+    gGatePatched = true;               // arm envelope — MIDI is now the gate source
     gGateHigh = true;
 }
 
@@ -82,6 +83,7 @@ static void onControlChange(byte channel, byte cc, byte value) {
     case 119: // Drone return — clears gGatePatched, module returns to continuous drone
         gGatePatched = false;
         gGateHigh = false;
+        gMidiVelocity = 1.0f; // restore full volume on return to drone/CV
         sActiveNote = 255;
         break;
     case 123: // All Notes Off / panic

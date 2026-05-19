@@ -43,7 +43,9 @@ extern volatile bool gGateHigh;    // true while gate is asserted (attack phase)
 extern volatile bool gGatePatched; // false = drone (bypass VCA); true = AR envelope active
 
 // Level
-extern float gVolume; // 0.0 – 1.0 master output
+extern float gVolume;       // 0.0 – 1.0 master output
+extern float gMidiVelocity; // 0.0 – 1.0 per-note MIDI velocity scale (1.0 = full, reset on drone return)
+                            // Always 1.0 for CV / drone / button gate sources.
 
 // MIDI configuration
 extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel

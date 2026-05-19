@@ -185,7 +185,8 @@ float gCurve = 0.5f;                    // 0.0 = pluck, 0.5 = natural, 1.0 = swe
 float gCurveTime = 1.0f;                // overall envelope time scale (0.25–4.0)
 volatile bool gGateHigh = false;        // true while gate is asserted
 volatile bool gGatePatched = false;     // false = drone (bypass VCA)
-float gVolume = 0.8f;
+float gVolume = 1.0f;
+float gMidiVelocity = 1.0f;                // set by MIDI Note On; 1.0 for CV / drone / button sources
 ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
 float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = full stereo
 uint8_t gMidiChannel = 0;                  // 0 = omni, 1–16 = specific MIDI channel
@@ -197,6 +198,7 @@ static float sMotion = 0.0f;    // slower smoother for drift/chorus depth
 static float sCurve = 0.5f;     // smoothed CURVE value for CurveEngine
 static float sCurveTime = 1.0f; // smoothed time scale
 static float sVolume = 0.8f;
+static float sMidiVelocity = 1.0f;
 static float sSpace = 1.0f;
 static float sRelation = 0.0f; // smoothed interval ratio input
 // Sub oscillator mix weight for the audio hot path (0.0..0.5 = 0..50% of main).
@@ -376,6 +378,7 @@ void updateControl() {
                 sShiftConsumed = true; // don't trig on SHIFT release
                 gGatePatched = false;
                 gGateHigh = false;
+                gMidiVelocity = 1.0f; // restore full volume when returning to drone/CV
 #ifdef SERIAL_CONTROL
                 Serial.println(F("gate -> free (drone)"));
 #endif
@@ -431,6 +434,7 @@ void updateControl() {
     sCurve += (gCurve - sCurve) * 0.1f;
     sCurveTime += (gCurveTime - sCurveTime) * 0.1f;
     sVolume += (gVolume - sVolume) * 0.1f;
+    sMidiVelocity += (gMidiVelocity - sMidiVelocity) * 0.1f;
     sSpace += (gSpace - sSpace) * 0.1f;
     sRelation += (gRelation - sRelation) * 0.1f;
 
@@ -708,7 +712,7 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
     // falls, creating periodic clicks at ~40 Hz early → sub-audio rate near zero).
     // Cortex-M33 FPU: two float multiplies, same cost as the previous integer path.
     const float envLevel = gGatePatched ? gCurveEng->next() : 1.0f;
-    const float gain = sVolume * envLevel;
+    const float gain = sVolume * sMidiVelocity * envLevel;
     left = (int32_t)((float)left * gain);
     right = (int32_t)((float)right * gain);
 
