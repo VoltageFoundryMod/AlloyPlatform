@@ -1,0 +1,17 @@
+/* AlloyFlux Web Configurator — global reset & dark theme */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #0f0f1a;
+  color: #ddd;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 600; }
+
+a { color: #7cb8ff; }
