@@ -145,9 +145,9 @@ class ADSREnvelope : public EnvelopeEngine {
         _sustain = (sustainLevel < 0.0f) ? 0.0f : (sustainLevel > 1.0f ? 1.0f : sustainLevel);
         _loop = loop;
         const float sr = (float)SAMPLE_RATE;
-        _attCoeff = _coeff(attackTime, sr);
-        _decCoeff = _coeff(decayTime, sr);
-        _relCoeff = _coeff(releaseTime, sr);
+        _attCoeff = 1.0f - _coeff(attackTime, sr); // additive step: env += coeff*(1-env)
+        _decCoeff = 1.0f - _coeff(decayTime, sr);  // additive step toward sustain
+        _relCoeff = _coeff(releaseTime, sr);       // multiplicative: env *= coeff
     }
 
     void setGate(bool high) override {

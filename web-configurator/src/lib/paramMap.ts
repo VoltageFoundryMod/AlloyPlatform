@@ -44,6 +44,8 @@ export const PARAM_CATEGORIES = [
   "Oscillator",
   "Animation",
   "Envelope",
+  "Filter",
+  "FX Chain",
   "Output",
   "Chorus",
   "Reverb",
@@ -114,6 +116,21 @@ export const PARAM_MAP: CCParam[] = [
     unit: "st",
     step: 1,
   },
+  // Sub octave — CC 90: 0–63 = 1 oct below, 64–127 = 2 oct below
+  {
+    cc: 90,
+    name: "suboct",
+    label: "Sub Octave",
+    category: "Oscillator",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "−1 Oct", ccMin: 0, ccMax: 63 },
+      { label: "−2 Oct", ccMin: 64, ccMax: 127 },
+    ],
+  },
 
   // ── Animation ────────────────────────────────────────────────────────────
   {
@@ -136,6 +153,21 @@ export const PARAM_MAP: CCParam[] = [
   },
 
   // ── Envelope ─────────────────────────────────────────────────────────────
+  // CC 81: envelope type — 0–63 = AR, 64–127 = ADSR
+  {
+    cc: 81,
+    name: "envtype",
+    label: "Type",
+    category: "Envelope",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "AR", ccMin: 0, ccMax: 63 },
+      { label: "ADSR", ccMin: 64, ccMax: 127 },
+    ],
+  },
   {
     cc: 71,
     name: "curve",
@@ -154,6 +186,136 @@ export const PARAM_MAP: CCParam[] = [
     max: 4,
     default: 1,
     unit: "×",
+  },
+  // ADSR params — only active when envelope type is ADSR
+  {
+    cc: 82,
+    name: "adsrattack",
+    label: "Attack",
+    category: "Envelope",
+    min: 0.001,
+    max: 4,
+    default: 0.05,
+    unit: "s",
+    step: 0.001,
+  },
+  {
+    cc: 83,
+    name: "adsrdecay",
+    label: "Decay",
+    category: "Envelope",
+    min: 0.001,
+    max: 4,
+    default: 0.1,
+    unit: "s",
+    step: 0.001,
+  },
+  {
+    cc: 84,
+    name: "adsrsustain",
+    label: "Sustain",
+    category: "Envelope",
+    min: 0,
+    max: 1,
+    default: 0.8,
+  },
+  {
+    cc: 95,
+    name: "adsrrelease",
+    label: "Release",
+    category: "Envelope",
+    min: 0.001,
+    max: 4,
+    default: 0.3,
+    unit: "s",
+    step: 0.001,
+  },
+
+  // ── Filter ───────────────────────────────────────────────────────────────
+  // CC 77: filter mode — thresholds match firmware usb_midi.cpp case 77
+  {
+    cc: 77,
+    name: "filtermode",
+    label: "Mode",
+    category: "Filter",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "Off", ccMin: 0, ccMax: 25 },
+      { label: "LP", ccMin: 26, ccMax: 50 },
+      { label: "HP", ccMin: 51, ccMax: 76 },
+      { label: "BP", ccMin: 77, ccMax: 101 },
+      { label: "Notch", ccMin: 102, ccMax: 127 },
+    ],
+  },
+  // CC 78: filter algorithm — 0–63 = SVF, 64–127 = Ladder
+  {
+    cc: 78,
+    name: "filtertype",
+    label: "Algorithm",
+    category: "Filter",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "SVF", ccMin: 0, ccMax: 63 },
+      { label: "Ladder", ccMin: 64, ccMax: 127 },
+    ],
+  },
+  {
+    cc: 75,
+    name: "filtercutoff",
+    label: "Cutoff",
+    category: "Filter",
+    min: 20,
+    max: 16000,
+    default: 8000,
+    unit: "Hz",
+    step: 1,
+  },
+  {
+    cc: 76,
+    name: "filterres",
+    label: "Resonance",
+    category: "Filter",
+    min: 0,
+    max: 1,
+    default: 0,
+  },
+
+  // ── FX Chain ─────────────────────────────────────────────────────────────
+  // CC 79: filter position in chain — pre or post chorus
+  {
+    cc: 79,
+    name: "fxfilterpos",
+    label: "Filter Position",
+    category: "FX Chain",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "Pre Chorus", ccMin: 0, ccMax: 63 },
+      { label: "Post Chorus", ccMin: 64, ccMax: 127 },
+    ],
+  },
+  // CC 80: delay position in chain — pre or post reverb
+  {
+    cc: 80,
+    name: "fxdelaypos",
+    label: "Delay Position",
+    category: "FX Chain",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "Pre Reverb", ccMin: 0, ccMax: 63 },
+      { label: "Post Reverb", ccMin: 64, ccMax: 127 },
+    ],
   },
 
   // ── Output ───────────────────────────────────────────────────────────────

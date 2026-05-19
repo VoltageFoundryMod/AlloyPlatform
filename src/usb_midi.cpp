@@ -1,6 +1,7 @@
 #ifdef USE_TINYUSB
 
 #include "io/usb_midi.h"
+#include "config_store.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
@@ -8,6 +9,92 @@
 #include <Adafruit_TinyUSB.h>
 #include <MIDI.h>
 #include <math.h>
+
+// ---------------------------------------------------------------------------
+// SysEx patch dump — AlloyFlux protocol
+//
+// Format (body between F0 and F7):
+//   7D 41 46 <cmd> [cc0 val0 cc1 val1 ...]
+//   7D = non-commercial manufacturer ID
+//   41 46 = 'A' 'F' (AlloyFlux device signature)
+//   cmd:
+//     01 = REQUEST_DUMP  (host → device: request full patch dump)
+//     02 = PATCH_DUMP    (device → host: full patch as CC pairs)
+//     03 = APPLY_PATCH   (host → device: load CC pairs into parameters)
+//
+// All CC and value bytes are 7-bit safe (0–127).
+// ---------------------------------------------------------------------------
+
+static constexpr uint8_t kSysExMfr = 0x7D; // non-commercial
+static constexpr uint8_t kSysExDevA = 'A';
+static constexpr uint8_t kSysExDevF = 'F';
+static constexpr uint8_t kSysExCmdRequestDump = 0x01;
+static constexpr uint8_t kSysExCmdPatchDump = 0x02;
+static constexpr uint8_t kSysExCmdApplyPatch = 0x03;
+static constexpr uint8_t kSysExCmdPresetSave = 0x04;  // payload[0] = slot 0-9
+static constexpr uint8_t kSysExCmdPresetLoad = 0x05;  // payload[0] = slot 0-9; responds with PATCH_DUMP
+static constexpr uint8_t kSysExCmdPresetReset = 0x06; // payload[0] = slot 0-9, or 0x7F = all
+
+// Convert a float parameter value into a 7-bit CC value.
+static inline uint8_t sFloatToCC(float val, float minV, float maxV) {
+    if (maxV <= minV)
+        return 0;
+    const int v = (int)(127.0f * (val - minV) / (maxV - minV) + 0.5f);
+    return (uint8_t)(v < 0 ? 0 : v > 127 ? 127
+                                         : v);
+}
+
+// Fill buf[] with (cc, value) pairs for all patchable parameters.
+// Returns the total number of bytes written (always even).
+static uint8_t sBuildPatchPairs(uint8_t *buf) {
+    uint8_t n = 0;
+    // Continuous float params from the central CC table
+    for (uint8_t i = 0; i < kCCParamCount; i++) {
+        const CCParam &p = kCCParams[i];
+        buf[n++] = p.cc;
+        buf[n++] = sFloatToCC(*p.target, p.valMin, p.valMax);
+    }
+    // Special / select params not in kCCParams
+    // CC 77 — filter mode: OFF=0, LP=26, HP=51, BP=77, NOTCH=102
+    buf[n++] = 77;
+    buf[n++] = (gFilterMode == FilterMode::OFF) ? 0 : (gFilterMode == FilterMode::LP) ? 26
+                                                  : (gFilterMode == FilterMode::HP)   ? 51
+                                                  : (gFilterMode == FilterMode::BP)   ? 77
+                                                                                      : 102;
+    // CC 78 — filter type: SVF=0, LADDER=96
+    buf[n++] = 78;
+    buf[n++] = (gFilterType == FilterType::SVF) ? 0 : 96;
+    // CC 79 — fxorder filter pos: pre-chorus=0, post-chorus=96
+    buf[n++] = 79;
+    buf[n++] = gFxOrder.filterPostChorus ? 96 : 0;
+    // CC 80 — fxorder delay pos: pre-reverb=0, post-reverb=96
+    buf[n++] = 80;
+    buf[n++] = gFxOrder.delayPostReverb ? 96 : 0;
+    // CC 81 — envelope type: AR=0, ADSR=96
+    buf[n++] = 81;
+    buf[n++] = (gEnvelopeType == EnvelopeType::ADSR) ? 96 : 0;
+    // CC 85 — delay on/off
+    buf[n++] = 85;
+    buf[n++] = (gDelayMix > 0.001f) ? 127 : 0;
+    // CC 89 — chorus mode: OFF=0, I=48, II=80, I+II=112
+    buf[n++] = 89;
+    buf[n++] = (gChorusMode == ChorusMode::OFF) ? 0 : (gChorusMode == ChorusMode::I) ? 48
+                                                  : (gChorusMode == ChorusMode::II)  ? 80
+                                                                                     : 112;
+    // CC 90 — sub octave: 1 oct below=0, 2 oct below=96
+    buf[n++] = 90;
+    buf[n++] = (gSubOctave >= 2) ? 96 : 0;
+    // CC 114 — reverb freeze
+    buf[n++] = 114;
+    buf[n++] = gRevFrozen ? 127 : 0;
+    // CC 115 — voice mode: PAIR=0, CHORD=96
+    buf[n++] = 115;
+    buf[n++] = (gVoiceMode == VoiceMode::PAIR) ? 0 : 96;
+    // CC 116 — reverb on/off
+    buf[n++] = 116;
+    buf[n++] = gRevEnabled ? 127 : 0;
+    return n;
+}
 
 // ---------------------------------------------------------------------------
 // USB MIDI transport + MIDI interface
@@ -82,6 +169,31 @@ static void onControlChange(byte channel, byte cc, byte value) {
         gGatePatched = true;
         gGateHigh = (value >= 64);
         break;
+    case 77: // Filter mode — 5 options spread evenly across 0–127
+        if (value < 26)
+            gFilterMode = FilterMode::OFF;
+        else if (value < 51)
+            gFilterMode = FilterMode::LP;
+        else if (value < 77)
+            gFilterMode = FilterMode::HP;
+        else if (value < 102)
+            gFilterMode = FilterMode::BP;
+        else
+            gFilterMode = FilterMode::NOTCH;
+        break;
+    case 78: // Filter type — 0-63 = SVF, 64-127 = LADDER
+        gFilterType = (value < 64) ? FilterType::SVF : FilterType::LADDER;
+        break;
+    case 79: // FxOrder filter position — 0-63 = pre-chorus (default), 64-127 = post-chorus
+        gFxOrder.filterPostChorus = (value >= 64);
+        break;
+    case 80: // FxOrder delay position — 0-63 = pre-reverb (default), 64-127 = post-reverb
+        gFxOrder.delayPostReverb = (value >= 64);
+        break;
+    case 81: // Envelope type — 0-63 = AR, 64-127 = ADSR
+        gEnvelopeType = (value < 64) ? EnvelopeType::AR : EnvelopeType::ADSR;
+        gCurveEng->reset();
+        break;
     case 85: { // Delay on/off — ≥64 = on, <64 = off (zeroes mix; CC 88 restores it)
         static float sStoredDelayMix = 0.5f;
         if (value >= 64) {
@@ -102,6 +214,9 @@ static void onControlChange(byte channel, byte cc, byte value) {
             gChorusMode = ChorusMode::II;
         else
             gChorusMode = ChorusMode::I_II;
+        break;
+    case 90: // Sub octave — 0-63 = 1 oct below, 64-127 = 2 oct below
+        gSubOctave = (value >= 64) ? 2 : 1;
         break;
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);
@@ -135,6 +250,69 @@ static void onProgramChange(byte channel, byte program) {
         gVoiceMode = static_cast<VoiceMode>(program - 1);
 }
 
+// Build and transmit a PATCH_DUMP SysEx response.
+// Must be placed after MIDI_CREATE_INSTANCE since it calls MidiUsb.sendSysEx.
+static void sSendPatchDump() {
+    // Header (4) + float params (24×2=48) + select params (13×2=26) = 74 + 4 = 78 bytes; use 88.
+    static uint8_t sBuf[88];
+    sBuf[0] = kSysExMfr;
+    sBuf[1] = kSysExDevA;
+    sBuf[2] = kSysExDevF;
+    sBuf[3] = kSysExCmdPatchDump;
+    const uint8_t pairBytes = sBuildPatchPairs(sBuf + 4);
+    MidiUsb.sendSysEx(4 + pairBytes, sBuf, false); // library adds F0/F7
+}
+
+// SysEx handler — AlloyFlux patch dump protocol.
+// The Arduino MIDI Library v5 passes data[] with F0 at [0] and F7 at [length-1].
+// We skip boundaries so the body always starts at [1] and ends before F7.
+static void onSysEx(uint8_t *data, unsigned int length) {
+    // Skip leading F0 if the library includes it
+    uint8_t *body = data;
+    unsigned int bodyLen = length;
+    if (bodyLen > 0 && body[0] == 0xF0) {
+        body++;
+        bodyLen--;
+    }
+    if (bodyLen > 0 && body[bodyLen - 1] == 0xF7) {
+        bodyLen--;
+    }
+
+    // Validate 3-byte header: 7D 41('A') 46('F') <cmd>
+    if (bodyLen < 4)
+        return;
+    if (body[0] != kSysExMfr || body[1] != kSysExDevA || body[2] != kSysExDevF)
+        return;
+
+    const uint8_t cmd = body[3];
+    const uint8_t arg0 = (bodyLen > 4) ? (body[4] & 0x7F) : 0;
+
+    if (cmd == kSysExCmdRequestDump) {
+        sSendPatchDump();
+    } else if (cmd == kSysExCmdApplyPatch) {
+        // Payload: interleaved (cc, value) pairs starting at body[4]
+        for (unsigned int i = 4; i + 1 < bodyLen; i += 2) {
+            const uint8_t cc = body[i] & 0x7F;
+            const uint8_t val = body[i + 1] & 0x7F;
+            onControlChange(1, cc, val); // reuse existing dispatch
+        }
+    } else if (cmd == kSysExCmdPresetSave) {
+        configStore_save(arg0);
+    } else if (cmd == kSysExCmdPresetLoad) {
+        configStore_load(arg0);
+        sSendPatchDump(); // auto-refresh web UI after load
+    } else if (cmd == kSysExCmdPresetReset) {
+        const uint8_t fwSlot = (arg0 == 0x7F) ? 255 : arg0;
+        configStore_reset(fwSlot);
+        // For live slot (0) or full reset, apply defaults immediately and
+        // respond with a dump so the web UI syncs without a page reload.
+        if (arg0 == 0 || arg0 == 0x7F) {
+            configStore_applyDefaults();
+            sSendPatchDump();
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -146,6 +324,7 @@ void usbMidi_init() {
     MidiUsb.setHandleNoteOff(onNoteOff);
     MidiUsb.setHandleControlChange(onControlChange);
     MidiUsb.setHandleProgramChange(onProgramChange);
+    MidiUsb.setHandleSystemExclusive(onSysEx);
     MidiUsb.turnThruOff(); // no MIDI echo back to host
 
     // Wait for the USB device to fully enumerate with both CDC + MIDI interfaces.

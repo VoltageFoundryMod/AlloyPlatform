@@ -195,3 +195,47 @@ void configStore_reset(uint8_t slot) {
     EEPROM.commit();
     sLastSaveMs = 0;
 }
+
+void configStore_applyDefaults() {
+    AlloyConfig d = {};
+    d.magic = kConfigMagic;
+    d.version = kConfigVersion;
+    d.baseFreq = 440.0f;
+    d.detune = 0.0f;
+    d.relation = 0.0f;
+    d.voiceMode = (uint8_t)VoiceMode::PAIR;
+    d.shape = 0.0f;
+    d.fatness = 0.4f;
+    d.subOctave = 1;
+    d.motion = 0.0f;
+    d.driftSpeed = 0.04f;
+    d.chorusMode = (uint8_t)ChorusMode::I_II;
+    d.space = 1.0f;
+    d.curve = 0.5f;
+    d.curveTime = 1.0f;
+    d.volume = 1.0f;
+    d.midiChannel = 0;
+    d.filterCutoff = 8000.0f;
+    d.filterRes = 0.0f;
+    d.filterMode = (uint8_t)FilterMode::OFF;
+    d.filterType = (uint8_t)FilterType::SVF;
+    d.envelopeType = (uint8_t)EnvelopeType::AR;
+    d.adsrAttack = 0.05f;
+    d.adsrDecay = 0.10f;
+    d.adsrSustain = 0.8f;
+    d.adsrRelease = 0.30f;
+    d.adsrLoop = false;
+    d.revEnabled = false;
+    d.revMix = 0.35f;
+    d.revSize = 0.5f;
+    d.revDamping = 0.5f;
+    d.revModSpeed = 1.0f;
+    d.revModDepth = 1.0f;
+    d.revFrozen = false;
+    d.delayTime = 100.0f;
+    d.delayFeedback = 0.5f;
+    d.delayMix = 0.0f;
+    d.fxFilterPostChorus = false;
+    d.fxDelayPostReverb = false;
+    applyConfig(d);
+}

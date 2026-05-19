@@ -4,13 +4,24 @@
     PARAM_CATEGORIES,
     PARAMS_BY_CATEGORY,
     ccToFloat,
+    floatToCC,
   } from "./lib/paramMap";
   import { midi } from "./lib/midi";
+  import { serial } from "./lib/serial";
+  import {
+    SysexCmd,
+    parseSysExBody,
+    parseSerialDump,
+    buildSyxBlob,
+    downloadFile,
+    type CCPair,
+  } from "./lib/patchSync";
   import ConnectionBar from "./components/ConnectionBar.svelte";
   import ParamSlider from "./components/ParamSlider.svelte";
   import ParamSelect from "./components/ParamSelect.svelte";
   import MidiKeyboard from "./components/MidiKeyboard.svelte";
   import PresetManager from "./components/PresetManager.svelte";
+  import FxChainVisual from "./components/FxChainVisual.svelte";
 
   // Float values, keyed by CC — only meaningful for slider-type params
   let paramValues = $state(
@@ -51,6 +62,107 @@
       }
     });
     return unsubscribe;
+  });
+
+  // ---------------------------------------------------------------------------
+  // Patch apply — shared by all sync sources (MIDI SysEx, serial dump, file import)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Apply a batch of CC pairs to the UI.
+   * Pass sendToDevice=true to also replay each CC to the connected MIDI output.
+   */
+  function applyPatch(pairs: CCPair[], sendToDevice = false) {
+    for (const { cc, value } of pairs) {
+      const param = PARAM_MAP.find((p) => p.cc === cc);
+      if (!param) continue;
+      if (param.type === "select") {
+        selectValues[cc] = value;
+        selectRefs[cc]?.applyCC(value);
+      } else {
+        paramValues[cc] = ccToFloat(param, value);
+        sliderRefs[cc]?.applyCC(value);
+      }
+      if (sendToDevice) midi.sendCC(cc, value);
+    }
+  }
+
+  /**
+   * Snapshot the current UI state as CC pairs (for file export or SysEx send).
+   */
+  function getPatchSnapshot(): CCPair[] {
+    const pairs: CCPair[] = [];
+    for (const param of PARAM_MAP) {
+      if (!param.type || param.type === "slider") {
+        const val = paramValues[param.cc] ?? param.default;
+        pairs.push({ cc: param.cc, value: floatToCC(param, val) });
+      } else if (param.type === "select") {
+        pairs.push({
+          cc: param.cc,
+          value: selectValues[param.cc] ?? param.default ?? 0,
+        });
+      }
+    }
+    return pairs;
+  }
+
+  /**
+   * Import a patch from a file: update the UI and send APPLY_PATCH to the
+   * device via MIDI SysEx (if MIDI is connected).
+   */
+  function applyFromFile(pairs: CCPair[]) {
+    applyPatch(pairs, false); // update UI
+    if ($midi.connected) {
+      // Send all pairs in one APPLY_PATCH SysEx message
+      const payload = pairs.flatMap(({ cc, value }) => [
+        cc & 0x7f,
+        value & 0x7f,
+      ]);
+      midi.sendSysEx(SysexCmd.APPLY, payload);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-sync on MIDI connect — send REQUEST_DUMP, apply PATCH_DUMP response
+  // ---------------------------------------------------------------------------
+  $effect(() => {
+    if (!$midi.connected) return;
+    // Small delay so the device has time to finish USB enumeration
+    const timer = setTimeout(() => midi.sendSysEx(SysexCmd.REQUEST, []), 300);
+    const unsubSysEx = midi.onSysEx((body: Uint8Array) => {
+      const pairs = parseSysExBody(body);
+      if (pairs && pairs.length > 0) applyPatch(pairs, false);
+    });
+    return () => {
+      clearTimeout(timer);
+      unsubSysEx();
+    };
+  });
+
+  // ---------------------------------------------------------------------------
+  // Auto-sync on serial connect — send "dump", parse cc:N=V lines
+  // ---------------------------------------------------------------------------
+  $effect(() => {
+    if (!$serial.connected) return;
+    let dumpLines: string[] = [];
+    let inDump = false;
+    serial.send("dump");
+    const unsubLine = serial.onLine((line: string) => {
+      if (line === "dump_begin") {
+        inDump = true;
+        dumpLines = [];
+        return;
+      }
+      if (line === "dump_end" && inDump) {
+        inDump = false;
+        const pairs = parseSerialDump(dumpLines);
+        if (pairs.length > 0) applyPatch(pairs, false);
+        dumpLines = [];
+        return;
+      }
+      if (inDump) dumpLines.push(line);
+    });
+    return unsubLine;
   });
 
   // ── Chord / interval hint for the Relation slider ──────────────────────────
@@ -128,6 +240,12 @@
         )}
         <div class="cat-section">
           <h3 class="cat-title">{cat}</h3>
+          {#if cat === "FX Chain"}
+            <FxChainVisual
+              filterPost={(selectValues[79] ?? 0) >= 64}
+              delayPost={(selectValues[80] ?? 0) >= 64}
+            />
+          {/if}
           {#if selects.length}
             <div class="select-row">
               {#each selects as param}
@@ -165,7 +283,7 @@
       </section>
 
       <section class="presets-panel">
-        <PresetManager />
+        <PresetManager {getPatchSnapshot} {applyFromFile} />
       </section>
     </aside>
   </main>

@@ -46,10 +46,25 @@ function createMidi() {
   type CCListener = (cc: number, value: number) => void;
   const ccListeners = new Set<CCListener>();
 
+  // SysEx listeners — receive the body bytes between F0 and F7
+  type SysExListener = (body: Uint8Array) => void;
+  const sysexListeners = new Set<SysExListener>();
+
   function handleMidiMessage(event: MIDIMessageEvent) {
     const data = event.data;
-    if (!data || data.length < 3) return;
+    if (!data || data.length < 1) return;
     const status = data[0];
+
+    // SysEx: data[0] = 0xF0, data includes F0 and trailing F7
+    if (status === 0xf0) {
+      const endIdx =
+        data[data.length - 1] === 0xf7 ? data.length - 1 : data.length;
+      const body = data.slice(1, endIdx);
+      sysexListeners.forEach((fn) => fn(body));
+      return;
+    }
+
+    if (data.length < 3) return;
     const type = status & 0xf0;
     if (type === 0xb0) {
       // Control Change
@@ -68,6 +83,26 @@ function createMidi() {
   function onCC(fn: CCListener): () => void {
     ccListeners.add(fn);
     return () => ccListeners.delete(fn);
+  }
+
+  /** Register a listener for incoming SysEx. Receives the body (without F0/F7). */
+  function onSysEx(fn: SysExListener): () => void {
+    sysexListeners.add(fn);
+    return () => sysexListeners.delete(fn);
+  }
+
+  /**
+   * Send a SysEx message.  Automatically wraps the payload in F0/F7.
+   * cmd   — command byte (e.g. SysexCmd.REQUEST = 0x01)
+   * payload — additional data bytes after the AlloyFlux header (7-bit safe)
+   */
+  function sendSysEx(cmd: number, payload: number[]): void {
+    const out = getOutput();
+    if (!out) return;
+    // Full message: F0 7D 41 46 <cmd> [payload] F7
+    out.send(
+      new Uint8Array([0xf0, 0x7d, 0x41, 0x46, cmd & 0x7f, ...payload, 0xf7]),
+    );
   }
 
   function refresh() {
@@ -157,11 +192,13 @@ function createMidi() {
     sendProgramChange,
     sendSustain,
     sendPanic,
+    sendSysEx,
     selectOutput: (id: string) =>
       store.update((s) => ({ ...s, selectedOutput: id })),
     selectInput: (id: string) =>
       store.update((s) => ({ ...s, selectedInput: id })),
     onCC,
+    onSysEx,
   };
 }
 

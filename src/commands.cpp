@@ -5,6 +5,7 @@
 #include "dsp/FxChain.h"
 #include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
+#include "io/param_map.h"
 #include "params.h"
 #include <Arduino.h>
 #include <stdlib.h>
@@ -422,12 +423,14 @@ static void cmd_config(const char *args, Print &out) {
     } else if (strcmp(sub, "reset") == 0) {
         if (strcmp(slotStr, "all") == 0) {
             configStore_reset(255);
-            out.println(F("all presets wiped — defaults on next boot"));
+            configStore_applyDefaults();
+            out.println(F("all presets wiped — factory defaults applied"));
         } else {
             configStore_reset(slot);
-            if (slot == 0)
-                out.println(F("live config wiped — defaults on next boot"));
-            else {
+            if (slot == 0) {
+                configStore_applyDefaults();
+                out.println(F("live config reset to factory defaults"));
+            } else {
                 out.print(F("preset "));
                 out.print(slot);
                 out.println(F(" wiped"));
@@ -874,6 +877,64 @@ static void cmd_env_loop(const char *args, Print &out) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// cmd_dump — machine-readable patch snapshot consumed by the web configurator.
+//
+// Output format:
+//   dump_begin
+//   cc:<N>=<V>        (one line per parameter; N=CC number, V=0-127 raw CC value)
+//   ...
+//   dump_end
+//
+// Web configurator sends "dump", accumulates lines between the delimiters,
+// then replays each CC to update its UI (same path as incoming MIDI CC).
+// ---------------------------------------------------------------------------
+static void cmd_dump(const char * /*args*/, Print &out) {
+    out.println(F("dump_begin"));
+    // Continuous float params from the central CC table
+    for (uint8_t i = 0; i < kCCParamCount; i++) {
+        const CCParam &p = kCCParams[i];
+        int v = (int)(127.0f * (*p.target - p.valMin) / (p.valMax - p.valMin) + 0.5f);
+        if (v < 0)
+            v = 0;
+        if (v > 127)
+            v = 127;
+        out.print(F("cc:"));
+        out.print(p.cc);
+        out.print('=');
+        out.println((uint8_t)v);
+    }
+    // Special / select params not in kCCParams
+    out.print(F("cc:77="));
+    out.println((gFilterMode == FilterMode::OFF) ? 0 : (gFilterMode == FilterMode::LP) ? 26
+                                                   : (gFilterMode == FilterMode::HP)   ? 51
+                                                   : (gFilterMode == FilterMode::BP)   ? 77
+                                                                                       : 102);
+    out.print(F("cc:78="));
+    out.println(gFilterType == FilterType::SVF ? 0 : 96);
+    out.print(F("cc:79="));
+    out.println(gFxOrder.filterPostChorus ? 96 : 0);
+    out.print(F("cc:80="));
+    out.println(gFxOrder.delayPostReverb ? 96 : 0);
+    out.print(F("cc:81="));
+    out.println(gEnvelopeType == EnvelopeType::ADSR ? 96 : 0);
+    out.print(F("cc:85="));
+    out.println(gDelayMix > 0.001f ? 127 : 0);
+    out.print(F("cc:89="));
+    out.println((gChorusMode == ChorusMode::OFF) ? 0 : (gChorusMode == ChorusMode::I) ? 48
+                                                   : (gChorusMode == ChorusMode::II)  ? 80
+                                                                                      : 112);
+    out.print(F("cc:90="));
+    out.println(gSubOctave >= 2 ? 96 : 0);
+    out.print(F("cc:114="));
+    out.println(gRevFrozen ? 127 : 0);
+    out.print(F("cc:115="));
+    out.println((gVoiceMode == VoiceMode::PAIR) ? 0 : 96);
+    out.print(F("cc:116="));
+    out.println(gRevEnabled ? 127 : 0);
+    out.println(F("dump_end"));
+}
+
 // clang-format off
 const CommandEntry kCommands[] = {
     {"pitch",     "<hz>        base frequency (20-8000 Hz)",                              cmd_pitch},
@@ -904,6 +965,7 @@ const CommandEntry kCommands[] = {
     {"env loop",     "<on|off>  loop ADSR as LFO (M5x)",                                     cmd_env_loop},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
+    {"dump",      "            output all params as cc:N=V lines (web configurator sync)", cmd_dump},
     {"status",    "            print all current parameters",                              cmd_status},
     {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
     {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},

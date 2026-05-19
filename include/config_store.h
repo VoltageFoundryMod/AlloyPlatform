@@ -114,3 +114,9 @@ ConfigSaveResult configStore_save(uint8_t slot = 0);
  * Next boot (slot 0 wiped) falls back to compile-time defaults.
  */
 void configStore_reset(uint8_t slot = 0);
+
+/**
+ * Apply compile-time factory defaults to all gXxx globals immediately.
+ * Does not touch flash — call configStore_reset() separately to wipe flash.
+ */
+void configStore_applyDefaults();

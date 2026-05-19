@@ -49,7 +49,16 @@ function createSerial() {
       store.update((s) => ({ ...s, connected: true, error: null }));
       _startReader();
     } catch (e) {
-      store.update((s) => ({ ...s, error: String(e) }));
+      const msg = String(e);
+      // "Failed to open serial port" almost always means the port is already
+      // held by another application — e.g. PlatformIO monitor, Arduino IDE serial
+      // monitor, or a terminal session.  Close those first, then retry.
+      const friendly = msg.includes("Failed to open")
+        ? "Port in use — close PlatformIO monitor / Arduino serial monitor and retry"
+        : msg.includes("No port selected")
+          ? "No port selected"
+          : msg;
+      store.update((s) => ({ ...s, error: friendly }));
     }
   }
 
