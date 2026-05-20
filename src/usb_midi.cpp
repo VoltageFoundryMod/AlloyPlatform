@@ -31,9 +31,10 @@ static constexpr uint8_t kSysExDevF = 'F';
 static constexpr uint8_t kSysExCmdRequestDump = 0x01;
 static constexpr uint8_t kSysExCmdPatchDump = 0x02;
 static constexpr uint8_t kSysExCmdApplyPatch = 0x03;
-static constexpr uint8_t kSysExCmdPresetSave = 0x04;  // payload[0] = slot 0-9
-static constexpr uint8_t kSysExCmdPresetLoad = 0x05;  // payload[0] = slot 0-9; responds with PATCH_DUMP
-static constexpr uint8_t kSysExCmdPresetReset = 0x06; // payload[0] = slot 0-9, or 0x7F = all
+static constexpr uint8_t kSysExCmdPresetSave = 0x04;     // payload[0] = slot 0-9
+static constexpr uint8_t kSysExCmdPresetLoad = 0x05;     // payload[0] = slot 0-9; responds with PATCH_DUMP
+static constexpr uint8_t kSysExCmdPresetReset = 0x06;    // payload[0] = slot 0-9, or 0x7F = all
+static constexpr uint8_t kSysExCmdSetMidiChannel = 0x07; // payload[0] = 0 (omni) or 1-16
 
 // Convert a float parameter value into a 7-bit CC value.
 static inline uint8_t sFloatToCC(float val, float minV, float maxV) {
@@ -97,6 +98,9 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     // CC 116 — reverb on/off
     buf[n++] = 116;
     buf[n++] = gRevEnabled ? 127 : 0;
+    // CC 110 — MIDI receive channel (0 = omni, 1–16 = specific channel)
+    buf[n++] = 110;
+    buf[n++] = gMidiChannel; // 0-16 fits in 7 bits
     return n;
 }
 
@@ -303,8 +307,8 @@ static void onProgramChange(byte channel, byte program) {
 // Build and transmit a PATCH_DUMP SysEx response.
 // Must be placed after MIDI_CREATE_INSTANCE since it calls MidiUsb.sendSysEx.
 static void sSendPatchDump() {
-    // Header (4) + float params (24×2=48) + select params (13×2=26) = 74 + 4 = 78 bytes; use 88.
-    static uint8_t sBuf[88];
+    // Header (4) + float params (24×2=48) + select params (14×2=28) = 80 + 4 = 84 bytes; use 92.
+    static uint8_t sBuf[92];
     sBuf[0] = kSysExMfr;
     sBuf[1] = kSysExDevA;
     sBuf[2] = kSysExDevF;
@@ -360,6 +364,14 @@ static void onSysEx(uint8_t *data, unsigned int length) {
             configStore_applyDefaults();
             sSendPatchDump();
         }
+    } else if (cmd == kSysExCmdSetMidiChannel) {
+        const uint8_t ch = arg0 & 0x7F;
+        // Accept 0 (omni) or 1-16; ignore invalid values silently.
+        if (ch <= 16) {
+            gMidiChannel = ch;
+            configStore_save(0); // persist; rate-limit may throttle but that's fine
+        }
+        sSendPatchDump(); // echo back so UI confirms the new value
     }
 }
 

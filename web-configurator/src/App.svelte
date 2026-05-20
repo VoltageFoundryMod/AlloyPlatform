@@ -43,6 +43,14 @@
     ),
   );
 
+  // MIDI receive channel (0=omni, 1-16). Set by CC 110 in patch dump; sent via SysEx 0x07.
+  let midiChannel = $state(0);
+
+  function sendMidiChannel(ch: number) {
+    midiChannel = ch;
+    if ($midi.connected) midi.sendSysEx(SysexCmd.SET_MIDI_CHANNEL, [ch & 0x7f]);
+  }
+
   // Refs for pushing incoming MIDI-in to the right component
   let sliderRefs: Record<number, { applyCC: (v: number) => void }> = {};
   let selectRefs: Record<number, { applyCC: (v: number) => void }> = {};
@@ -74,6 +82,11 @@
    */
   function applyPatch(pairs: CCPair[], sendToDevice = false) {
     for (const { cc, value } of pairs) {
+      // CC 110 is the MIDI receive channel — not in PARAM_MAP, handled separately.
+      if (cc === 110) {
+        midiChannel = value; // 0=omni, 1-16
+        continue;
+      }
       const param = PARAM_MAP.find((p) => p.cc === cc);
       if (!param) continue;
       if (param.type === "select") {
@@ -376,6 +389,30 @@
       <section class="presets-panel">
         <PresetManager {getPatchSnapshot} {applyFromFile} />
       </section>
+
+      <section class="midi-settings-panel cat-section">
+        <h2 class="panel-title">MIDI Settings</h2>
+        <div class="midi-channel-row">
+          <label class="midi-channel-label" for="midi-channel-select"
+            >Receive Channel</label
+          >
+          <select
+            id="midi-channel-select"
+            class="midi-channel-select"
+            value={midiChannel}
+            onchange={(e) =>
+              sendMidiChannel(
+                parseInt((e.target as HTMLSelectElement).value, 10),
+              )}
+            disabled={!$midi.connected}
+          >
+            <option value={0}>Omni (All)</option>
+            {#each Array.from({ length: 16 }, (_, i) => i + 1) as ch}
+              <option value={ch}>{ch}</option>
+            {/each}
+          </select>
+        </div>
+      </section>
     </aside>
   </main>
   <div class="footer cat-section">
@@ -497,6 +534,33 @@
   .presets-panel {
     display: flex;
     flex-direction: column;
+  }
+  .midi-settings-panel {
+    display: flex;
+    flex-direction: column;
+  }
+  .midi-channel-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .midi-channel-label {
+    font-size: 0.75rem;
+    color: #aaa;
+    white-space: nowrap;
+  }
+  .midi-channel-select {
+    background: #1a1a30;
+    color: #ccc;
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .midi-channel-select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .footer-label {
     font-size: 0.75rem;

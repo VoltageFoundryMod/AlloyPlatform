@@ -944,9 +944,15 @@ static void cmd_dump(const char * /*args*/, Print &out) {
     out.print(F("cc:114="));
     out.println(gRevFrozen ? 127 : 0);
     out.print(F("cc:115="));
-    out.println((gVoiceMode == VoiceMode::PAIR) ? 0 : 96);
+    out.println((gVoiceMode == VoiceMode::PAIR)    ? 0
+                : (gVoiceMode == VoiceMode::CLOUD) ? 48
+                : (gVoiceMode == VoiceMode::CHORD) ? 80
+                : (gVoiceMode == VoiceMode::POLY)  ? 112
+                                                   : 0);
     out.print(F("cc:116="));
     out.println(gRevEnabled ? 127 : 0);
+    out.print(F("cc:110="));
+    out.println(gMidiChannel); // 0=omni, 1-16
     out.println(F("dump_end"));
 }
 

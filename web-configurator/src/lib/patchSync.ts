@@ -34,6 +34,7 @@ export const SysexCmd = {
   PRESET_SAVE: 0x04, // host → device: save current params to slot (arg0 = slot 0-9)
   PRESET_LOAD: 0x05, // host → device: load slot into params + auto-dump (arg0 = slot 0-9)
   PRESET_RESET: 0x06, // host → device: reset slot to defaults (arg0 = slot 0-9, or 0x7F = all)
+  SET_MIDI_CHANNEL: 0x07, // host → device: set MIDI receive channel (arg0 = 0 omni, 1-16)
 } as const;
 
 export interface CCPair {
