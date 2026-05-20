@@ -2154,6 +2154,15 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 42. **Improve flash persistence data** — all synthesis + effects parameters now persisted; `AlloyConfig` extended with filter (cutoff/res/mode/type), envelope (AR vs ADSR, full ADSR params + loop), reverb (enabled/mix/size/damping/modSpeed/modDepth/frozen), delay (time/feedback/mix), and FxOrder (filterPostChorus/delayPostReverb); `kConfigVersion` bumped 2→3 (old configs invalidated, safe defaults applied); RAM 236KB (45.2%), Flash 3.0%
 - [x] 42a. **Factory reset + preset management** — `kMaxPresets` bumped 4→10 (slot 0 = auto-save live state, slots 1–9 = user presets); `configStore_save(slot)`, `configStore_load(slot)`, `configStore_reset(slot|255)` API updated with slot parameter (default 0); rate-limit bypassed for explicit preset slots 1–9, enforced only on auto-save slot 0; `reset all` (slot 255) wipes every slot; `cmd_config` updated: `config save [1-9]`, `config load [1-9]`, `config reset [1-9|all]`; inline usage help printed on bad args; RAM 236KB (45.2%), Flash 3.7%
 - [x] 43. **Runtime-selectable DSP algorithms (M5x)** — abstract `FilterEngine` base + `SVFFilter` (moved to own `include/dsp/SVFFilter.h`) + `OTALadder` (ZDF 4-pole Moog-style, tanh-saturating, self-oscillating at res=1.0, LP4 only); abstract `EnvelopeEngine` base + `AREnvelope` (former `CurveEngine` alias retained) + `ADSREnvelope` (full ADSR + loop mode — turns envelope into cycling LFO); pointer-based runtime switching for both engines, change-detected in `updateControl()`; **phase reset on retrigger** — all oscillator phase accumulators reset to zero on gate rising edge, eliminating metallic/PWM artifact when retriggering during release; `filter type svf|ladder`, `env type ar|adsr`, `adsr <A> <D> <S> <R> [loop]`, `env loop on|off` serial commands; RAM 236KB (45.1%), Flash 3.0%
+- [ ] 44. **Implement internal modulator LFO** — single or multi-waveform LFO (sine/triangle/saw/ramp/square); assignable to parameters like filter cutoff, reverb size, delay time; rate and depth controls; potential for tempo sync via MIDI clock; evaluate CPU load and sonic impact; consider adding as a modulation source in the Web Configurator with visual feedback
+- [ ] 45. **Implement internal modulator matrix** — flexible routing of modulation sources (LFOs, envelopes, MIDI CCs) to any parameter; matrix stored in flash; real-time control via Web Configurator; evaluate CPU load and optimize as needed
+- [ ] 46. **Implement Wavefolder** — non-linear waveshaping for added harmonic complexity; simple tanh or more complex multi-stage folding; parameterized by `foldAmount`; evaluate CPU load and sonic impact. Potentially add as a post-effect in the chain for more character.
+- [ ] 47. **Improve envelope shapes** — Add envelope curve as exponential in addition to current linear.
+- [ ] 48. **Create controller VST3 plugin** — optional software plugin for DAWs, using the same codebase where possible; MIDI control surface that sends commands to the hardware module; visual feedback of parameters and states; potential for preset management and integration with DAW automation
+- [ ] 49. **Scale quantization + transposition engine** — quantize incoming V/OCT and MIDI note pitch to a user-selected scale (chromatic, major, natural minor, pentatonic, dorian, etc.); transposition offset shifts the root note up/down in semitones; scale and root stored in flash; `scale <name>` and `transpose <semitones>` serial commands; CC assignment for real-time transpose; Web Configurator scale picker with keyboard visualization; *inspired by Seashell’s “customisable scale transposition engine”*
+- [ ] 50. **MIDI learn mode** — gesture-based dynamic CC-to-parameter binding; hold a dedicated combo (e.g. SHIFT+MODE long-press), wiggle any hardware knob or CV source, then send any MIDI CC — the module binds that CC to that parameter; learned mappings stored in flash alongside preset slot; `learn` and `learn clear [param]` serial commands; Web Configurator shows current mapping with per-param override / clear; supersedes static M29d; *inspired by Seashell’s “MIDI learn functionality”*
+- [ ] 51. **Web Configurator UX redesign (Seashell-inspired)** — streamlined single-screen layout inspired by Seashell’s compact controller software: fewer visual layers, larger touch targets, collapsible category strips, real-time oscilloscope/waveform preview pane driven by an audio snapshot CC stream; optional PWA install for standalone desktop/mobile use (replaces browser-tab workflow); evaluate Electron wrapper for OS-level MIDI device enumeration without Web MIDI permission prompts; *inspired by Seashell’s dedicated controller app (macOS/Windows/Linux builds)*
+- [ ] 52. **Expand modulation matrix (Seashell-style macro control)** — build on M45 to add hardware macro knob: one knob simultaneously drives multiple mod-matrix destinations with per-destination depth and polarity; useful for performance (one twist = filter + reverb + drift together); store macro assignments in preset; Web Configurator drag-assign UI; *inspired by Seashell’s “4×4 modulation matrix mixer with hardware macro control”*
 
 
 ## Project Refinement
@@ -2176,16 +2185,16 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 Possible future firmware additions:
 
 - alternate chord tables (user-defined via Web USB)
-- scale quantization for CHORD mode
 - adaptive harmony — chord voicings follow scale context
 - POLY + CHORD combined — each POLY voice fans into chord intervals
 - alternate oscillator models (FM operator, additive)
 - harmonic quantization engine
 - I2C voice networking — chain multiple Alloy Flux modules
 - external sync behavior (clock in, reset)
-- internal modulation matrix expansion
 - MPE-inspired per-note expression via MIDI
 - expansion module (2HP) using spare GPIO (GP0–GP2, GP19–GP21) for additional CV inputs and outputs
+
+> Scale quantization (M49), MIDI learn (M50), Web Configurator redesign (M51), and modulation matrix macro control (M52) have been promoted from this list to formal milestones.
 
 ---
 
