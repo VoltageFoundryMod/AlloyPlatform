@@ -80,7 +80,7 @@ export const PARAM_MAP: CCParam[] = [
 
   // ── Oscillator ───────────────────────────────────────────────────────────
   {
-    cc: 74,
+    cc: 78,
     name: "shape",
     label: "Shape",
     category: "Oscillator",
@@ -89,7 +89,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.25,
   },
   {
-    cc: 93,
+    cc: 84,
     name: "fat",
     label: "Fatness",
     category: "Oscillator",
@@ -147,13 +147,38 @@ export const PARAM_MAP: CCParam[] = [
     default: 0,
   },
   {
-    cc: 73,
+    cc: 89,
     name: "dspeed",
     label: "Drift Speed",
     category: "Animation",
     min: 0.001,
     max: 0.1,
     default: 0.025,
+  },
+  {
+    cc: 65,
+    name: "glide",
+    label: "Glide",
+    category: "Animation",
+    min: 0,
+    max: 127,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "Off", ccMin: 0, ccMax: 63 },
+      { label: "On", ccMin: 64, ccMax: 127 },
+    ],
+  },
+  {
+    cc: 5,
+    name: "glidetime",
+    label: "Glide Time",
+    category: "Animation",
+    min: 0,
+    max: 2,
+    default: 0,
+    unit: "s",
+    step: 0.01,
   },
 
   // ── Envelope ─────────────────────────────────────────────────────────────
@@ -182,7 +207,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.5,
   },
   {
-    cc: 72,
+    cc: 88,
     name: "curvetime",
     label: "Time Scale",
     category: "Envelope",
@@ -193,7 +218,7 @@ export const PARAM_MAP: CCParam[] = [
   },
   // ADSR params — only active when envelope type is ADSR
   {
-    cc: 82,
+    cc: 73,
     name: "adsrattack",
     label: "Attack",
     category: "Envelope",
@@ -205,7 +230,7 @@ export const PARAM_MAP: CCParam[] = [
     step: 0.001,
   },
   {
-    cc: 83,
+    cc: 82,
     name: "adsrdecay",
     label: "Decay",
     category: "Envelope",
@@ -216,7 +241,7 @@ export const PARAM_MAP: CCParam[] = [
     step: 0.001,
   },
   {
-    cc: 84,
+    cc: 83,
     name: "adsrsustain",
     label: "Sustain",
     category: "Envelope",
@@ -225,7 +250,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.8,
   },
   {
-    cc: 95,
+    cc: 72,
     name: "adsrrelease",
     label: "Release",
     category: "Envelope",
@@ -237,9 +262,9 @@ export const PARAM_MAP: CCParam[] = [
   },
 
   // ── Filter ───────────────────────────────────────────────────────────────
-  // CC 77: filter mode — thresholds match firmware usb_midi.cpp case 77
+  // CC 76: filter mode — thresholds match firmware usb_midi.cpp case 76
   {
-    cc: 77,
+    cc: 76,
     name: "filtermode",
     label: "Mode",
     category: "Filter",
@@ -255,9 +280,9 @@ export const PARAM_MAP: CCParam[] = [
       { label: "Notch", ccMin: 102, ccMax: 127 },
     ],
   },
-  // CC 78: filter algorithm — 0–63 = SVF, 64–127 = Ladder
+  // CC 77: filter algorithm — 0–63 = SVF, 64–127 = Ladder
   {
-    cc: 78,
+    cc: 77,
     name: "filtertype",
     label: "Algorithm",
     category: "Filter",
@@ -271,19 +296,19 @@ export const PARAM_MAP: CCParam[] = [
     ],
   },
   {
-    cc: 75,
+    cc: 74,
     name: "filtercutoff",
     label: "Cutoff",
     category: "Filter",
     min: 20,
     max: 16000,
-    default: 983, // CC 74 on log 20-16000 Hz scale = kDefaultFilterCutoff in firmware
+    default: 983, // CC 74 (VCF cutoff) at value 74/127 on log 20–16 kHz scale = kDefaultFilterCutoff
     unit: "Hz",
     step: 1,
     scale: "log",
   },
   {
-    cc: 76,
+    cc: 75,
     name: "filterres",
     label: "Resonance",
     category: "Filter",
@@ -335,7 +360,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.8,
   },
   {
-    cc: 91,
+    cc: 8,
     name: "space",
     label: "Space (Stereo Width)",
     category: "Output",
@@ -345,9 +370,9 @@ export const PARAM_MAP: CCParam[] = [
   },
 
   // ── MIDI ─────────────────────────────────────────────────────────────────
-  // CC 65: Portamento Switch — velocity sensitivity on (≥64) / off (<64)
+  // CC 102: Velocity sensitivity on (≥64) / off (<64)
   {
-    cc: 65,
+    cc: 102,
     name: "veloc",
     label: "MIDI Velocity Response",
     category: "Envelope",
@@ -362,9 +387,9 @@ export const PARAM_MAP: CCParam[] = [
   },
 
   // ── Chorus ───────────────────────────────────────────────────────────────
-  // CC 89: 0–31=OFF, 32–63=I, 64–95=II, 96–127=I+II (firmware: usb_midi.cpp case 89)
+  // CC 93: Effect 3 Depth = Chorus — 0–31=OFF, 32–63=I, 64–95=II, 96–127=I+II
   {
-    cc: 89,
+    cc: 93,
     name: "chorusmode",
     label: "Mode",
     category: "Chorus",
@@ -397,7 +422,7 @@ export const PARAM_MAP: CCParam[] = [
     ],
   },
   {
-    cc: 117,
+    cc: 91,
     name: "revmix",
     label: "Mix",
     category: "Reverb",
@@ -406,7 +431,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.35,
   },
   {
-    cc: 118,
+    cc: 117,
     name: "revsize",
     label: "Size",
     category: "Reverb",
@@ -415,7 +440,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.5,
   },
   {
-    cc: 120,
+    cc: 118,
     name: "revdamping",
     label: "Damping",
     category: "Reverb",
@@ -479,7 +504,7 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.5,
   },
   {
-    cc: 88,
+    cc: 95,
     name: "delaymix",
     label: "Mix",
     category: "Delay",

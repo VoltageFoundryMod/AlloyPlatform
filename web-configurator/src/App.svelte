@@ -389,12 +389,12 @@
           {#if cat === "Envelope"}
             <EnvelopeGraph
               isAdsr={(selectValues[81] ?? 0) >= 64}
-              attack={paramValues[82] ?? 0.05}
-              decay={paramValues[83] ?? 0.1}
-              sustain={paramValues[84] ?? 0.8}
-              release={paramValues[95] ?? 0.3}
+              attack={paramValues[73] ?? 0.05}
+              decay={paramValues[82] ?? 0.1}
+              sustain={paramValues[83] ?? 0.8}
+              release={paramValues[72] ?? 0.3}
               curve={paramValues[71] ?? 0.5}
-              curveTime={paramValues[72] ?? 1.0}
+              curveTime={paramValues[88] ?? 1.0}
             />
           {/if}
           {#if selects.length}

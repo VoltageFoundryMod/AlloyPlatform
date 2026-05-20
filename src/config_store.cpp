@@ -88,6 +88,9 @@ static void packConfig(AlloyConfig &cfg) {
     cfg.fxDelayPostReverb = gFxOrder.delayPostReverb;
     // MIDI behaviour
     cfg.velocitySensitive = gVelocitySensitive;
+    // Portamento / glide
+    cfg.glideTime = gGlideTime;
+    cfg.glideEnabled = gGlideEnabled;
 }
 
 // Apply a validated config struct to all gXxx globals.
@@ -136,6 +139,9 @@ static void applyConfig(const AlloyConfig &cfg) {
     gFxOrder.delayPostReverb = cfg.fxDelayPostReverb;
     // MIDI behaviour
     gVelocitySensitive = cfg.velocitySensitive;
+    // Portamento / glide
+    gGlideTime = cfg.glideTime;
+    gGlideEnabled = cfg.glideEnabled;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,5 +248,7 @@ void configStore_applyDefaults() {
     d.fxFilterPostChorus = false;
     d.fxDelayPostReverb = false;
     d.velocitySensitive = true;
+    d.glideTime = 0.0f;
+    d.glideEnabled = false;
     applyConfig(d);
 }

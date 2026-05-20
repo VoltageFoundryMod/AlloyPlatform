@@ -22,7 +22,7 @@ Want to integrate the module to your DAW or MIDI controller? The built-in USB MI
 | Width       | 14HP                                                                        |
 | Power       | ~100mA +12V, ~5mA −12V                                                      |
 | Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY                              |
-| Knobs       | 7 — ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE                         |
+| Knobs       | 7 — ROOT, RELATION, SHAPE, MOTION, COLOR, CURVE, SPACE                      |
 | Jacks       | 10 — V/OCT, GATE, MIDI, REL CV, SHP CV, MTN CV, FM IN, SPC CV, L OUT, R OUT |
 | Buttons     | 2 — MODE + SHIFT                                                            |
 | LEDs        | 5× RGB (mode indicator, voice activity, motion heartbeat)                   |
@@ -314,6 +314,18 @@ When SPC CV is patched, SPACE becomes an attenuverter for that CV.
 
 ---
 
+### Glide (Portamento)
+
+Glide causes pitch changes to slide smoothly from the previous note to the new one rather than jumping instantly — a classic lead synth and bass effect.
+
+**Enable/disable:** Use CC 65 (≥64 = on, <64 = off) or the **Web Configurator** (Animation → Glide toggle).
+
+**Glide time:** Use CC 5 to set the slide duration from 0 (instant, effectively off) to 2 seconds. The glide uses a one-pole exponential smoother so short slides are snappy and long slides trail off naturally.
+
+Glide applies to all monophonic voice modes (PAIR, CLOUD, CHORD, CASCADE, STRING). In POLY mode each voice has its own independent pitch and glide has no effect.
+
+---
+
 ## Shift Functions Summary
 
 Hold **SHIFT** and turn a knob to access its secondary parameter. The L4 LED (near SHIFT button) lights white while SHIFT is held.
@@ -438,7 +450,7 @@ Alloy Flux responds to USB MIDI and TRS MIDI simultaneously. Connect via USB to 
 | Pitch Bend         | ±2 semitones                                                              |
 | Program Change 1–6 | Switch voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=POLY) |
 
-The velocity on Note On messages is used to set the output volume of that note, from 0 (off) to 1 (full volume). This can be disabled so all notes play at the global volume level regardless of how hard they are struck. Use the **Web Configurator** (MIDI → Velocity Sensitivity), the serial command `veloc off`, or **CC 65 < 64** to disable.
+The velocity on Note On messages is used to set the output volume of that note, from 0 (off) to 1 (full volume). This can be disabled so all notes play at the global volume level regardless of how hard they are struck. Use the **Web Configurator** (Envelope → Velocity Response), the serial command `veloc off`, or **CC 102 < 64** to disable.
 
 ---
 
@@ -452,67 +464,69 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | ----- | --------- | ----- | ----------------------------------------------------------------------- |
 | CC 1  | Motion    | 0–127 | Drift + chorus depth (mod wheel)                                        |
 | CC 7  | Volume    | 0–127 | Master output level                                                     |
-| CC 74 | Shape     | 0–127 | Waveform morph (sine → hollow pulse)                                    |
-| CC 94 | Relation  | 0–127 | RELATION semitones above ROOT (0–24 st)                                 |
+| CC 8  | Space     | 0–127 | Stereo width (0–2× — 0=mono, 1=normal, 2=hyper wide)                    |
+| CC 78 | Shape     | 0–127 | Waveform morph (sine → hollow pulse)                                    |
+| CC 84 | Fatness   | 0–127 | Sub oscillator level (0–1)                                              |
 | CC 92 | Color     | 0–127 | Tonal color: FM depth in PAIR/CASCADE; fine Hz spread in ensemble modes |
-| CC 91 | Space     | 0–127 | Stereo width (0–2× — 0=mono, 1=normal, 2=hyper wide)                    |
-| CC 93 | Fatness   | 0–127 | Sub oscillator level (0–1)                                              |
+| CC 94 | Relation  | 0–127 | RELATION semitones above ROOT (0–24 st)                                 |
 
 #### Envelope & Articulation
 
 | CC     | Parameter            | Range                 | Description                                        |
 | ------ | -------------------- | --------------------- | -------------------------------------------------- |
-| CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                     |
-| CC 72  | Curve Time           | 0–127                 | Envelope time scale (0.25× – 4×)                   |
-| CC 73  | Drift Speed          | 0–127                 | Drift glide rate                                   |
+| CC 5   | Glide Time           | 0–127                 | Portamento slide time (0–2 s)                      |
 | CC 64  | Sustain / Gate       | ≥64=on                | Hold voices sustained (drone toggle)               |
-| CC 65  | Velocity Sensitivity | ≥64=on / <64=off      | On = velocity scales volume (default), Off = fixed |
+| CC 65  | Glide On/Off         | ≥64=on / <64=off      | Enable or disable portamento glide                 |
+| CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                     |
+| CC 72  | ADSR Release         | 0–127                 | ADSR release time (0.001–4 s)                      |
+| CC 73  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                       |
+| CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                |
+| CC 82  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                        |
+| CC 83  | ADSR Sustain         | 0–127                 | ADSR sustain level (0–1)                           |
+| CC 88  | Curve Time           | 0–127                 | Envelope time scale (0.25× – 4×)                   |
+| CC 89  | Drift Speed          | 0–127                 | Drift glide rate                                   |
+| CC 102 | Velocity Sensitivity | ≥64=on / <64=off      | On = velocity scales volume (default), Off = fixed |
 | CC 119 | Drone Return         | any                   | Clear gate arm, return to continuous drone         |
 | CC 123 | All Notes Off        | any                   | Panic — release all voices                         |
-| CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                |
-| CC 82  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                       |
-| CC 83  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                        |
-| CC 84  | ADSR Sustain         | 0–127                 | ADSR sustain level (0–1)                           |
-| CC 95  | ADSR Release         | 0–127                 | ADSR release time (0.001–4 s)                      |
 
 #### Filter
 
 | CC    | Parameter        | Range                                                      | Description                               |
 | ----- | ---------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| CC 75 | Filter Cutoff    | 0–127                                                      | Cutoff frequency (20–16000 Hz, log scale) |
-| CC 76 | Filter Resonance | 0–127                                                      | Resonance (0–1)                           |
-| CC 77 | Filter Mode      | 0–25=OFF / 26–50=LP / 51–76=HP / 77–101=BP / 102–127=NOTCH | Select filter type                        |
-| CC 78 | Filter Algorithm | 0–63=SVF / 64–127=Ladder                                   | Cytomic SVF or OTA 4-pole ladder          |
+| CC 74 | Filter Cutoff    | 0–127                                                      | Cutoff frequency (20–16000 Hz, log scale) |
+| CC 75 | Filter Resonance | 0–127                                                      | Resonance (0–1)                           |
+| CC 76 | Filter Mode      | 0–25=OFF / 26–50=LP / 51–76=HP / 77–101=BP / 102–127=NOTCH | Select filter type                        |
+| CC 77 | Filter Algorithm | 0–63=SVF / 64–127=Ladder                                   | Cytomic SVF or OTA 4-pole ladder          |
 | CC 79 | Filter Position  | 0–63=pre-chorus / 64–127=post-chorus                       | Effect chain placement                    |
 
 #### Chorus
 
 | CC    | Parameter   | Range                                       | Description           |
 | ----- | ----------- | ------------------------------------------- | --------------------- |
-| CC 89 | Chorus Mode | 0–31=OFF / 32–63=I / 64–95=II / 96–127=I+II | Chorus character      |
 | CC 90 | Sub Octave  | 0–63=1 oct / 64–127=2 oct                   | Sub oscillator octave |
+| CC 93 | Chorus Mode | 0–31=OFF / 32–63=I / 64–95=II / 96–127=I+II | Chorus character      |
 
 #### Reverb
 
 | CC     | Parameter        | Range            | Description                         |
 | ------ | ---------------- | ---------------- | ----------------------------------- |
-| CC 116 | Reverb On/Off    | ≥64=on / <64=off | Enable or disable reverb            |
-| CC 117 | Reverb Mix       | 0–127            | Reverb wet level (0–1)              |
-| CC 118 | Reverb Size      | 0–127            | Plate size / decay time (0–1)       |
-| CC 120 | Reverb Damping   | 0–127            | High frequency damping (0–1)        |
+| CC 91  | Reverb Mix       | 0–127            | Reverb wet level (0–1)              |
 | CC 112 | Reverb Mod Speed | 0–127            | Reverb LFO rate multiplier (0.1–4×) |
 | CC 113 | Reverb Mod Depth | 0–127            | Reverb LFO depth (0–1)              |
 | CC 114 | Reverb Freeze    | ≥64=on / <64=off | Freeze reverb tail indefinitely     |
+| CC 116 | Reverb On/Off    | ≥64=on / <64=off | Enable or disable reverb            |
+| CC 117 | Reverb Size      | 0–127            | Plate size / decay time (0–1)       |
+| CC 118 | Reverb Damping   | 0–127            | High frequency damping (0–1)        |
 
 #### Delay
 
 | CC    | Parameter      | Range                                | Description              |
 | ----- | -------------- | ------------------------------------ | ------------------------ |
+| CC 80 | Delay Position | 0–63=pre-reverb / 64–127=post-reverb | Effect chain placement   |
 | CC 85 | Delay On/Off   | ≥64=on / <64=off                     | Enable or disable delay  |
 | CC 86 | Delay Time     | 0–127                                | Delay time (10–500 ms)   |
 | CC 87 | Delay Feedback | 0–127                                | Feedback amount (0–0.95) |
-| CC 88 | Delay Mix      | 0–127                                | Delay wet level (0–1)    |
-| CC 80 | Delay Position | 0–63=pre-reverb / 64–127=post-reverb | Effect chain placement   |
+| CC 95 | Delay Mix      | 0–127                                | Delay wet level (0–1)    |
 
 #### Voice Mode & Configuration
 

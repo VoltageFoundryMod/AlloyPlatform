@@ -31,7 +31,7 @@
  */
 
 static constexpr uint32_t kConfigMagic = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t kConfigVersion = 3;
+static constexpr uint8_t kConfigVersion = 4;
 static constexpr uint8_t kMaxPresets = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
@@ -94,6 +94,9 @@ struct AlloyConfig {
     bool fxDelayPostReverb;
     // MIDI behaviour
     bool velocitySensitive; // true = velocity scales output, false = always 1.0
+    // Portamento / glide
+    float glideTime;   // 0.0 = instant, 0.001–2.0 s
+    bool glideEnabled; // portamento on/off
 };
 
 enum class ConfigSaveResult : uint8_t {

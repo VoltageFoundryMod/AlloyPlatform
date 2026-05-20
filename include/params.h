@@ -52,6 +52,10 @@ extern float gMidiVelocity;     // 0.0 – 1.0 per-note MIDI velocity scale (1.0
                                 // Always 1.0 for CV / drone / button gate sources.
 extern bool gVelocitySensitive; // true (default) = MIDI velocity scales output; false = fixed at 1.0
 
+// Portamento / glide
+extern float gGlideTime;   // portamento slide time in seconds (CC 5); 0.0 = instant
+extern bool gGlideEnabled; // portamento on/off (CC 65); false = instant transitions
+
 // MIDI configuration
 extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel
 

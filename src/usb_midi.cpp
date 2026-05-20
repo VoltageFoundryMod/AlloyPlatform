@@ -222,13 +222,10 @@ static void onControlChange(byte channel, byte cc, byte value) {
         gGatePatched = true;
         gGateHigh = (value >= 64);
         break;
-    case 65: // Portamento Switch — velocity sensitivity on (>=64) / off (<64)
-        gVelocitySensitive = (value >= 64);
-        if (!gVelocitySensitive) {
-            gMidiVelocity = 1.0f; // immediately restore full volume for live notes
-        }
+    case 65: // Portamento On/Off — glide enable (>=64) / disable (<64)
+        gGlideEnabled = (value >= 64);
         break;
-    case 77: // Filter mode — 5 options spread evenly across 0–127
+    case 76: // Filter mode — 5 options spread evenly across 0–127
         if (value < 26)
             gFilterMode = FilterMode::OFF;
         else if (value < 51)
@@ -240,7 +237,7 @@ static void onControlChange(byte channel, byte cc, byte value) {
         else
             gFilterMode = FilterMode::NOTCH;
         break;
-    case 78: // Filter type — 0-63 = SVF, 64-127 = LADDER
+    case 77: // Filter type — 0-63 = SVF, 64-127 = LADDER
         gFilterType = (value < 64) ? FilterType::SVF : FilterType::LADDER;
         break;
     case 79: // FxOrder filter position — 0-63 = pre-chorus (default), 64-127 = post-chorus
@@ -264,7 +261,7 @@ static void onControlChange(byte channel, byte cc, byte value) {
         }
         break;
     }
-    case 89: // Chorus mode — 0-31=OFF, 32-63=I, 64-95=II, 96-127=I+II
+    case 93: // Chorus mode — 0-31=OFF, 32-63=I, 64-95=II, 96-127=I+II
         if (value < 32)
             gChorusMode = ChorusMode::OFF;
         else if (value < 64)
@@ -276,6 +273,12 @@ static void onControlChange(byte channel, byte cc, byte value) {
         break;
     case 90: // Sub octave — 0-63 = 1 oct below, 64-127 = 2 oct below
         gSubOctave = (value >= 64) ? 2 : 1;
+        break;
+    case 102: // Velocity sensitivity — on (>=64) / off (<64)
+        gVelocitySensitive = (value >= 64);
+        if (!gVelocitySensitive) {
+            gMidiVelocity = 1.0f; // immediately restore full volume for live notes
+        }
         break;
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);

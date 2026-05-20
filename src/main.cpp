@@ -188,6 +188,8 @@ volatile bool gGatePatched = false;     // false = drone (bypass VCA)
 float gVolume = 1.0f;
 float gMidiVelocity = 1.0f;                // set by MIDI Note On; 1.0 for CV / drone / button sources
 bool gVelocitySensitive = true;            // true = MIDI velocity scales output; false = always 1.0
+float gGlideTime = 0.0f;                   // portamento slide time: 0.0 = instant, 0.001–2.0 s
+bool gGlideEnabled = false;                // portamento on/off (CC 65)
 ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
 float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = full stereo
 uint8_t gMidiChannel = 0;                  // 0 = omni, 1–16 = specific MIDI channel
@@ -503,7 +505,17 @@ void updateControl() {
     // powf() only recomputed when the quantised relation or base freq changes.
     gDrift.setSpeed(gDriftSpeed);
     gDrift.update(sMotion);
-    float voiceFreqs[4] = {gBaseFreq, gBaseFreq, gBaseFreq, gBaseFreq};
+    // Portamento / glide: one-pole frequency smoother.
+    // When enabled, sGlidedFreq tracks gBaseFreq at the rate set by gGlideTime.
+    // All non-POLY voice mode cases use sGlidedFreq as their base pitch.
+    static float sGlidedFreq = 440.0f;
+    if (gGlideEnabled && gGlideTime > 0.001f) {
+        const float glideAlpha = 1.0f - expf(-1.0f / (gGlideTime * MOZZI_CONTROL_RATE));
+        sGlidedFreq += (gBaseFreq - sGlidedFreq) * glideAlpha;
+    } else {
+        sGlidedFreq = gBaseFreq;
+    }
+    float voiceFreqs[4] = {sGlidedFreq, sGlidedFreq, sGlidedFreq, sGlidedFreq};
     // Detect mode transitions: bust per-mode frequency caches on the first frame
     // in a new mode so voices update even when sRelation/gBaseFreq are unchanged.
     static VoiceMode sPrevVoiceMode = gVoiceMode;
@@ -522,8 +534,8 @@ void updateControl() {
             cachedRatio2 = powf(2.0f, semitones / 12.0f);
             cachedRelation = semitones;
         }
-        voiceFreqs[0] = max(gBaseFreq + gDrift.offset(0), 20.0f);
-        voiceFreqs[1] = max(gBaseFreq * cachedRatio2 + gDrift.offset(1), 20.0f);
+        voiceFreqs[0] = max(sGlidedFreq + gDrift.offset(0), 20.0f);
+        voiceFreqs[1] = max(sGlidedFreq * cachedRatio2 + gDrift.offset(1), 20.0f);
         voices[0].setFreq(voiceFreqs[0]);
         voices[1].setFreq(voiceFreqs[1]);
         voices[0].setShape(sShape);
@@ -567,12 +579,12 @@ void updateControl() {
         static float sCachedChordBase = -1.0f;
         static float sCachedFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
         if (chordIdx != sCachedChordIdx ||
-            fabsf(gBaseFreq - sCachedChordBase) > 0.01f || sModeChanged) {
+            fabsf(sGlidedFreq - sCachedChordBase) > 0.01f || sModeChanged) {
             for (int i = 0; i < 4; i++) {
-                sCachedFreqs[i] = gBaseFreq * powf(2.0f, kChordTable[chordIdx][i] / 12.0f);
+                sCachedFreqs[i] = sGlidedFreq * powf(2.0f, kChordTable[chordIdx][i] / 12.0f);
             }
             sCachedChordIdx = chordIdx;
-            sCachedChordBase = gBaseFreq;
+            sCachedChordBase = sGlidedFreq;
         }
         for (int i = 0; i < 4; i++) {
             voiceFreqs[i] = max(sCachedFreqs[i] + gDrift.offset(i), 20.0f);
@@ -617,7 +629,7 @@ void updateControl() {
         static float sCachedBaseCloud = -1.0f;
         static float sCachedCloudFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
         if (fabsf(sRelation - sCachedRelCloud) > 0.05f ||
-            fabsf(gBaseFreq - sCachedBaseCloud) > 0.01f || sModeChanged) {
+            fabsf(sGlidedFreq - sCachedBaseCloud) > 0.01f || sModeChanged) {
             // Total span = RELATION/24 * 50 cents.  Voices at ±50%, ±1/6 of span.
             const float spreadCents = (sRelation / 24.0f) * 50.0f;
             const float offCents[4] = {
@@ -627,10 +639,10 @@ void updateControl() {
                 spreadCents * 0.5f,
             };
             for (int i = 0; i < 4; i++) {
-                sCachedCloudFreqs[i] = gBaseFreq * powf(2.0f, offCents[i] / 1200.0f);
+                sCachedCloudFreqs[i] = sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
             }
             sCachedRelCloud = sRelation;
-            sCachedBaseCloud = gBaseFreq;
+            sCachedBaseCloud = sGlidedFreq;
         }
         for (int i = 0; i < 4; i++) {
             // 1.5× drift multiplier in CLOUD for more organic ensemble movement.
@@ -666,8 +678,8 @@ void updateControl() {
         const float fmRatio = kCascadeRatios[zoneIdx];
         // FM depth (sFmDepth) is now driven by COLOR (sColor), pre-computed before the switch.
 
-        voiceFreqs[0] = max(gBaseFreq + gDrift.offset(0), 20.0f);
-        voiceFreqs[1] = max(gBaseFreq * fmRatio + gDrift.offset(1), 20.0f);
+        voiceFreqs[0] = max(sGlidedFreq + gDrift.offset(0), 20.0f);
+        voiceFreqs[1] = max(sGlidedFreq * fmRatio + gDrift.offset(1), 20.0f);
         voices[0].setFreq(voiceFreqs[0]);
         voices[1].setFreq(voiceFreqs[1]);
         voices[0].setShape(sShape);
@@ -698,7 +710,7 @@ void updateControl() {
         static float sCachedBaseStr = -1.0f;
         static float sCachedStrFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
         if (fabsf(sRelation - sCachedRelStr) > 0.05f ||
-            fabsf(gBaseFreq - sCachedBaseStr) > 0.01f || sModeChanged) {
+            fabsf(sGlidedFreq - sCachedBaseStr) > 0.01f || sModeChanged) {
             // ±15¢ total span; voices at ±50%, ±1/6 of span (same geometry as CLOUD).
             const float spreadCents = (sRelation / 24.0f) * 30.0f;
             const float offCents[4] = {
@@ -708,10 +720,10 @@ void updateControl() {
                 spreadCents * 0.5f,
             };
             for (int i = 0; i < 4; i++) {
-                sCachedStrFreqs[i] = gBaseFreq * powf(2.0f, offCents[i] / 1200.0f);
+                sCachedStrFreqs[i] = sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
             }
             sCachedRelStr = sRelation;
-            sCachedBaseStr = gBaseFreq;
+            sCachedBaseStr = sGlidedFreq;
         }
         for (int i = 0; i < 4; i++) {
             // 3× drift multiplier — vintage ensemble always wanders.

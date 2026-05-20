@@ -254,7 +254,14 @@ static void cmd_status(const char * /*args*/, Print &out) {
     else
         out.print(gMidiChannel);
     out.print(F(" veloc="));
-    out.println(gVelocitySensitive ? F("on") : F("off"));
+    out.print(gVelocitySensitive ? F("on") : F("off"));
+    out.print(F(" glide="));
+    out.print(gGlideEnabled ? F("on") : F("off"));
+    if (gGlideEnabled) {
+        out.print(F(" glidetime="));
+        out.print(gGlideTime, 3);
+    }
+    out.println();
 
     // Line 2 — post-effects state
     out.print(F("filter="));
@@ -386,6 +393,30 @@ static void cmd_veloc(const char *args, Print &out) {
     } else {
         out.print(F("veloc: "));
         out.println(gVelocitySensitive ? F("on") : F("off"));
+    }
+}
+
+static void cmd_glide(const char *args, Print &out) {
+    if (strcmp(args, "on") == 0 || strcmp(args, "1") == 0) {
+        gGlideEnabled = true;
+        out.println(F("glide -> on"));
+    } else if (strcmp(args, "off") == 0 || strcmp(args, "0") == 0) {
+        gGlideEnabled = false;
+        out.println(F("glide -> off"));
+    } else {
+        out.print(F("glide: "));
+        out.println(gGlideEnabled ? F("on") : F("off"));
+    }
+}
+
+static void cmd_glidetime(const char *args, Print &out) {
+    if (*args) {
+        gGlideTime = constrain((float)atof(args), 0.0f, 2.0f);
+        out.print(F("glidetime -> "));
+        out.println(gGlideTime, 3);
+    } else {
+        out.print(F("glidetime: "));
+        out.println(gGlideTime, 3);
     }
 }
 
@@ -941,12 +972,12 @@ static void cmd_dump(const char * /*args*/, Print &out) {
         out.println((uint8_t)v);
     }
     // Special / select params not in kCCParams
-    out.print(F("cc:77="));
+    out.print(F("cc:76="));
     out.println((gFilterMode == FilterMode::OFF) ? 0 : (gFilterMode == FilterMode::LP) ? 26
                                                    : (gFilterMode == FilterMode::HP)   ? 51
                                                    : (gFilterMode == FilterMode::BP)   ? 77
                                                                                        : 102);
-    out.print(F("cc:78="));
+    out.print(F("cc:77="));
     out.println(gFilterType == FilterType::SVF ? 0 : 96);
     out.print(F("cc:79="));
     out.println(gFxOrder.filterPostChorus ? 96 : 0);
@@ -956,12 +987,16 @@ static void cmd_dump(const char * /*args*/, Print &out) {
     out.println(gEnvelopeType == EnvelopeType::ADSR ? 96 : 0);
     out.print(F("cc:85="));
     out.println(gDelayMix > 0.001f ? 127 : 0);
-    out.print(F("cc:89="));
+    out.print(F("cc:93="));
     out.println((gChorusMode == ChorusMode::OFF) ? 0 : (gChorusMode == ChorusMode::I) ? 48
                                                    : (gChorusMode == ChorusMode::II)  ? 80
                                                                                       : 112);
     out.print(F("cc:90="));
     out.println(gSubOctave >= 2 ? 96 : 0);
+    out.print(F("cc:65="));
+    out.println(gGlideEnabled ? 127 : 0);
+    out.print(F("cc:102="));
+    out.println(gVelocitySensitive ? 127 : 0);
     out.print(F("cc:114="));
     out.println(gRevFrozen ? 127 : 0);
     out.print(F("cc:115="));
@@ -1007,6 +1042,8 @@ const CommandEntry kCommands[] = {
     {"adsr",         "<A_s> <D_s> <S> <R_s> [loop|noloop]  ADSR params (M5x)",              cmd_adsr},
     {"env loop",     "<on|off>  loop ADSR as LFO (M5x)",                                     cmd_env_loop},
     {"veloc",     "<on|off>    MIDI velocity sensitivity: on=velocity scales vol (default), off=fixed", cmd_veloc},
+    {"glide",     "<on|off>    portamento on/off: on=pitch slides between notes, off=instant",          cmd_glide},
+    {"glidetime", "<0-2>       portamento slide time in seconds (0=instant, default)",                  cmd_glidetime},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
     {"dump",      "            output all params as cc:N=V lines (web configurator sync)", cmd_dump},
