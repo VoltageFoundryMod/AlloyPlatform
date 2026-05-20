@@ -173,7 +173,7 @@ static ShapeOsc<MOZZI_AUDIO_RATE> subVoices[4] = {
 // Shared synthesis parameters (declared extern in params.h)
 // ---------------------------------------------------------------------------
 float gBaseFreq = 440.0f;
-float gDetune = 0.0f;
+float gColor = 0.0f; // COLOR knob: FM depth (PAIR/CASCADE) or Hz fine spread (ensemble)
 float gShape = 0.0f;
 float gFatness = 0.4f;                  // default: sub audible but not boomy
 uint8_t gSubOctave = 1;                 // 1 = one octave below (×0.5), 2 = two octaves below (×0.25)
@@ -187,6 +187,7 @@ volatile bool gGateHigh = false;        // true while gate is asserted
 volatile bool gGatePatched = false;     // false = drone (bypass VCA)
 float gVolume = 1.0f;
 float gMidiVelocity = 1.0f;                // set by MIDI Note On; 1.0 for CV / drone / button sources
+bool gVelocitySensitive = true;            // true = MIDI velocity scales output; false = always 1.0
 ChorusMode gChorusMode = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
 float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = full stereo
 uint8_t gMidiChannel = 0;                  // 0 = omni, 1–16 = specific MIDI channel
@@ -201,10 +202,18 @@ static float sVolume = 0.8f;
 static float sMidiVelocity = 1.0f;
 static float sSpace = 1.0f;
 static float sRelation = 0.0f; // smoothed interval ratio input
+static float sColor = 0.0f;    // smoothed COLOR value
 // Sub oscillator mix weight for the audio hot path (0.0..0.5 = 0..50% of main).
 // Float: same cost as integer on M33 FPU; avoids 128-step quantization zipper.
 // 32-bit aligned float — ISR reads are atomic on Cortex-M33.
 static float sSubWf = 0.2f; // initial = gFatness(0.4) * 0.5
+
+// CASCADE mode FM depth: precomputed at control rate, read in audio ISR (both Core 0).
+// kFmMaxScale = (3 rad × TABLE_CELLS × 65536) / (2π × 32512) ≈ 1971.2
+// phaseOffset = modSample × sFmDepth  (int16 × float → int32 Q16 phase units)
+static constexpr float kFmMaxScale =
+    3.0f * (2048.0f * 65536.0f) / (2.0f * 3.14159265f * 32512.0f);
+static volatile float sFmDepth = 0.0f;
 
 // Drift engine: per-voice slow frequency random-walk (Milestone 11)
 static DriftEngine<4> gDrift;
@@ -398,9 +407,9 @@ void updateControl() {
             // Mode solo (Shift not held): cycle voice mode.
             if (gBtnMode.pressed()) {
                 // Cycle through implemented voice modes only.
-                // Add to kActiveModes[] as each milestone lands.
                 static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CLOUD,
-                                                         VoiceMode::CHORD, VoiceMode::POLY};
+                                                         VoiceMode::CHORD, VoiceMode::CASCADE,
+                                                         VoiceMode::STRING, VoiceMode::POLY};
                 static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
                 uint8_t idx = 0;
                 for (uint8_t i = 0; i < kN; i++) {
@@ -448,6 +457,7 @@ void updateControl() {
     sMidiVelocity += (gMidiVelocity - sMidiVelocity) * 0.1f;
     sSpace += (gSpace - sSpace) * 0.1f;
     sRelation += (gRelation - sRelation) * 0.1f;
+    sColor += (gColor - sColor) * 0.08f;
 
     // Update envelope engine: AR or ADSR depending on gEnvelopeType.
     if (gEnvelopeType == EnvelopeType::AR) {
@@ -480,8 +490,16 @@ void updateControl() {
 
     // Apply per-voice drift offsets; sub oscillators track their main automatically.
     // PAIR mode: voice 1 is gRelation integer semitones above ROOT (0=unison, 12=octave).
+    // COLOR knob — FM depth (PAIR + CASCADE) or Hz fine spread (ensemble).
+    // Pre-computed here so the ISR reads a stable pre-scaled value (volatile float).
+    if (gVoiceMode == VoiceMode::PAIR || gVoiceMode == VoiceMode::CASCADE) {
+        sFmDepth = tanhf(sColor * 3.0f * 0.7f) * kFmMaxScale;
+    } else {
+        sFmDepth = 0.0f;
+    }
+
     // CHORD mode: gRelation (0–24) selects one of 11 chord shapes from kChordTable.
-    // gDetune adds a symmetric Hz fine-spread on both voices (PAIR only).
+    // COLOR (gColor 0–1): FM depth in PAIR/CASCADE; symmetric Hz fine-spread in CLOUD/CHORD/STRING/POLY.
     // powf() only recomputed when the quantised relation or base freq changes.
     gDrift.setSpeed(gDriftSpeed);
     gDrift.update(sMotion);
@@ -504,8 +522,8 @@ void updateControl() {
             cachedRatio2 = powf(2.0f, semitones / 12.0f);
             cachedRelation = semitones;
         }
-        voiceFreqs[0] = max(gBaseFreq - gDetune * 0.5f + gDrift.offset(0), 20.0f);
-        voiceFreqs[1] = max(gBaseFreq * cachedRatio2 + gDetune * 0.5f + gDrift.offset(1), 20.0f);
+        voiceFreqs[0] = max(gBaseFreq + gDrift.offset(0), 20.0f);
+        voiceFreqs[1] = max(gBaseFreq * cachedRatio2 + gDrift.offset(1), 20.0f);
         voices[0].setFreq(voiceFreqs[0]);
         voices[1].setFreq(voiceFreqs[1]);
         voices[0].setShape(sShape);
@@ -565,6 +583,17 @@ void updateControl() {
                 subVoices[i].setFreq(voiceFreqs[i] * subMul);
             }
         }
+        // COLOR adds fine Hz detune as beating on top of chord intervals.
+        if (sColor > 0.001f) {
+            static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+            const float colorHz = sColor * 50.0f;
+            for (int i = 0; i < 4; i++) {
+                const float f = max(voiceFreqs[i] + colorHz * kColorOff[i], 20.0f);
+                voices[i].setFreq(f);
+                const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
+                subVoices[i].setFreq(f * subMul);
+            }
+        }
         sActiveVoices = 4;
         // Stereo spread: hard-L, soft-L, soft-R, hard-R — normalized so sum(L)=sum(R)=256.
         sPanL[0] = 128;
@@ -605,7 +634,9 @@ void updateControl() {
         }
         for (int i = 0; i < 4; i++) {
             // 1.5× drift multiplier in CLOUD for more organic ensemble movement.
-            voiceFreqs[i] = max(sCachedCloudFreqs[i] + gDrift.offset(i) * 1.5f, 20.0f);
+            // COLOR adds symmetric Hz fine-spread on top: outer ±25 Hz, inner ±8.3 Hz at max.
+            static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+            voiceFreqs[i] = max(sCachedCloudFreqs[i] + gDrift.offset(i) * 1.5f + sColor * 50.0f * kColorOff[i], 20.0f);
             voices[i].setFreq(voiceFreqs[i]);
             voices[i].setShape(sShape);
             const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
@@ -613,6 +644,87 @@ void updateControl() {
         }
         sActiveVoices = 4;
         // Same wide stereo spread as CHORD — voices distributed hard-L to hard-R.
+        sPanL[0] = 128;
+        sPanL[1] = 90;
+        sPanL[2] = 38;
+        sPanL[3] = 0;
+        sPanR[0] = 0;
+        sPanR[1] = 38;
+        sPanR[2] = 90;
+        sPanR[3] = 128;
+        break;
+    }
+    case VoiceMode::CASCADE: {
+        // 2-voice FM oscillator interaction (M24).
+        // Voice 0 = carrier (ROOT + drift).  Voice 1 = modulator (fmRatio × ROOT + drift).
+        // RELATION (0–24 st) controls both harmonic ratio snap (6 zones) and FM depth.
+        //   fmIndex  = sRelation / 8  (0.0 → 3.0 raw FM index at max RELATION)
+        //   sFmDepth = tanhf(fmIndex × 0.7) × kFmMaxScale  (soft-clip, precomputed for ISR)
+        // The modulator (voice 1) is NOT mixed to audio — it only supplies PM offset.
+        static constexpr float kCascadeRatios[] = {1.0f, 1.333f, 1.5f, 2.0f, 2.5f, 3.0f};
+        const int zoneIdx = min(5, (int)(sRelation / 4.0f));
+        const float fmRatio = kCascadeRatios[zoneIdx];
+        // FM depth (sFmDepth) is now driven by COLOR (sColor), pre-computed before the switch.
+
+        voiceFreqs[0] = max(gBaseFreq + gDrift.offset(0), 20.0f);
+        voiceFreqs[1] = max(gBaseFreq * fmRatio + gDrift.offset(1), 20.0f);
+        voices[0].setFreq(voiceFreqs[0]);
+        voices[1].setFreq(voiceFreqs[1]);
+        voices[0].setShape(sShape);
+        voices[1].setShape(sShape);
+        {
+            const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
+            subVoices[0].setFreq(voiceFreqs[0] * subMul);
+            subVoices[1].setFreq(voiceFreqs[1] * subMul); // phase-advance only, not mixed
+        }
+        sActiveVoices = 2;
+        // Carrier (voice 0) routes to both L and R at full weight — mono pre-chorus.
+        // Chorus and SPACE add stereo width downstream.  Modulator is silent (pan = 0).
+        sPanL[0] = 256;
+        sPanL[1] = 0;
+        sPanL[2] = 0;
+        sPanL[3] = 0;
+        sPanR[0] = 256;
+        sPanR[1] = 0;
+        sPanR[2] = 0;
+        sPanR[3] = 0;
+        break;
+    }
+    case VoiceMode::STRING: {
+        // 4-voice vintage string ensemble (M25).
+        // Like CLOUD but: heavier drift (3×), narrower spread (±15¢ max), always-on chorus.
+        // RELATION (0–24 st) controls total spread: 0=tight unison, 24=¼-tone shimmer.
+        static float sCachedRelStr = -99.0f;
+        static float sCachedBaseStr = -1.0f;
+        static float sCachedStrFreqs[4] = {440.0f, 440.0f, 440.0f, 440.0f};
+        if (fabsf(sRelation - sCachedRelStr) > 0.05f ||
+            fabsf(gBaseFreq - sCachedBaseStr) > 0.01f || sModeChanged) {
+            // ±15¢ total span; voices at ±50%, ±1/6 of span (same geometry as CLOUD).
+            const float spreadCents = (sRelation / 24.0f) * 30.0f;
+            const float offCents[4] = {
+                -spreadCents * 0.5f,
+                -spreadCents * (1.0f / 6.0f),
+                spreadCents * (1.0f / 6.0f),
+                spreadCents * 0.5f,
+            };
+            for (int i = 0; i < 4; i++) {
+                sCachedStrFreqs[i] = gBaseFreq * powf(2.0f, offCents[i] / 1200.0f);
+            }
+            sCachedRelStr = sRelation;
+            sCachedBaseStr = gBaseFreq;
+        }
+        for (int i = 0; i < 4; i++) {
+            // 3× drift multiplier — vintage ensemble always wanders.
+            // COLOR adds symmetric Hz fine-spread: outer ±25 Hz at max for shimmer/beating.
+            static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+            voiceFreqs[i] = max(sCachedStrFreqs[i] + gDrift.offset(i) * 3.0f + sColor * 50.0f * kColorOff[i], 20.0f);
+            voices[i].setFreq(voiceFreqs[i]);
+            voices[i].setShape(sShape);
+            const float subMul = (gSubOctave == 2) ? 0.25f : 0.5f;
+            subVoices[i].setFreq(voiceFreqs[i] * subMul);
+        }
+        sActiveVoices = 4;
+        // Hard-L to hard-R stereo spread — same as CLOUD/CHORD.
         sPanL[0] = 128;
         sPanL[1] = 90;
         sPanL[2] = 38;
@@ -635,9 +747,12 @@ void updateControl() {
         // CHORD/CLOUD provide.  Shape is fixed square (0.75) for a classic sub-osc
         // sound — independent of the main voice shape morph.
         const float subMult = (gSubOctave == 2) ? 0.25f : 0.5f;
+        // COLOR adds symmetric Hz fine-spread across the 4 poly voice slots.
+        static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+        const float polyColorHz = sColor * 50.0f;
         sActiveVoices = 4;
         for (int i = 0; i < 4; i++) {
-            const float f = max(sPolySlots[i].freq + gDrift.offset(i) * 0.3f, 20.0f);
+            const float f = max(sPolySlots[i].freq + gDrift.offset(i) * 0.3f + polyColorHz * kColorOff[i], 20.0f);
             voices[i].setFreq(f);
             voices[i].setShape(sShape);
             sPolyEnvArr[i].setCurve(sCurve, gCurveTime);
@@ -669,7 +784,8 @@ void updateControl() {
     sSubWf = sFatness * 0.5f;
 
     // Chorus depth — single float, atomic on M33, no mutex needed.
-    gChorusDepth = sMotion;
+    // STRING mode: chorus never fully stops — 0.3 minimum keeps ensemble movement alive.
+    gChorusDepth = (gVoiceMode == VoiceMode::STRING) ? max(sMotion, 0.3f) : sMotion;
 
     // Filter (M26a / M5x) — runtime type switch + smooth coefficients.
     // gFilterType drives re-pointing of gFilterInst; integrators cleared on switch.
@@ -791,20 +907,40 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
     // Sum sActiveVoices into L/R via fixed-point pan weights (×256).
     // sum(sPanL) = sum(sPanR) = 256 keeps each channel within ±32512 max.
     // POLY mode: per-voice envelopes are applied inside the loop.
+    // FM modes (PAIR + CASCADE): voice[1] PM-modulates voice[0].
+    //   CASCADE: modulator is silent (pan=0), both outputs carry the carrier.
+    //   PAIR:    modulator is audible on R, carrier on L (pan weights handle both).
+    //   When COLOR=0, sFmDepth=0 → pmOffset=0 → nextPM(0)==next(), no FM effect.
     // All other modes: shared gCurveEng envelope is applied after the loop.
     const bool isPolyMode = (gVoiceMode == VoiceMode::POLY);
+    const bool isFmMode = (gVoiceMode == VoiceMode::CASCADE || gVoiceMode == VoiceMode::PAIR);
     int32_t left = 0, right = 0;
-    for (uint8_t i = 0; i < sActiveVoices; i++) {
-        const int32_t s = voices[i].next();
-        const int32_t sub = subVoices[i].next();
-        int32_t m = (int32_t)((float)s + (float)sub * sSubWf);
-        if (isPolyMode) {
-            // Per-voice envelope: scales this voice by its independent envelope.
-            // Velocity is baked into sPanL/sPanR in updateControl() via sPolySlots.
-            m = (int32_t)((float)m * sPolyEnvs[i]->next());
+    if (isFmMode) {
+        // voice[1] provides PM offset AND (in PAIR) contributes to R output.
+        const int16_t modSample = voices[1].next();
+        const int32_t sub1 = subVoices[1].next(); // silent in CASCADE (pan=0), audible in PAIR
+        const int32_t pmOffset = (int32_t)((float)modSample * sFmDepth);
+        const int32_t carrierSample = voices[0].nextPM(pmOffset);
+        const int32_t sub0 = subVoices[0].next();
+        const int32_t m0 = (int32_t)((float)carrierSample + (float)sub0 * sSubWf); // carrier
+        const int32_t m1 = (int32_t)((float)modSample + (float)sub1 * sSubWf);     // modulator
+        // CASCADE: sPanL={256,0,..} sPanR={256,0,..} → left=m0,  right=m0
+        // PAIR:    sPanL={256,0,..} sPanR={0,256,..} → left=m0,  right=m1
+        left = ((m0 * sPanL[0]) + (m1 * sPanL[1])) >> 8;
+        right = ((m0 * sPanR[0]) + (m1 * sPanR[1])) >> 8;
+    } else {
+        for (uint8_t i = 0; i < sActiveVoices; i++) {
+            const int32_t s = voices[i].next();
+            const int32_t sub = subVoices[i].next();
+            int32_t m = (int32_t)((float)s + (float)sub * sSubWf);
+            if (isPolyMode) {
+                // Per-voice envelope: scales this voice by its independent envelope.
+                // Velocity is baked into sPanL/sPanR in updateControl() via sPolySlots.
+                m = (int32_t)((float)m * sPolyEnvs[i]->next());
+            }
+            left += (m * sPanL[i]) >> 8;
+            right += (m * sPanR[i]) >> 8;
         }
-        left += (m * sPanL[i]) >> 8;
-        right += (m * sPanR[i]) >> 8;
     }
 
     // Soft clip: cap at ±32512 before volume scaling to prevent from16Bit wrap.

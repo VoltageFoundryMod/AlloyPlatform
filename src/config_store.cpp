@@ -45,7 +45,7 @@ static void packConfig(AlloyConfig &cfg) {
     cfg.magic = kConfigMagic;
     cfg.version = kConfigVersion;
     cfg.baseFreq = gBaseFreq;
-    cfg.detune = gDetune;
+    cfg.color = gColor;
     cfg.relation = gRelation;
     cfg.voiceMode = (uint8_t)gVoiceMode;
     cfg.shape = gShape;
@@ -86,12 +86,14 @@ static void packConfig(AlloyConfig &cfg) {
     // FxOrder
     cfg.fxFilterPostChorus = gFxOrder.filterPostChorus;
     cfg.fxDelayPostReverb = gFxOrder.delayPostReverb;
+    // MIDI behaviour
+    cfg.velocitySensitive = gVelocitySensitive;
 }
 
 // Apply a validated config struct to all gXxx globals.
 static void applyConfig(const AlloyConfig &cfg) {
     gBaseFreq = cfg.baseFreq;
-    gDetune = cfg.detune;
+    gColor = cfg.color;
     gRelation = cfg.relation;
     gVoiceMode = (VoiceMode)cfg.voiceMode;
     gShape = cfg.shape;
@@ -132,6 +134,8 @@ static void applyConfig(const AlloyConfig &cfg) {
     // FxOrder
     gFxOrder.filterPostChorus = cfg.fxFilterPostChorus;
     gFxOrder.delayPostReverb = cfg.fxDelayPostReverb;
+    // MIDI behaviour
+    gVelocitySensitive = cfg.velocitySensitive;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +205,7 @@ void configStore_applyDefaults() {
     d.magic = kConfigMagic;
     d.version = kConfigVersion;
     d.baseFreq = 440.0f;
-    d.detune = 0.0f;
+    d.color = 0.0f;
     d.relation = 0.0f;
     d.voiceMode = (uint8_t)VoiceMode::PAIR;
     d.shape = 0.0f;
@@ -237,5 +241,6 @@ void configStore_applyDefaults() {
     d.delayMix = 0.0f;
     d.fxFilterPostChorus = false;
     d.fxDelayPostReverb = false;
+    d.velocitySensitive = true;
     applyConfig(d);
 }

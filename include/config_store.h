@@ -45,7 +45,7 @@ struct AlloyConfig {
     uint8_t version;
     // Pitch / voice
     float baseFreq;
-    float detune;
+    float color; // COLOR knob 0–1
     float relation;
     uint8_t voiceMode; // cast of VoiceMode enum
     // Timbre
@@ -92,6 +92,8 @@ struct AlloyConfig {
     // FxOrder (M26a)
     bool fxFilterPostChorus;
     bool fxDelayPostReverb;
+    // MIDI behaviour
+    bool velocitySensitive; // true = velocity scales output, false = always 1.0
 };
 
 enum class ConfigSaveResult : uint8_t {

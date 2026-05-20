@@ -1,1069 +1,530 @@
 # Alloy Flux — User Manual
 
-> **Firmware status: M1–M15 + M21 + M23 + M26a + M26b + M26c + M28 + M29 + M29b + M31(partial) + M40(partial) + M41(partial) + M5x** (PAIR + CHORD modes, serial console, RELATION interval engine, chord shape command, drift, chorus, stereo width, envelope/VCA, multimode filter + OTA ladder filter, Dattorro plate reverb with 4-LFO modulation + freeze mode, reverb modspeed/moddepth, stereo ping-pong delay, central param/CC table, USB MIDI + Web MIDI, MIDI channel config, flash config persistence, mode button cycling, drone-return via button combo or CC 119, SHIFT trig-on-release, runtime-selectable filter/envelope algorithms, ADSR envelope + loop mode, oscillator phase reset on retrigger)
-> Hardware: Raspberry Pi Pico 2 (RP2350) + PCM5102A DAC
+## Dual Relation Oscillator · Stereo Voice · Eurorack
 
 ---
 
-## Table of Contents
+## What Is Alloy Flux?
 
-- [Alloy Flux — User Manual](#alloy-flux--user-manual)
-  - [Table of Contents](#table-of-contents)
-  - [What Alloy Flux Is](#what-alloy-flux-is)
-  - [Connecting](#connecting)
-  - [Serial Console](#serial-console)
-  - [Parameters](#parameters)
-    - [Pitch and Tuning](#pitch-and-tuning)
-      - [`pitch <hz>` — Base frequency](#pitch-hz--base-frequency)
-      - [`note <name>` — Set pitch by note name](#note-name--set-pitch-by-note-name)
-      - [`detune <hz>` — Stereo spread](#detune-hz--stereo-spread)
-    - [RELATION — Voice Interval](#relation--voice-interval)
-      - [`rel <0–24>` — Voice 2 interval](#rel-024--voice-2-interval)
-      - [`mode <pair|cloud|chord|cascade|string>` — Voice mode](#mode-paircloudchordcascadestring--voice-mode)
-      - [`chord <name|0–10>` — Chord shape selector](#chord-name010--chord-shape-selector)
-    - [SHAPE — Waveform](#shape--waveform)
-      - [`shape <0–1>` — Waveform morph](#shape-01--waveform-morph)
-    - [FATNESS — Sub Oscillator](#fatness--sub-oscillator)
-      - [`fat <0–1>` — Sub oscillator level](#fat-01--sub-oscillator-level)
-    - [MOTION — Drift and Animation](#motion--drift-and-animation)
-      - [`motion <0–1>` — Drift + chorus depth](#motion-01--drift--chorus-depth)
-      - [`dspeed <0.001–0.1>` — Drift glide speed](#dspeed-000101--drift-glide-speed)
-      - [`chorus <off | I | II | I+II>` — Chorus mode](#chorus-off--i--ii--iii--chorus-mode)
-    - [SPACE — Stereo Width](#space--stereo-width)
-      - [`space <0–1>` — Stereo width](#space-01--stereo-width)
-      - [`gate <1 | 0 | free>` — Gate control](#gate-1--0--free--gate-control)
-      - [`curve <0–1>` — Envelope shape](#curve-01--envelope-shape)
-      - [`curvetime <0.25–4>` — Envelope time scale](#curvetime-0254--envelope-time-scale)
-    - [ADSR Envelope (M5x)](#adsr-envelope-m5x)
-      - [`env type <ar|adsr>` — Envelope algorithm](#env-type-aradsr--envelope-algorithm)
-      - [`adsr <A> <D> <S> <R> [loop|noloop]` — ADSR parameters](#adsr-a-d-s-r-loopnoloop--adsr-parameters)
-      - [`env loop <on|off>` — ADSR loop mode](#env-loop-onoff--adsr-loop-mode)
-  - [MIDI Control](#midi-control)
-    - [`midichan <1–16|omni>` — MIDI receive channel](#midichan-116omni--midi-receive-channel)
-    - [USB MIDI CC Map](#usb-midi-cc-map)
-  - [Config Persistence](#config-persistence)
-    - [`config` — Preset slots \& factory reset](#config--preset-slots--factory-reset)
-    - [Volume](#volume)
-      - [`vol <0–1>` — Master volume](#vol-01--master-volume)
-  - [Post-Effects](#post-effects)
-    - [`filter <mode> [cutoff] [res]` — Multimode filter](#filter-mode-cutoff-res--multimode-filter)
-    - [`filter type <svf|ladder>` — Filter algorithm](#filter-type-svfladder--filter-algorithm)
-    - [`fxorder <filter|delay> <pre|post>` — Effect chain order](#fxorder-filterdelay-prepost--effect-chain-order)
-    - [`reverb <mix> [size] [damping]` — Plate reverb](#reverb-mix-size-damping--plate-reverb)
-      - [Reverb sub-commands](#reverb-sub-commands)
-    - [`delay <mix> [time_ms] [feedback]` — Ping-pong delay](#delay-mix-time_ms-feedback--ping-pong-delay)
-  - [Knob Shift Functions](#knob-shift-functions)
-  - [Gate and Envelope Modes](#gate-and-envelope-modes)
-    - [Drone mode (default)](#drone-mode-default)
-    - [Triggered mode (via serial for now)](#triggered-mode-via-serial-for-now)
-  - [Status](#status)
-  - [Sound Design Recipes](#sound-design-recipes)
-    - [Juno-style string pad](#juno-style-string-pad)
-    - [Plucky synth bass](#plucky-synth-bass)
-    - [Warm detuned pad (drone)](#warm-detuned-pad-drone)
-    - [Slow cinematic swell](#slow-cinematic-swell)
-    - [Hollow nasal lead](#hollow-nasal-lead)
-    - [Unstable vintage synth](#unstable-vintage-synth)
-    - [Lush plate reverb pad](#lush-plate-reverb-pad)
-    - [Ping-pong echo lead](#ping-pong-echo-lead)
-    - [Dark filtered drone](#dark-filtered-drone)
-    - [Cathedral (reverb + delay)](#cathedral-reverb--delay)
-  - [Diagnostic Commands](#diagnostic-commands)
-    - [`cpu`](#cpu)
-    - [`perf on` / `perf off`](#perf-on--perf-off)
-  - [Command Quick Reference](#command-quick-reference)
-  - [Default Values](#default-values)
+Alloy Flux is a stereo oscillator that sounds rich and full with minimal patching. Plug in the outputs to your mixer and you immediately hear stereo movement, harmonic warmth, and gentle drift. Plug in a V/OCT cable and a gate and control the pitch and articulation — everything needed to play a complete, musical voice.
+
+The module is built around one idea: **two voices in a relationship.** Rather than exposing two independent oscillators, Alloy Flux gives you a **ROOT** oscillator and a **RELATION** — the second voice is always defined relative to the first. That relationship changes meaning depending on which voice **Mode** is active, from simple interval tuning to full chorus ensemble, harmonic chord stacking, FM synthesis, and true four-voice polyphony.
+
+Want to integrate the module to your DAW or MIDI controller? The built-in USB MIDI and TRS MIDI inputs mirror all parameters to MIDI CCs in real time, and support full patch dump/restore over SysEx. No drivers or native app required — connect with the Web Configurator for an intuitive visual editor, preset management, and serial console access.
 
 ---
 
-## What Alloy Flux Is
+## Specs at a Glance
 
-Alloy Flux is a stereo dual-oscillator voice for Eurorack. It generates two detuned voices in stereo with:
-
-- **5-shape continuous wavetable morphing** (sine → triangle → saw → pulse → hollow)
-- **Sub oscillator** one octave below each voice, adding warmth and body
-- **Drift engine** — per-voice random frequency wander simulating analogue instability
-- **AR envelope + VCA** — gate-controlled articulation; unpatched runs as a continuous drone
-
-With a V/OCT input and a gate source you have a self-contained melodic voice. With just audio out it plays continuously as a drone or pad.
-
----
-
-## Connecting
-
-| Connection            | Purpose                      |
-| --------------------- | ---------------------------- |
-| USB to computer       | Serial console (115200 baud) |
-| DAC left/right out    | Stereo audio output          |
-| *(future)* V/OCT jack | Pitch CV — 1V/octave         |
-| *(future)* GATE jack  | Envelope trigger             |
-
-Open any serial terminal (Arduino Serial Monitor, `tio`, PuTTY, etc.) at **115200 baud**. You should see:
-
-```txt
-AlloyFlux ready. Type 'help' for commands.
-```
+|             |                                                                             |
+| ----------- | --------------------------------------------------------------------------- |
+| Format      | Eurorack                                                                    |
+| Width       | 14HP                                                                        |
+| Power       | ~100mA +12V, ~5mA −12V                                                      |
+| Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY                              |
+| Knobs       | 7 — ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE                         |
+| Jacks       | 10 — V/OCT, GATE, MIDI, REL CV, SHP CV, MTN CV, FM IN, SPC CV, L OUT, R OUT |
+| Buttons     | 2 — MODE + SHIFT                                                            |
+| LEDs        | 5× RGB (mode indicator, voice activity, motion heartbeat)                   |
+| Audio       | Stereo 16-bit, 32768 Hz, PCM5102A I2S DAC                                   |
+| MIDI        | USB MIDI + TRS MIDI (simultaneous)                                          |
 
 ---
 
-## Serial Console
+## Quick Start
 
-Commands are typed as `name value` followed by Enter. Examples:
+1. Patch a V/OCT source into **V/OCT**
+2. Patch a gate source into **GATE**
+3. Connect **L OUT** and **R OUT** to your mixer
+4. Press a note — you will hear a stereo dual-oscillator with subtle drift
 
-```txt
-pitch 440
-shape 0.5
-gate 1
-```
+If no gate is sent, the module defaults to drone mode — the voices run continuously without needing the gate trigger. Once a gate is received, it returns to normal gated operation and can be returned to drone mode by holding SHIFT and tapping MODE.
 
-- Names are case-sensitive, all lowercase
-- Values can be integers or decimals
-- Sending `status` prints all current parameters at once
-- Sending `help` lists every available command
+From there:
 
----
-
-## Parameters
-
-### Pitch and Tuning
-
-#### `pitch <hz>` — Base frequency
-
-Range: 20–8000 Hz
-
-Sets the root pitch of both voices. Both voices share this pitch; RELATION spreads them apart.
-
-```txt
-pitch 220         # A3
-pitch 261.63      # C4 (middle C)
-pitch 440         # A4 (concert A)
-pitch 523.25      # C5
-```
-
-**MIDI note to Hz reference:**
-
-| Note | Hz     |
-| ---- | ------ |
-| C3   | 130.81 |
-| A3   | 220.00 |
-| C4   | 261.63 |
-| E4   | 329.63 |
-| A4   | 440.00 |
-| C5   | 523.25 |
-
-#### `note <name>` — Set pitch by note name
-
-Alternative to `pitch` — set root frequency by scientific pitch notation (letter A–G, optional `#`/`b` accidental, octave number). A4 = 440 Hz reference.
-
-```txt
-note C4           # middle C — 261.63 Hz
-note A4           # concert A — 440 Hz
-note A3           # A3 — 220 Hz
-note C#4          # C sharp 4 — 277.18 Hz
-note Bb3          # B flat 3 — 233.08 Hz
-```
+- Turn **RELATION** to set the harmonic interval between the two voices
+- Turn **MOTION** to bring the sound to life with drift and chorus movement
+- Turn **SHAPE** to morph the waveform from warm sine to bright saw
+- Turn **CURVE** to shape the envelope from pluck to slow swell
+- Tap **MODE** to switch to a different voice character
 
 ---
 
-#### `detune <hz>` — Stereo spread
+## Panel Overview
 
-Range: 0–200 Hz
+### Jacks
 
-Spreads voice 1 (left) and voice 2 (right) symmetrically around the base pitch. Voice 1 goes down by half the detune amount, voice 2 goes up. The beating rate between the two voices equals the detune value.
+| Label  | Type   | Function                                        |
+| ------ | ------ | ----------------------------------------------- |
+| V/OCT  | Input  | Pitch — 1V/oct                                  |
+| GATE   | Input  | Note trigger / envelope                         |
+| MIDI   | Input  | TRS MIDI (Type A/B accepted)                    |
+| REL CV | Input  | Modulates RELATION                              |
+| SHP CV | Input  | Modulates SHAPE                                 |
+| MTN CV | Input  | Modulates MOTION                                |
+| FM IN  | Input  | FM modulation — audio rate capable              |
+| SPC CV | Input  | Modulates SPACE                                 |
+| L OUT  | Output | Left / mono (passive mono sum when R unplugged) |
+| R OUT  | Output | Right stereo                                    |
 
-```txt
-detune 0          # mono, both voices at the same pitch
-detune 2          # very subtle chorus-like thickening
-detune 8          # warm ensemble, ~8 Hz beating rate
-detune 20         # xylophone-thick spread
-detune 50         # wide stereo, clearly two pitches
-```
+### Buttons
 
----
-
-### RELATION — Voice Interval
-
-RELATION controls the harmonic relationship between the two voices. In PAIR mode it sets the pitch of voice 2 as a continuous interval above ROOT, from unison to two octaves.
-
-#### `rel <0–24>` — Voice 2 interval
-
-Range: 0.0–24.0 (semitones; fractional values allowed for micro-intervals)
-
-Sets voice 2 pitch as semitones above ROOT: `ratio = 2^(rel / 12)`. Works on top of any `detune` fine-spread.
-
-| Value | Interval       | Example at A4 (440 Hz)            |
-| ----- | -------------- | --------------------------------- |
-| 0     | Unison         | 440 Hz (both voices, chorus body) |
-| 3     | Minor third    | 523 Hz                            |
-| 4     | Major third    | 554 Hz                            |
-| 5     | Perfect fourth | 587 Hz                            |
-| 7     | Perfect fifth  | 659 Hz                            |
-| 10    | Major seventh  | 739 Hz                            |
-| 12    | Octave         | 880 Hz                            |
-| 24    | Two octaves    | 1760 Hz                           |
-
-```txt
-rel 0             # unison — chorus and drift colour the stereo field
-rel 7             # perfect fifth — open, stable harmony
-rel 12            # octave — doubling, thickens fundamental
-rel 4             # major third — bright, tense harmony
-rel 3             # minor third — melancholic
-rel 7.5           # micro-interval between fifth and tritone
-```
-
-> Combine `rel` with `detune` for intervals with micro-tuned width: `rel 7` + `detune 4` = a slightly detuned fifth, classic thick synth sound.
-
-#### `mode <pair|cloud|chord|cascade|string>` — Voice mode
-
-Default: `pair`
-
-Selects the synthesis personality.
-
-| Mode      | Description                                         | Status       |
-| --------- | --------------------------------------------------- | ------------ |
-| `pair`    | ROOT + RELATION dual voice — interval + fine detune | Active (M21) |
-| `cloud`   | Multi-voice detuned ensemble                        | Future (M22) |
-| `chord`   | 4-voice chord stack — RELATION sweeps chord shapes  | Active (M23) |
-| `cascade` | Restrained FM oscillator interaction                | Future (M24) |
-| `string`  | Vintage string machine ensemble                     | Future (M25) |
-
-**CHORD mode** — RELATION knob (or CC 94) sweeps through 11 chord shapes, interpolating smoothly between them. Voices are spread hard-L → hard-R across the stereo field.
-
-| RELATION | Chord      | Intervals (semitones) |
-| -------- | ---------- | --------------------- |
-| 0.0      | Unison     | 0, 0, 0, 0            |
-| 0.1      | Power      | 0, 7, 12, 19          |
-| 0.2      | Minor      | 0, 3, 7, 12           |
-| 0.3      | Major      | 0, 4, 7, 12           |
-| 0.4      | Sus2       | 0, 2, 7, 12           |
-| 0.5      | Sus4       | 0, 5, 7, 12           |
-| 0.6      | Major 7    | 0, 4, 7, 11           |
-| 0.7      | Minor 7    | 0, 3, 7, 10           |
-| 0.8      | Dominant 7 | 0, 4, 7, 10           |
-| 0.9      | Diminished | 0, 3, 6, 9            |
-| 1.0      | Octaves    | 0, 12, 24, 36         |
-
-#### `chord <name|0–10>` — Chord shape selector
-
-Convenience shim over `rel` for CHORD mode. Selects a shape by name or index without calculating semitone values manually.
-
-```txt
-chord major      # Major triad + octave — rel set to 7.2
-chord minor      # Minor triad + octave — rel set to 4.8
-chord dom7       # Dominant 7th — rel set to 19.2
-chord 0          # Unison (all voices at root)
-chord 10         # Octaves (0, 12, 24, 36 st)
-```
-
-Accepts all 11 names: `unison` `power` `minor` `major` `sus2` `sus4` `maj7` `min7` `dom7` `dim` `octaves`, or index 0–10.
-Works in any mode — `rel` is always updated, so you can preview chord shapes while in PAIR mode too.
+| Button       | Action               | Result                                                                  |
+| ------------ | -------------------- | ----------------------------------------------------------------------- |
+| MODE         | Tap                  | Cycle voice mode: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PAIR |
+| SHIFT        | Hold + knob          | Access secondary function for that knob                                 |
+| SHIFT + MODE | Hold SHIFT, tap MODE | Toggle drone mode (sustained without gate)                              |
+| MODE         | Hold during power-on | Enter V/Oct two-point calibration                                       |
 
 ---
 
-### SHAPE — Waveform
+## Voice Modes
 
-#### `shape <0–1>` — Waveform morph
-
-Range: 0.0–1.0
-
-Continuously morphs between five band-limited wavetables. Intermediate values crossfade smoothly — there are no steps or clicks.
-
-| Value | Waveform           | Character                    |
-| ----- | ------------------ | ---------------------------- |
-| 0.00  | Sine               | Pure, no harmonics           |
-| 0.25  | Triangle           | Warm, soft, gentle harmonics |
-| 0.50  | Saw                | Bright, full harmonic series |
-| 0.75  | Pulse (50%)        | Hollow, reedy                |
-| 1.00  | Narrow pulse (25%) | Nasal, oboe-like             |
-
-```txt
-shape 0           # pure sine — clean but thin
-shape 0.25        # triangle — most useful for pads and strings
-shape 0.5         # saw — Juno-style, synth bass, leads
-shape 0.75        # pulse — reedy pad character
-shape 0.35        # between tri and saw — classic polysynth pad
-```
+Tap **MODE** to cycle through six voice characters. The centre LED (L2) shows the current mode colour.
 
 ---
 
-### FATNESS — Sub Oscillator
+### PAIR — Dual Oscillator *(default)*
 
-#### `fat <0–1>` — Sub oscillator level
+**Sound:** clean, direct, fundamental. Two oscillators in a defined relationship — warm, full, immediate.
 
-Range: 0.0–1.0
+The foundation mode. Root and Relation play together with configurable interval and FM interaction. Best starting point for most patches. In this mode, note input (eg. from MIDI) is monophonic and the next received note steals the voice.
 
-Adds a square wave sub oscillator one octave below each voice. At `fat 1.0` the sub contributes 50% of the main oscillator's amplitude. The sub is always square-shaped regardless of the SHAPE setting.
+| Control  | Effect in PAIR                                                                           |
+| -------- | ---------------------------------------------------------------------------------------- |
+| RELATION | Interval between root and second voice in semitones (0 = unison, 7 = fifth, 12 = octave) |
+| COLOR    | FM depth — adds harmonic complexity and warmth (low = subtle, high = metallic)           |
+| MOTION   | Subtle drift between the two voices; gentle stereo movement                              |
+| SPACE    | Stereo spread — how far apart the two voices sit                                         |
 
-```txt
-fat 0             # no sub — thinner, clearer
-fat 0.3           # subtle warmth, good for most sounds
-fat 0.6           # significant body — synth bass territory
-fat 1.0           # maximum sub — full-bodied bass/pad
-```
+**Tips:**
 
-> Note: high FATNESS values add significant low-frequency energy. Reduce volume if needed to prevent output clipping.
-
----
-
-### MOTION — Drift and Animation
-
-`motion` is a shared depth control: it drives **both** the frequency drift engine and the **chorus** simultaneously. At zero, the module is static and the chorus is fully bypassed (dry signal). As motion increases, voices begin to wander and the stereo chorus thickens the image — both effects scale together, giving a single knob that moves from "cold and precise" to "warm and alive."
-
-#### `motion <0–1>` — Drift + chorus depth
-
-Range: 0.0–1.0
-
-Controls how much each voice wanders away from its nominal pitch, and simultaneously sets the chorus wet mix.
-
-| Value | Drift   | Chorus wet | Character                |
-| ----- | ------- | ---------- | ------------------------ |
-| 0.0   | none    | 0%         | Static, precise          |
-| 0.2   | subtle  | 12%        | Gentle warmth            |
-| 0.4   | natural | 24%        | Ensemble feel            |
-| 0.7   | audible | 42%        | String machine character |
-| 1.0   | heavy   | 60%        | Full Juno-style stereo   |
-
-At `motion=1.0` the mix is 40% dry / 60% chorus — the fundamental stays present while the modulated delays add width and shimmer.
-
-```txt
-motion 0          # static, clean — good for bass or exact tuning
-motion 0.2        # subtle warmth, barely perceptible on short notes
-motion 0.4        # natural ensemble feel — recommended starting point
-motion 0.7        # clearly audible wander + chorus width — string machine character
-motion 1.0        # full drift + full chorus — heavy vintage ensemble
-```
-
-#### `dspeed <0.001–0.1>` — Drift glide speed
-
-Range: 0.001–0.10, default: 0.04
-
-Controls how quickly each voice glides toward its new random target frequency. This is independent from how far it drifts (that is set by `motion`).
-
-| Value | Time constant | Character                      |
-| ----- | ------------- | ------------------------------ |
-| 0.005 | ~1.6 s        | Glacial, very slow wander      |
-| 0.04  | ~0.20 s       | Default, natural analogue feel |
-| 0.08  | ~0.10 s       | Fast, slightly jittery         |
-
-```txt
-dspeed 0.01       # slow wander — smooth gentle drift
-dspeed 0.04       # default
-dspeed 0.08       # faster — more restless
-```
-
-#### `chorus <off | I | II | I+II>` — Chorus mode
-
-Default: `I+II`
-
-Selects the Juno-inspired chorus character. `motion` sets the wet depth; `chorus` selects which LFO configuration is active. Phasors always keep running even when `off`, so switching modes is click-free.
-
-| Mode   | LFO config                        | Character                                      |
-| ------ | --------------------------------- | ---------------------------------------------- |
-| `off`  | pass-through                      | Dry — pure oscillator sound, no width          |
-| `I`    | both channels: slow LFO (0.51 Hz) | Subtle thickening, gentle width                |
-| `II`   | both channels: fast LFO (0.62 Hz) | Deeper warble, more pronounced movement        |
-| `I+II` | L=slow, R=fast                    | Maximum stereo spread — classic Juno character |
-
-```txt
-chorus off        # bypass — dry signal
-chorus I          # subtle Juno type I
-chorus II         # deeper warble type II
-chorus I+II       # full stereo spread (default)
-```
-
-> `chorus off` with `motion 0` = completely dry, static, precise.
-> `chorus I+II` with `motion 0.6` = classic Juno string ensemble character.
+- RELATION at 7 semitones (a fifth) is the classic starting point
+- Bring MOTION up slightly for a more organic, breathing tone
+- COLOR at low values adds harmonic warming without going metallic
 
 ---
 
-### SPACE — Stereo Width
+### CLOUD — Ensemble
 
-`space` controls the width of the final stereo image using a mid-side processor. At the default (`1.0`) the signal passes through unchanged — full independent L/R from detune and chorus. Reducing it narrows the field progressively toward mono.
+**Sound:** thick, lush, detuned. Multiple virtual voices distributed across the stereo field with animated positioning — supersaw-like density without harshness.
 
-#### `space <0–1>` — Stereo width
+| Control  | Effect in CLOUD                                                                          |
+| -------- | ---------------------------------------------------------------------------------------- |
+| RELATION | Ensemble spread and density — CCW = tight unison, CW = wide shimmer (±25¢ across voices) |
+| MOTION   | Brings the ensemble to life — voices drift and breathe at higher MOTION values           |
+| COLOR    | Fine Hz detune spread — adds beating and shimmer on top of the RELATION cent spread      |
+| SPACE    | Width of the stereo ensemble image                                                       |
 
-Range: 0.0–1.0, default: 1.0
+**Tips:**
 
-| Value | Character                                          |
-| ----- | -------------------------------------------------- |
-| 0.0   | Mono — both channels carry the summed centre image |
-| 0.5   | Narrowed — stereo information halved               |
-| 1.0   | Full stereo — identity, no processing (default)    |
-| 1.5   | Hyper-wide — side signal amplified 1.5×            |
-| 2.0   | Maximum — side doubled, L/R fully anti-correlated  |
-
-```txt
-space 1.0         # default — full stereo
-space 0.5         # narrower field — useful in dense mixes
-space 0.0         # mono — both channels identical
-space 1.5         # hyper-wide — exaggerates detune and chorus spread
-space 2.0         # maximum anti-correlation — dramatic spatial effect
-```
-
-> SPACE operates after chorus in the signal chain: `Osc → Drift → VCA → Chorus → SPACE → Output`. At `space > 1.0` output is clamped to ±32512 to prevent clipping. Mono compatibility decreases above 1.0 — ideal for full-stereo patches.
+- Slow CURVE (swell) + high MOTION = classic lush pad territory
+- CLOUD works well with reverb — the natural drift and reverb movement complement each other
+- REL CV from an LFO slowly pulses the ensemble width for breathing pads
 
 ---
 
-The CURVE system gives the module basic articulation without an external envelope/VCA. Two envelope algorithms are available at runtime:
+### CHORD — Harmonic Stack
 
-**AR mode (default):** single-knob attack+release. CURVE and CURVETIME control the shape and speed.
+**Sound:** four-voice harmonic content from a single note. RELATION sweeps through 11 chord shapes — from unison to full octave stacks.
 
-**ADSR mode:** full four-stage envelope with independent Attack, Decay, Sustain, and Release times. Optional loop mode turns the envelope into a free-running LFO.
+| Control  | Effect in CHORD                                                                |
+| -------- | ------------------------------------------------------------------------------ |
+| RELATION | Selects and morphs between chord shapes (see table below)                      |
+| COLOR    | Fine Hz detune spread across all chord voices — adds ensemble ensemble beating |
+| MOTION   | Drift animates each voice of the chord independently                           |
+| SPACE    | Distributes chord voices across the stereo field                               |
 
-Switch envelope type without stopping audio:
+**Chord table:**
 
-#### `gate <1 | 0 | free>` — Gate control
+| RELATION position | Chord      | Intervals     |
+| ----------------- | ---------- | ------------- |
+| 0                 | Unison     | 0, 0, 0, 0    |
+| 1                 | Power      | 0, 7, 12, 19  |
+| 2                 | Minor      | 0, 3, 7, 12   |
+| 3                 | Major      | 0, 4, 7, 12   |
+| 4                 | Sus2       | 0, 2, 7, 12   |
+| 5                 | Sus4       | 0, 5, 7, 12   |
+| 6                 | Major 7    | 0, 4, 7, 11   |
+| 7                 | Minor 7    | 0, 3, 7, 10   |
+| 8                 | Dominant 7 | 0, 4, 7, 10   |
+| 9                 | Diminished | 0, 3, 6, 9    |
+| 10                | Octaves    | 0, 12, 24, 36 |
 
-| Value  | Behaviour                                                                              |
-| ------ | -------------------------------------------------------------------------------------- |
-| `free` | **Drone mode** (default) — envelope bypassed, module sounds continuously at full level |
-| `1`    | Gate high — attack phase begins. Enables envelope mode.                                |
-| `0`    | Gate low — release phase begins.                                                       |
+**Tips:**
 
-Sending `gate 1` then `gate 0` triggers a complete note event.
-
-#### `curve <0–1>` — Envelope shape
-
-Range: 0.0–1.0
-
-Morphs both attack and release times simultaneously.
-
-| Value | Attack  | Release | Best for                       |
-| ----- | ------- | ------- | ------------------------------ |
-| 0.0   | ~1 ms   | ~80 ms  | Pluck, marimba, click          |
-| 0.2   | ~6 ms   | ~120 ms | Short staccato                 |
-| 0.5   | ~50 ms  | ~300 ms | Natural, sustaining pads       |
-| 0.75  | ~200 ms | ~500 ms | Slow pad, soft strings         |
-| 1.0   | ~800 ms | ~1 s    | Swell, evolving pad, cinematic |
-
-**Pluck mode:** below `curve 0.2` the envelope decays automatically at its peak even if the gate is still held. This gives percussive one-shot behaviour regardless of gate length.
-
-**Sustain mode:** above `curve 0.2`, holding the gate sustains the note at full level between attack peak and release.
-
-#### `curvetime <0.25–4>` — Envelope time scale
-
-Range: 0.25–4.0, default: 1.0
-
-Scales both attack and release times uniformly. The CURVE shape is preserved — only the overall speed changes. The range is intentionally symmetric in log space — each doubling of `curvetime` takes the same number of steps whether you are going faster or slower, giving fine-grained control over short times while still reaching very slow swells.
-
-The future hardware knob will use `powf(4.0f, (knob - 0.5f) * 2.0f)` so that the center detent always locks to 1.0×.
-
-| Value | Effect                                                             |
-| ----- | ------------------------------------------------------------------ |
-| 0.25  | 4× faster — great for fast staccato sequences                      |
-| 1.0   | Default                                                            |
-| 2.0   | 2× slower — longer swells                                          |
-| 4.0   | 4× slower — very slow cinematic blooms (3.2 s attack at curve=1.0) |
-
-```txt
-# Tight plucky bass:
-curve 0.1
-curvetime 0.5
-gate 1
-gate 0
-
-# Slow string swell:
-curve 1.0
-curvetime 2.0
-gate 1
-
-# Natural voiced pad:
-curve 0.5
-curvetime 1.0
-gate 1
-gate 0
-```
+- REL CV from a sample-and-hold creates instant random chord changes
+- Morphing RELATION slowly during a long swell envelope = chord evolution
+- L1/L5 show amber in CHORD mode
 
 ---
 
-### ADSR Envelope (M5x)
+### CASCADE — FM Synthesis
 
-When `env type adsr` is active the single-knob AR is replaced with a full four-stage envelope.
+**Sound:** bell-like to metallic-warm, harmonically complex. RELATION selects the FM ratio between the modulator and carrier oscillators. COLOR controls the FM depth independently.
 
-#### `env type <ar|adsr>` — Envelope algorithm
+FM here is intentionally restrained: depth is soft-clipped, ratios are musical, and the result stays harmonic across the full RELATION sweep.
 
-| Type           | Description                                                          |
-| -------------- | -------------------------------------------------------------------- |
-| `ar` (default) | Single-knob AR — CURVE + CURVETIME control both attack and release   |
-| `adsr`         | Full ADSR with independent attack, decay, sustain level, and release |
+| Control  | Effect in CASCADE                                                                     |
+| -------- | ------------------------------------------------------------------------------------- |
+| RELATION | Sweeps FM ratio zones (1:1 → 4:3 → 3:2 → 2:1 → 5:2 → 3:1)                             |
+| COLOR    | FM depth — 0 = dry carrier, full CW = rich harmonics (soft-clipped)                   |
+| MOTION   | Drifts carrier and modulator independently — the harmonic relationship itself wanders |
 
-```txt
-env type ar           # back to single-knob AR
-env type adsr         # switch to full ADSR
-```
+**Tips:**
 
-#### `adsr <A> <D> <S> <R> [loop|noloop]` — ADSR parameters
-
-All times in seconds. Sustain is a level (0.0–1.0).
-
-| Parameter | Range      | Default |
-| --------- | ---------- | ------- |
-| Attack    | 0.001–10 s | 0.05 s  |
-| Decay     | 0.001–10 s | 0.10 s  |
-| Sustain   | 0.0–1.0    | 0.80    |
-| Release   | 0.001–10 s | 0.30 s  |
-
-```txt
-adsr 0.01 0.2 0.7 0.4         # fast attack, medium decay, sustain 0.7, 0.4s release
-adsr 0.5 0.3 0.6 1.0          # slow attack pad
-adsr 0.001 0.1 0.0 0.05       # percussive pluck (zero sustain)
-adsr 0.05 0.1 0.8 0.3 loop    # looping ADSR — cycles continuously as LFO
-adsr 0.1 0.2 0.5 0.8 noloop   # remove loop flag
-```
-
-#### `env loop <on|off>` — ADSR loop mode
-
-When loop is on, after the release reaches zero the envelope automatically restarts from attack. This turns the ADSR into a free-running, cycling amplitude LFO. The cycle rate is determined by the total of all four stage times.
-
-```txt
-env loop on           # enable loop
-env loop off          # disable loop
-```
-
-> **Tip:** `adsr 0.1 0.05 0.0 0.1 loop` with `gate free` and a slow pad preset creates a tremolo effect driven by the ADSR loop. Adjust the times to change the tremolo rate.
-
-> **Oscillator phase reset:** every time a gate rises (note on), all oscillator phase accumulators are reset to zero. This prevents the metallic/PWM-like artifact that occurs when retriggering during a release cycle — the attack always starts from a clean waveform zero-crossing.
+- Keep MOTION above 20% to avoid a static FM character — the gentle drift keeps it musical
+- Low COLOR values = subtle harmonic warming; high values = pronounced bell or metal tones
+- Sweeping RELATION slowly while playing = evolving FM timbre in real time
+- L1/L5 show magenta in CASCADE mode
 
 ---
 
-## MIDI Control
+### STRING — Vintage Ensemble
 
-Alloy Flux appears as a standard USB MIDI device — no drivers needed. Connect via USB and use any DAW, MIDI controller, or browser-based tool (Chrome/Edge support Web MIDI via `navigator.requestMIDIAccess`).
+**Sound:** warm, constantly moving, atmospheric. Inspired by classic string machine ensemble sections — the chorus movement never fully stops, even at zero MOTION.
 
-**Note On / Note Off** set the root pitch and trigger the gate (monophonic, last-note priority). Sending Note On also arms the envelope if it was in drone mode. To return to drone mode from MIDI, send **CC 119** (any value).
+This is the most atmospheric mode. SPACE has its strongest effect here.
 
-### `midichan <1–16|omni>` — MIDI receive channel
+| Control  | Effect in STRING                                                           |
+| -------- | -------------------------------------------------------------------------- |
+| RELATION | Microdetune spread across all four voices — CCW = tight, CW = wide shimmer |
+| COLOR    | Fine Hz detune spread — adds a second layer of beating on top of RELATION  |
+| MOTION   | Deepens chorus movement; a baseline chorus floor remains active regardless |
+| SPACE    | Width of the ensemble image — very wide at full CW                         |
 
-Default: `omni` (responds to all channels)
+**Tips:**
 
-```txt
-midichan 1        # listen only on channel 1 (most DAW default)
-midichan 10       # channel 10 (drums convention — not recommended)
-midichan omni     # back to all channels (default)
-```
-
-Combine with DAW multi-instrument routing to run multiple AlloyFlux modules on separate channels.
-
-### USB MIDI CC Map
-
-All continuous parameters are reachable via MIDI CC. Assignments follow GM/MMA conventions where a standard meaning exists.
-
-| CC  | GM/MMA name         | AlloyFlux parameter | Range                          |
-| --- | ------------------- | ------------------- | ------------------------------ |
-| 1   | Modulation Wheel    | `motion`            | 0–1                            |
-| 7   | Channel Volume      | `vol`               | 0–1                            |
-| 64  | Sustain Pedal       | `gate` (hold)       | ≥64=on, <64=off                |
-| 71  | Resonance / Timbre  | `curve`             | 0–1                            |
-| 72  | Release Time        | `curvetime`         | 0.25–4                         |
-| 73  | Attack Time         | `dspeed`            | 0.001–0.1                      |
-| 74  | Brightness          | `shape`             | 0–1                            |
-| 91  | Reverb Send Depth   | `space`             | 0–2                            |
-| 92  | Tremolo Send Depth  | `detune`            | 0–200 Hz                       |
-| 93  | Chorus Send Depth   | `fat`               | 0–1                            |
-| 94  | Celeste / Variation | `rel`               | 0–24 semitones                 |
-| 112 | (unassigned)        | `revModSpeed`       | 0.1–4.0 (LFO rate multiplier)  |
-| 113 | (unassigned)        | `revModDepth`       | 0.0–1.0 (LFO depth multiplier) |
-| 114 | (unassigned)        | reverb freeze       | ≥64=freeze on, <64=freeze off  |
-| 119 | (unassigned)        | drone return        | — (any value)                  |
-| 123 | All Notes Off       | panic               | —                              |
-
-Program Change messages 1–5 select voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING).
-
-The CC table is defined in a single file (`src/param_map.cpp`) shared by all transports — future hardware TRS MIDI and I2C will use the same mapping automatically.
+- SPACE CW + slow CURVE swell = massive string section entrance
+- MOTION at 30–50% is the sweet spot for vintage string character
+- Add a touch of reverb for classic string-machine depth
+- L1/L5 show purple in STRING mode
 
 ---
 
-## Config Persistence
+### POLY — True Polyphony
 
-### `config` — Preset slots & factory reset
+**Sound:** four-voice polyphonic — each MIDI note is independent with its own envelope, drift, and stereo position.
 
-AlloyFlux has **10 preset slots** in flash (wear-levelled EEPROM emulation). Slot 0 is the auto-save live state restored on every boot. Slots 1–9 are explicit user presets.
+Voices are distributed left to right across the stereo field: slot 0 → hard left, slot 1 → soft left, slot 2 → soft right, slot 3 → hard right. Round-robin allocation, oldest-note stolen on a fifth note.
 
-| Command | Action |
-| --- | --- |
-| `config save` | Write current parameters to flash (live slot 0) |
-| `config save <1–9>` | Save current parameters to preset slot 1–9 |
-| `config load` | Restore live slot 0 (also happens automatically on boot) |
-| `config load <1–9>` | Load preset slot 1–9 into active parameters |
-| `config reset` | Wipe live slot — defaults used on next boot |
-| `config reset <1–9>` | Wipe a single preset slot |
-| `config reset all` | **Factory reset** — wipe all 10 slots |
+| Control  | Effect in POLY                                               |
+| -------- | ------------------------------------------------------------ |
+| RELATION | Global detune spread across all active voices                |
+| COLOR    | Fine Hz detune spread per voice slot (adds ensemble beating) |
+| MOTION   | Per-voice drift — each voice drifts independently            |
+| CURVE    | Envelope shape applies per-voice — each note has its own AR  |
+| SPACE    | Stereo spread of the voice distribution                      |
 
-```txt
-config save        # save live state
-config save 3      # save to preset slot 3
-config load 3      # recall preset slot 3
-config reset all   # factory reset — all slots wiped
-```
+**Tips:**
 
-**Flash protection (live slot only):** saves are rate-limited to one every 10 seconds. If the parameters haven’t changed since the last save, no write occurs (dirty check). Explicit preset slot saves (1–9) bypass the rate limit.
-
-```txt
-> config save
-config saved (live slot)
-
-> config save
-config unchanged — no write needed
-
-> config save
-config save throttled — wait 10s between saves
-
-> config save 3
-preset 3 saved
-
-> config load 3
-preset 3 loaded
-
-> config reset all
-all presets wiped — defaults on next boot
-```
-
-On boot, the live slot (slot 0) is loaded automatically if a valid config exists. If the firmware version changes (struct updated), the stored config is silently discarded and compile-time defaults are used.
-
-> **Wear estimate:** at the 10 s rate limit, flash rated at 100,000 erase cycles ≈ 31 years of continuous saving. The wear-levelling circular buffer multiplies this further. Explicit preset saves are not rate-limited but are dirty-checked — no write if contents are identical.
+- Pair with a MIDI keyboard for immediate polyphonic play
+- CURVE swell + slow MOTION = lush evolving pads from held chords
+- V/OCT + GATE input always plays into voice slot 0; MIDI fills slots 1–3
+- L2 shows lime/yellow-green in POLY mode; L1 brightness tracks active voice count
 
 ---
 
-### Volume
+## Controls Reference
 
-#### `vol <0–1>` — Master volume
+### ROOT
 
-Range: 0.0–1.0, default: 0.8
-
-```txt
-vol 0.5           # quieter
-vol 0.8           # default
-vol 1.0           # maximum (caution with high fatness)
-```
+Primary pitch. Sets the pitch centre for the entire module. Apply V/OCT for melodic tracking.
+*Associated CV: V/OCT jack*
 
 ---
 
-## Post-Effects
+### RELATION *(signature control — largest knob)*
 
-The post-effects chain sits between Chorus and the SPACE engine. All three effects are optional and fully bypassed (zero CPU) when disabled.
+The defining control of Alloy Flux. Its behaviour changes per mode — always governs the relationship between ROOT and everything else. Controls interval, spread, chord shape, FM depth, or polyphonic detune depending on the active mode.
 
-```txt
-Signal chain (default): VCA → Filter → Chorus → Delay → Reverb → SPACE → Output
-```
-
-Effect positions are reorderable via `fxorder`.
-
-### `filter <mode> [cutoff] [res]` — Multimode filter
-
-Stereo filter — two runtime-selectable algorithms (see `filter type`).
-
-| Mode    | Character                          |
-| ------- | ---------------------------------- |
-| `off`   | Bypass — zero CPU (default)        |
-| `lp`    | Low-pass — warm, rolls off highs   |
-| `hp`    | High-pass — removes low end        |
-| `bp`    | Band-pass — midrange resonant peak |
-| `notch` | Notch — scoops a frequency         |
-
-| Parameter | Range       | Default |
-| --------- | ----------- | ------- |
-| cutoff    | 20–16000 Hz | 8000 Hz |
-| resonance | 0.0–1.0     | 0.0     |
-
-```txt
-filter lp 2000 0.6    # low-pass at 2 kHz, resonance 0.6
-filter hp 400         # high-pass at 400 Hz
-filter bp 1200 0.8    # band-pass at 1.2 kHz, high resonance
-filter off            # bypass
-```
-
-### `filter type <svf|ladder>` — Filter algorithm
-
-Switches the filter engine at runtime. Both are always compiled into flash — switching is silent and glitch-free.
-
-| Type            | Algorithm                  | Modes                | Character                                          |
-| --------------- | -------------------------- | -------------------- | -------------------------------------------------- |
-| `svf` (default) | Cytomic TVA state-variable | LP / HP / BP / NOTCH | Clean, precise, all-mode                           |
-| `ladder`        | ZDF 4-pole Moog-style OTA  | LP4 only             | Warm, saturating; self-oscillates at resonance 1.0 |
-
-```txt
-filter type svf       # clean Cytomic SVF (default)
-filter type ladder    # OTA 4-pole ladder — lp mode forced, tanh saturation
-```
-
-> **Tip:** with `ladder` and `resonance 0.9–0.95`, turning up resonance on low cutoffs gives a deep, warm Moog-style squeal. At `resonance 1.0` the ladder self-oscillates — use as a sine wave source.
-
-### `fxorder <filter|delay> <pre|post>` — Effect chain order
-
-Controls where the filter and delay sit relative to chorus and reverb.
-
-| Command               | Chain result                                 |
-| --------------------- | -------------------------------------------- |
-| `fxorder filter pre`  | Filter → Chorus (default — shapes raw voice) |
-| `fxorder filter post` | Chorus → Filter (sculpts the chorused mix)   |
-| `fxorder delay pre`   | Delay → Reverb (default — reverb'd echoes)   |
-| `fxorder delay post`  | Reverb → Delay (echoes of the reverb tail)   |
-
-### `reverb <mix> [size] [damping]` — Plate reverb
-
-Dattorro 1997 plate algorithm running entirely on Core 1 — zero load on the audio ISR. Four independent LFOs (0.10 / 0.12 / 0.15 / 0.18 Hz) modulate the tank allpass filters for smooth, diffuse reverberation.
-
-| Parameter | Range   | Default | Notes                              |
-| --------- | ------- | ------- | ---------------------------------- |
-| mix       | 0.0–1.0 | 0.35    | Wet level added on top of dry      |
-| size      | 0.0–1.0 | 0.5     | Tank decay — higher = longer tail  |
-| damping   | 0.0–1.0 | 0.5     | High-frequency rolloff in the tail |
-
-```txt
-reverb 0.3 0.7 0.4    # subtle plate — large, slightly bright
-reverb 0.5 0.9 0.7    # large hall — long dark tail
-reverb 0.2 0.5 0.3    # small room — short, clear
-reverb on             # re-enable with current settings
-reverb off            # disable (Core 1 sleeps — zero CPU)
-reverb freeze on      # hold reverb tail — decay → 1.0, input gated
-reverb freeze off     # return to normal decay
-reverb modspeed 2.0   # LFO rate multiplier 0.1–4.0 (default 1.0)
-reverb moddepth 0.5   # LFO depth multiplier 0.0–1.0 (default 1.0)
-```
-
-#### Reverb sub-commands
-
-| Sub-command           | Range   | Description                                                       |
-| --------------------- | ------- | ----------------------------------------------------------------- |
-| `reverb freeze on`    | —       | Freeze reverb tail — decay set to 1.0, input gated; tail sustains |
-| `reverb freeze off`   | —       | Unfreeze — return to configured decay and re-open input           |
-| `reverb modspeed <v>` | 0.1–4.0 | LFO rate multiplier; 1.0 = default (0.10–0.18 Hz range)           |
-| `reverb moddepth <v>` | 0.0–1.0 | LFO depth multiplier; 0.0 = static (no modulation)                |
-
-Also reachable via MIDI CC: CC 112 = modspeed, CC 113 = moddepth, CC 114 = freeze (≥64 on).
-
-### `delay <mix> [time_ms] [feedback]` — Ping-pong delay
-
-Stereo ping-pong delay — cross-channel feedback routes echoes L→R→L alternating. Maximum time: 300 ms.
-
-| Parameter | Range     | Default | Notes                                   |
-| --------- | --------- | ------- | --------------------------------------- |
-| mix       | 0.0–1.0   | 0.0     | Wet level; 0 = bypass (zero CPU)        |
-| time_ms   | 10–300 ms | 100 ms  | Fractional sample accuracy              |
-| feedback  | 0.0–0.95  | 0.5     | Echo decay; >0.8 gives long fading tail |
-
-```txt
-delay 0.4 150 0.6     # ping-pong at 150 ms, 60% feedback
-delay 0.5 80 0.4      # tight short bounces
-delay 0.3 300 0.8     # long slow echo
-delay on              # re-enable with current settings
-delay off             # bypass
-```
-
-> **Tip:** `fxorder delay post` with long reverb creates echoes of the reverb tail — cathedral-like decay. Default `fxorder delay pre` creates reverb'd echoes — classic studio plate+delay sound.
+*Associated CV: REL CV jack*
+When REL CV is patched, RELATION knob becomes an **attenuverter** for that CV (centre = no effect, CW = full depth, CCW = inverted depth).
 
 ---
 
-## Knob Shift Functions
+### SHAPE
 
-The panel has two buttons: **MODE** (GP10) and **SHIFT** (GP11). Hold SHIFT while turning a knob to access a secondary parameter — four knobs have shift functions, giving eight parameters from seven knobs.
+Continuous waveform morph across five timbres:
 
-| Knob  | Primary parameter               | Shift parameter (hold SHIFT)      |
-| ----- | ------------------------------- | --------------------------------- |
-| SHAPE | `shape` — waveform morph        | `fat` — sub oscillator level      |
-| MOTN  | `motion` — drift + chorus depth | `dspeed` — drift glide rate       |
-| CURVE | `curve` — envelope shape        | `curvetime` — envelope time scale |
-| SPACE | `space` — stereo width          | `vol` — master output volume      |
+```txt
+Fully CCW ────────────────────────────────────── Fully CW
+  Sine    Triangle     Saw     Pulse    Hollow Pulse
+```
 
-The LED indicator dims white while shift mode is active. ROOT, RELATION, and FM knobs have no shift function.
+*Associated CV: SHP CV jack*
+When SHP CV is patched, SHAPE becomes an attenuverter for that CV.
 
-**Drone shortcut:** holding MODE + SHIFT simultaneously returns to drone mode — envelope is disarmed and the module sounds continuously regardless of the last gate source.
-
-> **Current firmware (M31 partial / M40 partial / M41 partial):** mode cycling and drone combo are active — MODE steps through PAIR → CHORD, MODE+SHIFT returns to drone. **SHIFT** also fires a 100 ms gate trigger on release (trig-on-release) — press and release SHIFT alone to trigger a one-shot note from the panel; if MODE+SHIFT drone combo was used, the trig is suppressed automatically (`sShiftConsumed`). Reverb now includes 4-LFO modulation, freeze, and modspeed/moddepth controls (CC 112/113/114). Shift functions (hold SHIFT + knob) are not yet implemented; secondary parameters are still accessed via serial commands.
+**SHIFT function:** Hold SHIFT + turn SHAPE → adjusts **FATNESS** (sub oscillator level — adds a square wave one or two octaves (set by configurator) below each voice for Juno-style body).
 
 ---
 
-## Gate and Envelope Modes
+### MOTION
 
-### Drone mode (default)
+Controls all internal animation depth simultaneously — drift, chorus modulation, stereo movement, voice timing offsets, and phase instability.
 
-No gate patching required. The module sounds continuously. Useful for:
+- At zero: module is stable and static
+- At full: module breathes and moves — string machine territory
 
-- Testing timbre without an envelope
-- Pads and drones that sustain indefinitely
-- Tuning and sound design exploration
+*Associated CV: MTN CV jack*
+When MTN CV is patched, MOTION becomes an attenuverter for that CV.
 
-Return to drone mode at any time via:
-
-- **Serial:** `gate free`
-- **Buttons:** hold MODE + SHIFT simultaneously
-- **MIDI:** send CC 119 (any value)
-
-**SHIFT button — one-shot trigger:** pressing and releasing SHIFT alone fires a 100 ms gate pulse (equivalent to `trig 100`). Use this to trigger the envelope from the panel without a MIDI keyboard or serial command. If the MODE+SHIFT drone combo was used during the same press, the trig is suppressed — no accidental retriggering.
-
-```txt
-# Factory default — just plug in audio and hear sound:
-gate free         # (this is the default on power-up)
-pitch 220
-detune 4
-shape 0.25
-fat 0.4
-motion 0.4
-```
-
-### Triggered mode (via serial for now)
-
-Enable the envelope by sending any gate command other than `free`.
-
-```txt
-# Simple note sequence at A3:
-pitch 220
-curve 0.4
-curvetime 1.0
-gate 1            # note on — attack begins
-gate 0            # note off — release begins
-
-# Retrigger a new note (change pitch between gate 1 events):
-gate 0
-pitch 261.63
-gate 1
-gate 0
-pitch 329.63
-gate 1
-gate 0
-```
-
-> When hardware gate jack (GP12) is connected in a future milestone, it will write the same `gGateHigh` flag directly — the serial `gate` command and the hardware jack are identical in effect.
+**SHIFT function:** Hold SHIFT + turn MOTION → adjusts **DRIFTSPEED** (how quickly each voice steps toward a new random pitch target).
 
 ---
 
-## Status
+### COLOR
 
-`status` prints all current parameters across two lines — voice parameters on line 1, post-effects chain on line 2:
+Tonal color and FM depth. Behaviour changes per mode:
 
-```txt
-pitch=220.00 mode=PAIR rel=0.000 detune=4.00 shape=0.250 fat=0.400 motion=0.400 dspeed=0.0400 curve=0.500 ctime=1.00 gate=free chorus=I+II vol=0.800 space=1.000 midichan=omni
-filter=off fxorder=filter:pre,delay:pre reverb=off delay=off
-```
+- **PAIR / CASCADE:** FM depth — the RELATION voice modulates ROOT via phase modulation. Low values add harmonic warmth; full CW produces bell-like or metallic harmonics.
+- **CLOUD / CHORD / STRING / POLY:** Fine Hz detune spread across all voices. Adds a second layer of beating and shimmer on top of the RELATION cent spread. At full CW, outer voices are up to ±25 Hz from nominal.
 
-With effects active:
-
-```txt
-filter=lp cut=2000 res=0.60 fxorder=filter:post,delay:pre reverb=on mix=0.40 size=0.70 damp=0.50 delay=on mix=0.50 time=150ms fb=0.60
-```
+At COLOR = 0 the effect is completely absent in all modes.
 
 ---
 
-## Sound Design Recipes
+### CURVE
 
-### Juno-style string pad
+Envelope and articulation shaping. Controls attack and release time together:
 
-```txt
-pitch 220
-detune 5
-shape 0.25
-fat 0.5
-motion 0.5
-dspeed 0.04
-curve 0.75
-curvetime 1.5
-gate free
-```
+- Fully CCW: pluck — fast attack, fast decay (percussive)
+- Centre: natural attack, medium decay
+- Fully CW: swell — slow attack, long sustain (pad-like)
 
-### Plucky synth bass
+The module includes an envelope and VCA — no external envelope needed for basic play.
 
-```txt
-pitch 110
-detune 1
-shape 0.5
-fat 0.7
-motion 0.1
-curve 0.0
-curvetime 0.8
-gate 1
-gate 0
-```
-
-### Warm detuned pad (drone)
-
-```txt
-pitch 130.81
-detune 8
-shape 0.3
-fat 0.4
-motion 0.6
-dspeed 0.03
-gate free
-```
-
-### Slow cinematic swell
-
-```txt
-pitch 261.63
-detune 3
-shape 0.2
-fat 0.3
-motion 0.5
-curve 1.0
-curvetime 3.0
-gate 1
-```
-
-### Hollow nasal lead
-
-```txt
-pitch 440
-detune 0
-shape 0.9
-fat 0.0
-motion 0.15
-curve 0.3
-curvetime 0.7
-gate 1
-gate 0
-```
-
-### Unstable vintage synth
-
-```txt
-pitch 220
-detune 6
-shape 0.5
-fat 0.3
-motion 0.9
-dspeed 0.06
-gate free
-```
-
-### Lush plate reverb pad
-
-```txt
-pitch 220
-shape 0.25
-fat 0.3
-motion 0.4
-curve 0.75
-curvetime 1.5
-reverb 0.4 0.85 0.5
-gate free
-```
-
-### Ping-pong echo lead
-
-```txt
-note A4
-shape 0.5
-fat 0.0
-motion 0.15
-curve 0.3
-curvetime 0.7
-delay 0.45 160 0.65
-chorus off
-gate 1
-gate 0
-```
-
-### Dark filtered drone
-
-```txt
-pitch 110
-shape 0.5
-fat 0.5
-motion 0.5
-filter lp 800 0.5
-curve 0.8
-curvetime 2.0
-gate free
-```
-
-### Cathedral (reverb + delay)
-
-```txt
-pitch 261.63
-shape 0.2
-fat 0.2
-motion 0.3
-reverb 0.5 0.95 0.7
-delay 0.3 300 0.75
-fxorder delay post
-curve 1.0
-curvetime 2.0
-gate 1
-```
+**SHIFT function:** Hold SHIFT + turn CURVE → adjusts **CURVETIME** (overall envelope time scale — compresses or stretches both attack and release uniformly).
 
 ---
 
-## Diagnostic Commands
+### SPACE
 
-### `cpu`
+Stereo width and placement. Controls how far apart voices sit in the stereo field.
 
-Prints audio ISR timing, CPU headroom, and overrun count (requires `CPU_PROFILE` build flag).
+- Fully CCW: voices narrow toward mono centre
+- Fully CW: voices spread to full stereo width with phase offsets
+
+SPACE has its strongest effect in STRING mode.
+
+*Associated CV: SPC CV jack*
+When SPC CV is patched, SPACE becomes an attenuverter for that CV.
+
+**SHIFT function:** Hold SHIFT + turn SPACE → adjusts **VOL** (master output level).
+
+---
+
+## Shift Functions Summary
+
+Hold **SHIFT** and turn a knob to access its secondary parameter. The L4 LED (near SHIFT button) lights white while SHIFT is held.
+
+| Knob   | Primary                        | SHIFT + Knob                        |
+| ------ | ------------------------------ | ----------------------------------- |
+| SHAPE  | Waveform morph (sine → hollow) | **FATNESS** — sub oscillator level  |
+| MOTION | Drift + chorus depth           | **DRIFTSPEED** — drift glide rate   |
+| CURVE  | Envelope shape (pluck → swell) | **CURVETIME** — envelope time scale |
+| SPACE  | Stereo width                   | **VOL** — master output volume      |
+
+ROOT, RELATION, and FM have no shift function — full knob travel is needed for precision.
+
+---
+
+## LED Guide
+
+### LED Positions
 
 ```txt
-audio ISR: 2us / 30us  headroom: 93.3%  overruns: 0
+L1  ·  ·  ·  L5       ← voice activity (left / right)
+L2  ·  ·  ·  L4       ← mode indicator / shift state
+    · L3  ·           ← motion heartbeat / global
 ```
 
-### `perf on` / `perf off`
+### L2 — Mode Indicator
 
-Enables or disables automatic CPU reporting every 5 seconds to the serial console.
+Always shows the current voice mode as a steady colour.
+
+| Mode    | Colour              |
+| ------- | ------------------- |
+| PAIR    | Soft white          |
+| CLOUD   | Cyan                |
+| CHORD   | Amber               |
+| CASCADE | Magenta             |
+| STRING  | Purple              |
+| POLY    | Lime / yellow-green |
+
+When changing mode: brief white flash → settles to new colour.
+
+### L1 + L5 — Voice Activity
+
+Breathe with the audio envelope in all modes. Bright on attack, fade on release.
+
+| Mode    | L1 (left)                     | L5 (right)                         |
+| ------- | ----------------------------- | ---------------------------------- |
+| PAIR    | Warm red — envelope level     | Cool blue — relation depth         |
+| CLOUD   | Cyan — left voice position    | Cyan — stereo spread               |
+| CHORD   | Amber — root envelope         | Amber dimmer — interval spread     |
+| CASCADE | Magenta — carrier activity    | Magenta brighter — modulator depth |
+| STRING  | Purple — slow drift           | Purple — offset phase              |
+| POLY    | Warm red — active voice count | Cool blue — color spread           |
+
+### L4 — Shift / Drone State
+
+Dark in normal operation. Lights when state changes:
+
+| State              | Colour     | Pattern           |
+| ------------------ | ---------- | ----------------- |
+| Normal             | Off        | Dark              |
+| SHIFT held         | White      | Steady while held |
+| Drone mode active  | Warm white | Slow breathe      |
+| Calibration active | White      | Slow pulse        |
+
+### L3 — Motion Heartbeat
+
+Shows module activity and animation state.
+
+| State                 | Colour      | Pattern                            |
+| --------------------- | ----------- | ---------------------------------- |
+| MOTION = 0, silent    | Off         | Dark                               |
+| MOTION > 0            | Green       | Pulses at drift rate               |
+| Gate active           | White       | Bright on attack, fades with CURVE |
+| Drone, no MOTION      | Green dim   | Very slow breathe                  |
+| CASCADE active        | Magenta dim | Pulses with FM depth               |
+| STRING / chorus heavy | Purple dim  | Slow movement                      |
 
 ---
 
-## Command Quick Reference
+## Drone Mode
 
-| Command                | Range                             | Description                                                                        |
-| ---------------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
-| `pitch <hz>`           | 20–8000                           | Base frequency                                                                     |
-| `note <name>`          | —                                 | Set pitch by note name (C4, A#3, etc.)                                             |
-| `mode <name>`          | pair/chord/…                      | Voice mode (pair: M21, chord: M23)                                                 |
-| `rel <0–24>`           | 0–24 st                           | RELATION: voice 2 interval (0=unison, 7=fifth, 12=octave)                          |
-| `detune <hz>`          | 0–200                             | Symmetric fine spread between voices                                               |
-| `shape <0–1>`          | 0–1                               | Waveform: 0=sine 0.25=tri 0.5=saw 0.75=pulse 1=hollow                              |
-| `fat <0–1>`            | 0–1                               | Sub oscillator level (0=off, 1=50% of main)                                        |
-| `motion <0–1>`         | 0–1                               | Frequency drift + chorus depth (0=dry/static, 1=full)                              |
-| `dspeed <n>`           | 0.001–0.1                         | Drift glide speed (τ coefficient)                                                  |
-| `chorus <mode>`        | off/I/II/I+II                     | Chorus mode (default: I+II)                                                        |
-| `space <0–2>`          | 0–2                               | Stereo width (0=mono, 1=full stereo, 2=hyper-wide, default: 1)                     |
-| `curve <0–1>`          | 0–1                               | Envelope shape (0=pluck, 1=swell)                                                  |
-| `curvetime <n>`        | 0.25–4                            | Envelope time scale (1=default)                                                    |
-| `gate <1\|0\|free>`    | —                                 | Gate high / low / bypass (drone)                                                   |
-| `trig [ms]`            | —                                 | One-shot gate pulse (default 100 ms)                                               |
-| `vol <0–1>`            | 0–1                               | Master volume                                                                      |
-| `filter <mode> …`      | off/lp/hp/bp/notch                | Multimode filter: mode [cutoff Hz] [resonance 0–1]                                 |
-| `filter type <t>`      | svf / ladder                      | Filter algorithm: `svf` (clean, all modes) or `ladder` (LP4, saturating, self-osc) |
-| `fxorder <fx> <pos>`   | filter/delay × pre/post           | Effect chain position                                                              |
-| `reverb <mix> …`       | 0–1, 0–1, 0–1                     | Plate reverb: mix size damping; `reverb on/off`                                    |
-| `reverb freeze on/off` | —                                 | Hold reverb tail (decay→1.0, input gated) / release                                |
-| `reverb modspeed <v>`  | 0.1–4.0                           | LFO rate multiplier (default 1.0)                                                  |
-| `reverb moddepth <v>`  | 0.0–1.0                           | LFO depth multiplier (default 1.0; 0=static)                                       |
-| `delay <mix> …`        | 0–1, 10–300, 0–0.95               | Ping-pong delay: mix time_ms feedback; `delay on/off`                              |
-| `env type <t>`         | ar / adsr                         | Envelope algorithm: `ar` (single-knob) or `adsr` (full ADSR)                       |
-| `adsr <A> <D> <S> <R>` | 0.001–10, 0.001–10, 0–1, 0.001–10 | ADSR times (s) + sustain level; append `loop` for loop mode                        |
-| `env loop <on\|off>`   | —                                 | Toggle ADSR loop mode (envelope as cycling LFO)                                    |
-| `midichan <n\|omni>`   | 1–16, omni                        | MIDI receive channel (default: omni)                                               |
-| `config <cmd>`         | save/load/reset                   | Persist / restore / wipe all parameters to flash                                   |
-| `status`               | —                                 | Print all current parameters                                                       |
-| `cpu`                  | —                                 | Audio ISR timing and headroom                                                      |
-| `perf on\|off`         | —                                 | Auto CPU reporting every 5 s                                                       |
-| `help`                 | —                                 | List all commands                                                                  |
+Drone mode keeps voices running continuously without needing a sustained gate — useful for ambient playing and held textures. The module starts in drone mode until a gate is present.
+
+**Enter drone:** Hold SHIFT then tap MODE. L4 fades up to warm white slow breathe.
+
+**Exit drone:** First incoming gate automatically returns to gated mode, or hold SHIFT and tap MODE again to toggle back.
+
+In drone mode, V/OCT and MIDI notes change pitch without retriggering the envelope.
 
 ---
 
-## Default Values
+## V/Oct Calibration
 
-| Parameter     | Default                   | Notes                                       |
-| ------------- | ------------------------- | ------------------------------------------- |
-| `pitch`       | 440 Hz                    | A4                                          |
-| `mode`        | pair                      |                                             |
-| `rel`         | 0.0                       | Unison (voice 2 at ROOT)                    |
-| `detune`      | 0 Hz                      | No fine spread                              |
-| `shape`       | 0.0                       | Sine                                        |
-| `fat`         | 0.4                       | Sub slightly audible                        |
-| `motion`      | 0.0                       | Static                                      |
-| `dspeed`      | 0.04                      | ~0.20 s drift glide                         |
-| `chorus`      | I+II                      | Juno I+II stereo spread                     |
-| `space`       | 1.0                       | Full stereo (identity, range 0–2)           |
-| `curve`       | 0.5                       | Natural AR                                  |
-| `curvetime`   | 1.0                       | Normal speed                                |
-| `gate`        | free                      | Drone, envelope bypassed                    |
-| `vol`         | 0.8                       |                                             |
-| `filter`      | off                       | Filter bypassed (SVF algorithm)             |
-| `filter type` | svf                       | Cytomic SVF                                 |
-| `env type`    | ar                        | Single-knob AR envelope                     |
-| `adsr`        | 0.05 / 0.10 / 0.80 / 0.30 | Attack / Decay / Sustain / Release defaults |
-| `env loop`    | off                       |                                             |
-| `reverb`      | off                       | Reverb disabled                             |
-| `delay`       | off                       | Delay bypassed (mix=0)                      |
-| `midichan`    | omni                      | All MIDI channels                           |
+Alloy Flux uses a two-point software calibration for accurate pitch tracking.
 
-> All parameters marked above are automatically restored on boot if `config save` has been used.
+**To calibrate:**
+
+1. Hold **MODE** while powering the module on
+2. L4 begins a slow white pulse — calibration mode is active
+3. Patch a **1V** reference into V/OCT, tap MODE to confirm
+4. Patch a **3V** reference into V/OCT, tap MODE to confirm
+5. All LEDs flash white, L4 triple-flashes → saved to flash
+
+Calibration survives power cycles. Repeat only if pitch tracking drifts.
+
+---
+
+## MIDI Implementation
+
+Alloy Flux responds to USB MIDI and TRS MIDI simultaneously. Connect via USB to a computer or DAW — it appears as a standard USB MIDI device (no driver required). TRS MIDI supports both Type A and Type B automatically.
+
+**Default channel:** omni (responds to all channels). To configure a specific channel, use the Web Configurator or a serial terminal.
+
+---
+
+### Note Messages
+
+| Message            | Action                                                                    |
+| ------------------ | ------------------------------------------------------------------------- |
+| Note On            | Set pitch + trigger envelope                                              |
+| Note Off           | Release envelope                                                          |
+| Pitch Bend         | ±2 semitones                                                              |
+| Program Change 1–6 | Switch voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=POLY) |
+
+The velocity on Note On messages is used to set the output volume of that note, from 0 (off) to 1 (full volume). This can be disabled so all notes play at the global volume level regardless of how hard they are struck. Use the **Web Configurator** (MIDI → Velocity Sensitivity), the serial command `veloc off`, or **CC 65 < 64** to disable.
+
+---
+
+### MIDI CC Map
+
+Map your MIDI controller to any of these parameters for expressive real-time control.
+
+#### Core Parameters
+
+| CC    | Parameter | Range | Description                                                             |
+| ----- | --------- | ----- | ----------------------------------------------------------------------- |
+| CC 1  | Motion    | 0–127 | Drift + chorus depth (mod wheel)                                        |
+| CC 7  | Volume    | 0–127 | Master output level                                                     |
+| CC 74 | Shape     | 0–127 | Waveform morph (sine → hollow pulse)                                    |
+| CC 94 | Relation  | 0–127 | RELATION semitones above ROOT (0–24 st)                                 |
+| CC 92 | Color     | 0–127 | Tonal color: FM depth in PAIR/CASCADE; fine Hz spread in ensemble modes |
+| CC 91 | Space     | 0–127 | Stereo width (0–2× — 0=mono, 1=normal, 2=hyper wide)                    |
+| CC 93 | Fatness   | 0–127 | Sub oscillator level (0–1)                                              |
+
+#### Envelope & Articulation
+
+| CC     | Parameter            | Range                 | Description                                        |
+| ------ | -------------------- | --------------------- | -------------------------------------------------- |
+| CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                     |
+| CC 72  | Curve Time           | 0–127                 | Envelope time scale (0.25× – 4×)                   |
+| CC 73  | Drift Speed          | 0–127                 | Drift glide rate                                   |
+| CC 64  | Sustain / Gate       | ≥64=on                | Hold voices sustained (drone toggle)               |
+| CC 65  | Velocity Sensitivity | ≥64=on / <64=off      | On = velocity scales volume (default), Off = fixed |
+| CC 119 | Drone Return         | any                   | Clear gate arm, return to continuous drone         |
+| CC 123 | All Notes Off        | any                   | Panic — release all voices                         |
+| CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                |
+| CC 82  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                       |
+| CC 83  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                        |
+| CC 84  | ADSR Sustain         | 0–127                 | ADSR sustain level (0–1)                           |
+| CC 95  | ADSR Release         | 0–127                 | ADSR release time (0.001–4 s)                      |
+
+#### Filter
+
+| CC    | Parameter        | Range                                                      | Description                               |
+| ----- | ---------------- | ---------------------------------------------------------- | ----------------------------------------- |
+| CC 75 | Filter Cutoff    | 0–127                                                      | Cutoff frequency (20–16000 Hz, log scale) |
+| CC 76 | Filter Resonance | 0–127                                                      | Resonance (0–1)                           |
+| CC 77 | Filter Mode      | 0–25=OFF / 26–50=LP / 51–76=HP / 77–101=BP / 102–127=NOTCH | Select filter type                        |
+| CC 78 | Filter Algorithm | 0–63=SVF / 64–127=Ladder                                   | Cytomic SVF or OTA 4-pole ladder          |
+| CC 79 | Filter Position  | 0–63=pre-chorus / 64–127=post-chorus                       | Effect chain placement                    |
+
+#### Chorus
+
+| CC    | Parameter   | Range                                       | Description           |
+| ----- | ----------- | ------------------------------------------- | --------------------- |
+| CC 89 | Chorus Mode | 0–31=OFF / 32–63=I / 64–95=II / 96–127=I+II | Chorus character      |
+| CC 90 | Sub Octave  | 0–63=1 oct / 64–127=2 oct                   | Sub oscillator octave |
+
+#### Reverb
+
+| CC     | Parameter        | Range            | Description                         |
+| ------ | ---------------- | ---------------- | ----------------------------------- |
+| CC 116 | Reverb On/Off    | ≥64=on / <64=off | Enable or disable reverb            |
+| CC 117 | Reverb Mix       | 0–127            | Reverb wet level (0–1)              |
+| CC 118 | Reverb Size      | 0–127            | Plate size / decay time (0–1)       |
+| CC 120 | Reverb Damping   | 0–127            | High frequency damping (0–1)        |
+| CC 112 | Reverb Mod Speed | 0–127            | Reverb LFO rate multiplier (0.1–4×) |
+| CC 113 | Reverb Mod Depth | 0–127            | Reverb LFO depth (0–1)              |
+| CC 114 | Reverb Freeze    | ≥64=on / <64=off | Freeze reverb tail indefinitely     |
+
+#### Delay
+
+| CC    | Parameter      | Range                                | Description              |
+| ----- | -------------- | ------------------------------------ | ------------------------ |
+| CC 85 | Delay On/Off   | ≥64=on / <64=off                     | Enable or disable delay  |
+| CC 86 | Delay Time     | 0–127                                | Delay time (10–500 ms)   |
+| CC 87 | Delay Feedback | 0–127                                | Feedback amount (0–0.95) |
+| CC 88 | Delay Mix      | 0–127                                | Delay wet level (0–1)    |
+| CC 80 | Delay Position | 0–63=pre-reverb / 64–127=post-reverb | Effect chain placement   |
+
+#### Voice Mode & Configuration
+
+| CC     | Parameter    | Range                                                                                | Description              |
+| ------ | ------------ | ------------------------------------------------------------------------------------ | ------------------------ |
+| CC 115 | Voice Mode   | 0–20=PAIR / 21–41=CLOUD / 42–62=CHORD / 63–83=CASCADE / 84–104=STRING / 105–127=POLY | Switch voice mode        |
+| CC 110 | MIDI Channel | 0–127 → 0=omni, 1–16                                                                 | Set MIDI receive channel |
+
+---
+
+*For serial console commands, firmware architecture, hardware details, and developer notes, see [AlloyFlux-module-reference.md](AlloyFlux-module-reference.md).*
+
+---
+
+Voltage Foundry Modular — Alloy Flux · 2026

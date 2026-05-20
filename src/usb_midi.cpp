@@ -93,13 +93,14 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     // CC 114 — reverb freeze
     buf[n++] = 114;
     buf[n++] = gRevFrozen ? 127 : 0;
-    // CC 115 — voice mode: PAIR=0, CLOUD=48, CHORD=80, POLY=112
+    // CC 115 — voice mode: 6 bands of 21: PAIR=10, CLOUD=31, CHORD=52, CASCADE=73, STRING=94, POLY=116
     buf[n++] = 115;
-    buf[n++] = (gVoiceMode == VoiceMode::PAIR)    ? 0
-               : (gVoiceMode == VoiceMode::CLOUD) ? 48
-               : (gVoiceMode == VoiceMode::CHORD) ? 80
-               : (gVoiceMode == VoiceMode::POLY)  ? 112
-                                                  : 0;
+    buf[n++] = (gVoiceMode == VoiceMode::PAIR)      ? 10
+               : (gVoiceMode == VoiceMode::CLOUD)   ? 31
+               : (gVoiceMode == VoiceMode::CHORD)   ? 52
+               : (gVoiceMode == VoiceMode::CASCADE) ? 73
+               : (gVoiceMode == VoiceMode::STRING)  ? 94
+                                                    : 116; // POLY
     // CC 116 — reverb on/off
     buf[n++] = 116;
     buf[n++] = gRevEnabled ? 127 : 0;
@@ -174,7 +175,7 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
         }
         sPolyRR = (sPolyRR + 1) % 4;
         sPolySlots[slot].freq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
-        sPolySlots[slot].velocity = velocity / 127.0f;
+        sPolySlots[slot].velocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
         sPolySlots[slot].midiNote = note;
         sPolyEnvs[slot]->setGate(true);
         return;
@@ -182,8 +183,8 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
 
     sActiveNote = note;
     gBaseFreq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
-    gMidiVelocity = velocity / 127.0f; // scale output volume by note velocity
-    gGatePatched = true;               // arm envelope — MIDI is now the gate source
+    gMidiVelocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
+    gGatePatched = true; // arm envelope — MIDI is now the gate source
     gGateHigh = true;
     gCurveEng->setGate(true); // arm attack immediately — closes ISR window
 }
@@ -220,6 +221,12 @@ static void onControlChange(byte channel, byte cc, byte value) {
     case 64: // Sustain pedal — arms gate; release only on pedal-up (value < 64)
         gGatePatched = true;
         gGateHigh = (value >= 64);
+        break;
+    case 65: // Portamento Switch — velocity sensitivity on (>=64) / off (<64)
+        gVelocitySensitive = (value >= 64);
+        if (!gVelocitySensitive) {
+            gMidiVelocity = 1.0f; // immediately restore full volume for live notes
+        }
         break;
     case 77: // Filter mode — 5 options spread evenly across 0–127
         if (value < 26)
@@ -273,13 +280,17 @@ static void onControlChange(byte channel, byte cc, byte value) {
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);
         break;
-    case 115: // Voice Mode — 4 bands of 32: 0-31=PAIR, 32-63=CLOUD, 64-95=CHORD, 96-127=POLY
-        if (value < 32)
+    case 115: // Voice Mode — 6 bands: 0-20=PAIR, 21-41=CLOUD, 42-62=CHORD, 63-83=CASCADE, 84-104=STRING, 105-127=POLY
+        if (value < 21)
             gVoiceMode = VoiceMode::PAIR;
-        else if (value < 64)
+        else if (value < 42)
             gVoiceMode = VoiceMode::CLOUD;
-        else if (value < 96)
+        else if (value < 63)
             gVoiceMode = VoiceMode::CHORD;
+        else if (value < 84)
+            gVoiceMode = VoiceMode::CASCADE;
+        else if (value < 105)
+            gVoiceMode = VoiceMode::STRING;
         else
             gVoiceMode = VoiceMode::POLY;
         break;

@@ -13,9 +13,9 @@
  *   sXxx  smoothed values: read by updateAudio(), one-pole LPF applied in updateControl()
  */
 
-// Voice pitch & detune
+// Voice pitch & colour
 extern float gBaseFreq; // Hz, voice 1 root pitch (20–8000)
-extern float gDetune;   // Hz, symmetric fine spread (v1 = base−d/2, v2 = base+d/2)
+extern float gColor;    // 0–1: FM depth in PAIR/CASCADE; Hz fine spread in ensemble modes
 
 // Voice mode and RELATION
 extern VoiceMode gVoiceMode; // synthesis personality (default: PAIR)
@@ -47,9 +47,10 @@ extern volatile bool gGatePatched; // false = drone (bypass VCA); true = AR enve
 extern EnvelopeEngine *gCurveEng;
 
 // Level
-extern float gVolume;       // 0.0 – 1.0 master output
-extern float gMidiVelocity; // 0.0 – 1.0 per-note MIDI velocity scale (1.0 = full, reset on drone return)
-                            // Always 1.0 for CV / drone / button gate sources.
+extern float gVolume;           // 0.0 – 1.0 master output
+extern float gMidiVelocity;     // 0.0 – 1.0 per-note MIDI velocity scale (1.0 = full, reset on drone return)
+                                // Always 1.0 for CV / drone / button gate sources.
+extern bool gVelocitySensitive; // true (default) = MIDI velocity scales output; false = fixed at 1.0
 
 // MIDI configuration
 extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel

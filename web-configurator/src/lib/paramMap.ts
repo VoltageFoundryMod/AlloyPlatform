@@ -37,6 +37,7 @@ export interface CCParam {
   scale?: "log"; // optional: use logarithmic mapping for the slider
   type?: ParamType; // defaults to "slider"
   options?: SelectOption[]; // select type only
+  rowBreakBefore?: boolean; // insert a full-width row break before this param in the grid
 }
 
 // Ordered list of category labels — controls display order in the UI.
@@ -57,7 +58,7 @@ export type ParamCategory = (typeof PARAM_CATEGORIES)[number];
 
 export const PARAM_MAP: CCParam[] = [
   // ── Voice ────────────────────────────────────────────────────────────────
-  // CC 115: voice mode — 4 bands of 32: 0-31=PAIR, 32-63=CLOUD, 64-95=CHORD, 96-127=POLY
+  // CC 115: voice mode — 6 bands: 0-20=PAIR, 21-41=CLOUD, 42-62=CHORD, 63-83=CASCADE, 84-104=STRING, 105-127=POLY
   {
     cc: 115,
     name: "mode",
@@ -68,10 +69,12 @@ export const PARAM_MAP: CCParam[] = [
     default: 0,
     type: "select",
     options: [
-      { label: "Pair", ccMin: 0, ccMax: 31 },
-      { label: "Cloud", ccMin: 32, ccMax: 63 },
-      { label: "Chord", ccMin: 64, ccMax: 95 },
-      { label: "Poly", ccMin: 96, ccMax: 127 },
+      { label: "Pair", ccMin: 0, ccMax: 20 },
+      { label: "Cloud", ccMin: 21, ccMax: 41 },
+      { label: "Chord", ccMin: 42, ccMax: 62 },
+      { label: "Cascade", ccMin: 63, ccMax: 83 },
+      { label: "String", ccMin: 84, ccMax: 104 },
+      { label: "Poly", ccMin: 105, ccMax: 127 },
     ],
   },
 
@@ -96,14 +99,13 @@ export const PARAM_MAP: CCParam[] = [
   },
   {
     cc: 92,
-    name: "detune",
-    label: "Detune",
+    name: "color",
+    label: "Color",
     category: "Oscillator",
     min: 0,
-    max: 200,
+    max: 1,
     default: 0,
-    unit: "Hz",
-    step: 0.1,
+    step: 0.01,
   },
   // PAIR: integer semitones above root (0=unison…24=+2 oct).
   // CHORD: maps 0–24 onto 11 chord shapes (Unison/Power/Minor/Major/Sus2/Sus4/Maj7/Min7/Dom7/Dim/Oct).
@@ -195,6 +197,7 @@ export const PARAM_MAP: CCParam[] = [
     name: "adsrattack",
     label: "Attack",
     category: "Envelope",
+    rowBreakBefore: true,
     min: 0.001,
     max: 4,
     default: 0.05,
@@ -334,11 +337,28 @@ export const PARAM_MAP: CCParam[] = [
   {
     cc: 91,
     name: "space",
-    label: "Stereo Width",
+    label: "Space (Stereo Width)",
     category: "Output",
     min: 0,
     max: 2,
     default: 1,
+  },
+
+  // ── MIDI ─────────────────────────────────────────────────────────────────
+  // CC 65: Portamento Switch — velocity sensitivity on (≥64) / off (<64)
+  {
+    cc: 65,
+    name: "veloc",
+    label: "MIDI Velocity Response",
+    category: "Envelope",
+    min: 0,
+    max: 127,
+    default: 127,
+    type: "select",
+    options: [
+      { label: "Off (fixed volume)", ccMin: 0, ccMax: 63 },
+      { label: "On (default)", ccMin: 64, ccMax: 127 },
+    ],
   },
 
   // ── Chorus ───────────────────────────────────────────────────────────────

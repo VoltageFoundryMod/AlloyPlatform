@@ -57,10 +57,10 @@ static void cmd_note(const char *args, Print &out) {
     out.println(F(" Hz)"));
 }
 
-static void cmd_detune(const char *args, Print &out) {
-    gDetune = constrain((float)atof(args), 0.0f, 200.0f);
-    out.print(F("detune -> "));
-    out.println(gDetune, 2);
+static void cmd_color(const char *args, Print &out) {
+    gColor = constrain((float)atof(args), 0.0f, 1.0f);
+    out.print(F("color -> "));
+    out.println(gColor, 3);
 }
 
 static void cmd_shape(const char *args, Print &out) {
@@ -170,7 +170,7 @@ static void cmd_mode(const char *args, Print &out) {
         }
     }
     out.println(F("usage: mode <pair|cloud|chord|cascade|string|poly>"));
-    out.print(F("active modes: pair cloud chord poly  current: "));
+    out.print(F("active modes: pair cloud chord cascade string poly  current: "));
     out.println(voiceModeName(gVoiceMode));
 }
 
@@ -211,8 +211,8 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(voiceModeName(gVoiceMode));
     out.print(F(" rel="));
     out.print(gRelation, 3);
-    out.print(F(" detune="));
-    out.print(gDetune, 2);
+    out.print(F(" color="));
+    out.print(gColor, 3);
     out.print(F(" shape="));
     out.print(gShape, 3);
     out.print(F(" fat="));
@@ -250,9 +250,11 @@ static void cmd_status(const char * /*args*/, Print &out) {
     out.print(gSpace, 3);
     out.print(F(" midichan="));
     if (gMidiChannel == 0)
-        out.println(F("omni"));
+        out.print(F("omni"));
     else
-        out.println(gMidiChannel);
+        out.print(gMidiChannel);
+    out.print(F(" veloc="));
+    out.println(gVelocitySensitive ? F("on") : F("off"));
 
     // Line 2 — post-effects state
     out.print(F("filter="));
@@ -371,6 +373,20 @@ cmd_cpu(const char * /*args*/, Print &out) {
 #else
     out.println(F("CPU_PROFILE not active — add -DCPU_PROFILE to build_flags"));
 #endif
+}
+
+static void cmd_veloc(const char *args, Print &out) {
+    if (strcmp(args, "on") == 0 || strcmp(args, "1") == 0) {
+        gVelocitySensitive = true;
+        out.println(F("veloc -> on"));
+    } else if (strcmp(args, "off") == 0 || strcmp(args, "0") == 0) {
+        gVelocitySensitive = false;
+        gMidiVelocity = 1.0f; // restore immediately
+        out.println(F("veloc -> off"));
+    } else {
+        out.print(F("veloc: "));
+        out.println(gVelocitySensitive ? F("on") : F("off"));
+    }
 }
 
 static void cmd_midichan(const char *args, Print &out) {
@@ -949,11 +965,12 @@ static void cmd_dump(const char * /*args*/, Print &out) {
     out.print(F("cc:114="));
     out.println(gRevFrozen ? 127 : 0);
     out.print(F("cc:115="));
-    out.println((gVoiceMode == VoiceMode::PAIR)    ? 0
-                : (gVoiceMode == VoiceMode::CLOUD) ? 48
-                : (gVoiceMode == VoiceMode::CHORD) ? 80
-                : (gVoiceMode == VoiceMode::POLY)  ? 112
-                                                   : 0);
+    out.println((gVoiceMode == VoiceMode::PAIR)      ? 10
+                : (gVoiceMode == VoiceMode::CLOUD)   ? 31
+                : (gVoiceMode == VoiceMode::CHORD)   ? 52
+                : (gVoiceMode == VoiceMode::CASCADE) ? 73
+                : (gVoiceMode == VoiceMode::STRING)  ? 94
+                                                     : 116); // POLY
     out.print(F("cc:116="));
     out.println(gRevEnabled ? 127 : 0);
     out.print(F("cc:110="));
@@ -967,7 +984,7 @@ const CommandEntry kCommands[] = {
     {"note",      "<note>      note name (e.g., C4, A#3)",                                cmd_note},
     {"mode",      "<pair|cloud|chord|cascade|string>  voice mode (default: pair)",        cmd_mode},
     {"rel",       "<0-24>      RELATION semitones: 0=unison  7=fifth  12=octave  24=2oct",  cmd_rel},
-    {"detune",    "<hz>        symmetric fine spread (0-200 Hz)",                         cmd_detune},
+    {"color",     "<0-1>       COLOR: FM depth (pair/cascade) or fine Hz spread (other)",   cmd_color},
     {"shape",     "<0-1>       waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
     {"fat",       "<0-1>       sub osc level: 0=off  1=full (50% of main)",               cmd_fat},
     {"suboct",    "<1|2>       sub oscillator octave: 1=one below (default)  2=two below", cmd_sub_octave},
@@ -989,6 +1006,7 @@ const CommandEntry kCommands[] = {
     {"env type",     "<ar|adsr>  switch envelope algorithm (M5x)",                           cmd_env_type},
     {"adsr",         "<A_s> <D_s> <S> <R_s> [loop|noloop]  ADSR params (M5x)",              cmd_adsr},
     {"env loop",     "<on|off>  loop ADSR as LFO (M5x)",                                     cmd_env_loop},
+    {"veloc",     "<on|off>    MIDI velocity sensitivity: on=velocity scales vol (default), off=fixed", cmd_veloc},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
     {"dump",      "            output all params as cc:N=V lines (web configurator sync)", cmd_dump},

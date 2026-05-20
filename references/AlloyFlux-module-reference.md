@@ -1498,29 +1498,30 @@ Both active simultaneously. Last-received source wins.
 
 ### Supported Messages
 
-| Message          | Action                                                             |
-| ---------------- | ------------------------------------------------------------------ |
-| Note On          | Set ROOT pitch + trigger GATE (monophonic, last-note priority)     |
-| Note Off         | Release articulation                                               |
-| Pitch Bend       | ±2 semitones (configurable via calibration routine)                |
-| CC 1 Mod Wheel   | `motion` — drift + chorus depth (0–1)                              |
-| CC 7 Volume      | `vol` — master output level (0–1)                                  |
-| CC 64 Sustain    | `gate` — hold (≤64=on, <64=off); arms `gGatePatched=true`          |
-| CC 71 Timbre     | `curve` — envelope shape (0–1)                                     |
-| CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                         |
-| CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                           |
-| CC 74 Brightness | `shape` — waveform morph (0–1)                                     |
-| CC 91 Reverb     | `space` — stereo width (0–2)                                       |
-| CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                        |
-| CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                 |
-| CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                       |
-| CC 112           | `revmodspeed` — reverb LFO rate multiplier (0.1–4.0) (M40)         |
-| CC 113           | `revmoddepth` — reverb LFO depth multiplier (0.0–1.0) (M40)        |
-| CC 114           | Reverb freeze — ≥64 = freeze on, <64 = freeze off (M41)            |
-| CC 119           | Drone return — clears gate arm, module returns to continuous drone |
-| CC 123           | All Notes Off / panic                                              |
-| Clock 0xF8       | MOTION sync to MIDI clock                                          |
-| Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING)  |
+| Message          | Action                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| Note On          | Set ROOT pitch + trigger GATE (monophonic, last-note priority)                                        |
+| Note Off         | Release articulation                                                                                  |
+| Pitch Bend       | ±2 semitones (configurable via calibration routine)                                                   |
+| CC 1 Mod Wheel   | `motion` — drift + chorus depth (0–1)                                                                 |
+| CC 7 Volume      | `vol` — master output level (0–1)                                                                     |
+| CC 64 Sustain    | `gate` — hold (≤64=on, <64=off); arms `gGatePatched=true`                                             |
+| CC 71 Timbre     | `curve` — envelope shape (0–1)                                                                        |
+| CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                                                            |
+| CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                                                              |
+| CC 74 Brightness | `shape` — waveform morph (0–1)                                                                        |
+| CC 91 Reverb     | `space` — stereo width (0–2)                                                                          |
+| CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                                                           |
+| CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                                                    |
+| CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                                                          |
+| CC 112           | `revmodspeed` — reverb LFO rate multiplier (0.1–4.0) (M40)                                            |
+| CC 113           | `revmoddepth` — reverb LFO depth multiplier (0.0–1.0) (M40)                                           |
+| CC 114           | Reverb freeze — ≥64 = freeze on, <64 = freeze off (M41)                                               |
+| CC 119           | Drone return — clears gate arm, module returns to continuous drone                                    |
+| CC 123           | All Notes Off / panic                                                                                 |
+| Clock 0xF8       | MOTION sync to MIDI clock                                                                             |
+| CC 115           | Voice mode — 6 bands: 0–20=PAIR, 21–41=CLOUD, 42–62=CHORD, 63–83=CASCADE, 84–104=STRING, 105–127=POLY |
+| Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=POLY)                             |
 
 All CC assignments are defined in `include/param_map.h` / `src/param_map.cpp` — a single shared table iterated by all transports. Adding a new parameter requires one row in that file only.
 
@@ -2052,7 +2053,7 @@ motion 0.4           → MOTION depth (0.0–1.0)
 fm 0.2               → FM depth (0.0–1.0)
 curve 0.5            → CURVE position (0=pluck, 1=swell)
 space 0.7            → SPACE width (0.0–1.0)
-mode pair            → voice mode (pair/cloud/chord/cascade/string)
+mode pair            → voice mode (pair/cloud/chord/cascade/string/poly)
 vol 0.8              → output volume
 filter lp 2000 0.6   → SVF filter: lp/hp/bp/notch/off, cutoff Hz, resonance 0–1 (M26a)
 fxorder filter post  → effect chain ordering: filter/delay × pre/post (M26a)
@@ -2122,8 +2123,8 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 21. **RELATION engine** — `gRelation` (semitones 0–24) maps voice 2 via `powf(2, rel/12)` in `updateControl()`; `gDetune` retained as Hz fine-spread; `VoiceMode` enum (PAIR/CLOUD/CHORD/CASCADE/STRING) with `mode` serial command; only PAIR active; framework ready for M22–M25
 - [x] 22. **CLOUD mode** — multi-voice ensemble, animated stereo positioning
 - [x] 23. **CHORD mode** — 4-voice interval table (11 shapes: Unison→Octaves); `voices[4]`/`subVoices[4]` arrays; `sActiveVoices` (2 for PAIR, 4 for CHORD); RELATION (0–24 st) sweeps + interpolates between chord shapes; hard-L/soft-L/soft-R/hard-R stereo pan (normalized ×256 fixed-point); `DriftEngine<4>`; cached 4× `powf` per shape/base-freq change; PAIR mode backward-compatible; `chord <name|0-10>` serial command as convenience shim over `rel`
-- [ ] 24. **CASCADE mode** — restrained FM interaction, soft-clipped, bounded
-- [ ] 25. **STRING mode** — microdetune, animated chorus, ensemble drift, full width
+- [x] 24. **CASCADE mode** — 2-voice FM synthesis: voice 1 (modulator) phase-modulates voice 0 (carrier); RELATION (0–24 st) selects harmonic ratio zone (1:1→4:3→3:2→2:1→5:2→3:1) and raw FM index 0–3.0; `sFmDepth = tanhf(index × 0.7) × kFmMaxScale` soft-clips depth and pre-scales to Q16 phase units; `ShapeOsc::nextPM(phaseOffset)` reads wavetable at offset phase in audio ISR without disturbing accumulator; both voices still pass through chorus and SPACE; idle modulator sub-voice still advanced each sample; MOTION drifts carrier and modulator independently; CC 115 band 63–83
+- [x] 25. **STRING mode** — 4-voice vintage string ensemble; ±15¢ max spread (RELATION 0–24 st → 0–30¢ total); 3× drift multiplier (vs 1.5× CLOUD) for constant organic movement; `gChorusDepth = max(sMotion, 0.3f)` — chorus never fully stops; same hard-L/soft-L/soft-R/hard-R stereo geometry as CLOUD/CHORD; sub-octave voices with FATNESS identical to all other modes; CC 115 band 84–104
 - [x] 26a. **Post Effects Section — Filter + Chain + Core 1 infra** — Cytomic TVA-SVF stereo filter (LP/HP/BP/NOTCH/OFF); `FilterEngine` with trig-free audio-rate path; `FxOrder` 2-flag reorderable chain (4 orderings: filter pre/post-chorus × delay pre/post-reverb); `ReverbEngine` abstract base + `NullReverb` stub running on Core 1 via volatile int32 inter-core slots (no mutex, additive 1-frame latency, artifact-free); `DelayEngine` static 26KB buffers + pass-through stub; `filter`, `fxorder`, `reverb`, `delay` serial commands; `-DDELAY_MAX_MS=200` compile flag; RAM 92KB (17.7%), Flash 117KB (2.8%)
 - [x] 26b. **Dattorro plate reverb (M26b rev)** — `DattorroReverb` on Core 1; Dattorro 1997 plate topology; float delay lines; correct cross-coupling; **4 LFOs at 0.10/0.12/0.15/0.18 Hz** (Plateau/Valley inspired, 10× slower than original — eliminates metallic wobble); **all 4 tank APFs now modulated** (APF6+APF8 newly so); **OnePoleHP tank filter** (~30 Hz, arrests bass accumulation); **OnePoleHP output DC block** (~10 Hz, prevents tail DC offset at high decay); **7th output tap** per channel completing Dattorro Table 1; **freeze mode** (decay→1.0, input gated); **modSpeed/modDepth parameters** (M40 partial); FTZ on both cores; WFE/SEV inter-core sync; `reverb freeze/modspeed/moddepth` serial sub-commands; CC 112 revModSpeed, CC 113 revModDepth, CC 114 freeze; RAM 236KB (45.1%)
 - [x] 26c. **Delay ring buffer** — stereo ping-pong delay; cross-channel feedback (L←fbR, R←fbL) creates L/R alternating bounce; linear fractional interpolation for accurate sub-sample delay time; `always_inline process()`; `delay on/off/mix/time/feedback` serial commands; `status` line 2 shows all fx state; RAM 236KB (45.1%)

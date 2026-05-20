@@ -37,7 +37,7 @@
 //   89  (undefined)                 chorusmode  (0-31=OFF, 32-63=I, 64-95=II, 96-127=I+II) — special
 //   90  (undefined)                 suboct  (0-63=1 oct below, 64-127=2 oct below) — special
 //   91  Reverb Send Depth           space   (stereo width)
-//   92  Tremolo Send Depth          detune  (symmetric fine-spread in Hz)
+//   92  Tremolo Send Depth          color   (FM depth in pair/cascade; Hz fine spread in ensemble)
 //   93  Chorus Send Depth           fat     (sub oscillator level)
 //   94  Celeste (Detune) Depth      rel     (RELATION: semitones above ROOT)
 //  112  (undefined)                 revmodspeed  (M40: LFO rate 0.1–4.0)
@@ -66,7 +66,7 @@ const CCParam kCCParams[] = {
     {  87,  0.0f,   0.95f,  &gDelayFeedback,"delayfb",     false },  // Delay feedback
     {  88,  0.0f,    1.0f,  &gDelayMix,     "delaymix",    false },  // Delay wet mix
     {  91,  0.0f,    2.0f,  &gSpace,        "space",       false },  // Reverb Depth
-    {  92,  0.0f,  200.0f,  &gDetune,       "detune",      false },  // Tremolo Depth
+    {  92,  0.0f,    1.0f,  &gColor,        "color",       false },  // Tremolo Depth → COLOR knob
     {  93,  0.0f,    1.0f,  &gFatness,      "fat",         false },  // Chorus Depth
     {  94,  0.0f,   24.0f,  &gRelation,     "rel",         false },  // Celeste/Variation
     {  95,  0.001f,  4.0f,  &gAdsrRelease,  "adsrrelease", false },  // ADSR release (s)

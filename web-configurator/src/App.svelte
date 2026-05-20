@@ -22,6 +22,7 @@
   import MidiKeyboard from "./components/MidiKeyboard.svelte";
   import PresetManager from "./components/PresetManager.svelte";
   import FxChainVisual from "./components/FxChainVisual.svelte";
+  import EnvelopeGraph from "./components/EnvelopeGraph.svelte";
 
   // Float values, keyed by CC — only meaningful for slider-type params
   let paramValues = $state(
@@ -222,12 +223,14 @@
     "+Oct",
   ];
 
-  type RelMode = "pair" | "cloud" | "chord" | "poly";
+  type RelMode = "pair" | "cloud" | "chord" | "cascade" | "string" | "poly";
   let relMode = $derived.by((): RelMode => {
     const m = selectValues[115] ?? 0;
-    if (m < 32) return "pair";
-    if (m < 64) return "cloud";
-    if (m < 96) return "chord";
+    if (m < 21) return "pair";
+    if (m < 42) return "cloud";
+    if (m < 63) return "chord";
+    if (m < 84) return "cascade";
+    if (m < 105) return "string";
     return "poly";
   });
 
@@ -240,6 +243,15 @@
       }
       if (relMode === "cloud") {
         const cents = Math.round((rel / 24) * 50);
+        return `±${(cents / 2).toFixed(0)} ¢ / voice`;
+      }
+      if (relMode === "cascade") {
+        const zones = ["1:1", "4:3", "3:2", "2:1", "5:2", "3:1"];
+        const zoneIdx = Math.min(5, Math.floor((rel / 24) * 6));
+        return `ratio ${zones[zoneIdx]}`;
+      }
+      if (relMode === "string") {
+        const cents = Math.round((rel / 24) * 30);
         return `±${(cents / 2).toFixed(0)} ¢ / voice`;
       }
       if (relMode === "poly") return "sub oct";
@@ -262,10 +274,37 @@
         const cents = Math.round((rel / 24) * 50);
         return `${cents} ¢`;
       }
+      if (relMode === "cascade") {
+        // Show FM ratio zone
+        const zones = ["1:1", "4:3", "3:2", "2:1", "5:2", "3:1"];
+        const zoneIdx = Math.min(5, Math.floor((rel / 24) * 6));
+        return zones[zoneIdx];
+      }
+      if (relMode === "string") {
+        // Total spread in cents: rel/24 * 30
+        const cents = Math.round((rel / 24) * 30);
+        return `${cents} ¢`;
+      }
       if (relMode === "poly") return undefined;
       // PAIR: semitones (integer)
       const st = Math.min(24, Math.max(0, Math.round(rel)));
       return `${st} st`;
+    })(),
+  );
+
+  // COLOR (CC 92): hint and display vary by mode.
+  //   PAIR/CASCADE → FM depth (0–100%)
+  //   ensemble     → Hz fine spread (± up to 25 Hz outer voices)
+  let colorHint = $derived(
+    relMode === "pair" || relMode === "cascade" ? "FM depth" : "fine detune",
+  );
+  let colorDisplayOverride = $derived(
+    (() => {
+      const v = paramValues[92] ?? 0;
+      if (relMode === "pair" || relMode === "cascade") {
+        return `${Math.round(v * 100)}%`;
+      }
+      return `±${Math.round(v * 25)} Hz`;
     })(),
   );
   // ── Serial console drawer ────────────────────────────────────────────────
@@ -347,6 +386,17 @@
               delayPost={(selectValues[80] ?? 0) >= 64}
             />
           {/if}
+          {#if cat === "Envelope"}
+            <EnvelopeGraph
+              isAdsr={(selectValues[81] ?? 0) >= 64}
+              attack={paramValues[82] ?? 0.05}
+              decay={paramValues[83] ?? 0.1}
+              sustain={paramValues[84] ?? 0.8}
+              release={paramValues[95] ?? 0.3}
+              curve={paramValues[71] ?? 0.5}
+              curveTime={paramValues[72] ?? 1.0}
+            />
+          {/if}
           {#if selects.length}
             <div class="select-row">
               {#each selects as param}
@@ -363,14 +413,23 @@
           {#if sliders.length}
             <div class="params-grid">
               {#each sliders as param}
+                {#if param.rowBreakBefore}
+                  <div class="row-break"></div>
+                {/if}
                 <ParamSlider
                   {param}
                   bind:value={paramValues[param.cc]}
                   bind:this={sliderRefs[param.cc]}
-                  hint={param.cc === 94 ? relHint : undefined}
+                  hint={param.cc === 94
+                    ? relHint
+                    : param.cc === 92
+                      ? colorHint
+                      : undefined}
                   displayOverride={param.cc === 94
                     ? relDisplayOverride
-                    : undefined}
+                    : param.cc === 92
+                      ? colorDisplayOverride
+                      : undefined}
                 />
               {/each}
             </div>
@@ -518,6 +577,12 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 0.5rem;
+  }
+  .params-grid .row-break {
+    grid-column: 1 / -1; /* spans full width, forcing subsequent items to a new row */
+    height: 0;
+    margin: 0;
+    padding: 0;
   }
   .right-panel {
     display: flex;

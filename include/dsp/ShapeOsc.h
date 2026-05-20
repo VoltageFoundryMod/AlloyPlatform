@@ -52,6 +52,29 @@ class ShapeOsc {
     /** Reset phase accumulator to zero — call on note retrigger to avoid random-phase clicks. */
     void resetPhase() { _phase = 0; }
 
+    // Phase-modulated sample: reads at (_phase + phaseOffset) but advances _phase normally.
+    // Use for FM/PM in CASCADE mode — the carrier calls this with the modulator sample
+    // scaled to Q16 phase units (phaseOffset = modSample × sFmDepth precomputed at ctrl rate).
+    inline int16_t nextPM(int32_t phaseOffset) {
+        const uint32_t phaseMod = _phase + (uint32_t)phaseOffset;
+        const uint16_t mask = TABLE_CELLS - 1;
+        const uint16_t idx = (uint16_t)(phaseMod >> 16) & mask;
+        const uint16_t nxt = (idx + 1u) & mask;
+        const int32_t frac = (int32_t)(phaseMod & 0xFFFFu);
+
+        const int32_t a0 = (int32_t)_tables[_tA][idx];
+        const int32_t b0 = (int32_t)_tables[_tA][nxt];
+        const int32_t a1 = (int32_t)_tables[_tA + 1][idx];
+        const int32_t b1 = (int32_t)_tables[_tA + 1][nxt];
+
+        const int32_t s0 = a0 + (((b0 - a0) * frac) >> 16);
+        const int32_t s1 = a1 + (((b1 - a1) * frac) >> 16);
+
+        const int16_t out = (int16_t)(((s0 * (256 - _blend)) + (s1 * _blend)) >> 8);
+        _phase += _phaseInc;
+        return out;
+    }
+
     void setShape(float shape) {
         if (shape < 0.0f)
             shape = 0.0f;
