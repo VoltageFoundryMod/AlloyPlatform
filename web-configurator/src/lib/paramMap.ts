@@ -274,7 +274,7 @@ export const PARAM_MAP: CCParam[] = [
     category: "Filter",
     min: 20,
     max: 16000,
-    default: 8000,
+    default: 983, // CC 74 on log 20-16000 Hz scale = kDefaultFilterCutoff in firmware
     unit: "Hz",
     step: 1,
     scale: "log",

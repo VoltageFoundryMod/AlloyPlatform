@@ -144,7 +144,7 @@
           ? "Reset live state to factory defaults"
           : "Connect MIDI or Serial"}
       >
-        Factory Reset
+        Defaults Reset
       </button>
     </div>
   </div>

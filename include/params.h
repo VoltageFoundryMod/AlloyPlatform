@@ -68,7 +68,7 @@ extern volatile uint32_t gAudioOverruns;
 // ---------------------------------------------------------------------------
 
 // Filter (M26a / M5x)
-extern float gFilterCutoff;    // Hz, 20–16000, default 8000 (i.e. OFF-but-ready)
+extern float gFilterCutoff;    // Hz, 20–16000, default kDefaultFilterCutoff ≈ 983 Hz (CC 74 on log scale)
 extern float gFilterRes;       // 0.0 (flat) – 1.0 (near self-oscillation), default 0.0
 extern FilterMode gFilterMode; // OFF by default — zero CPU cost when bypassed
 extern FilterType gFilterType; // SVF (default) or LADDER — runtime-selectable (M5x)

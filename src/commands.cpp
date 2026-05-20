@@ -909,7 +909,12 @@ static void cmd_dump(const char * /*args*/, Print &out) {
     // Continuous float params from the central CC table
     for (uint8_t i = 0; i < kCCParamCount; i++) {
         const CCParam &p = kCCParams[i];
-        int v = (int)(127.0f * (*p.target - p.valMin) / (p.valMax - p.valMin) + 0.5f);
+        float t;
+        if (p.logScale && p.valMin > 0.0f)
+            t = logf(*p.target / p.valMin) / logf(p.valMax / p.valMin);
+        else
+            t = (*p.target - p.valMin) / (p.valMax - p.valMin);
+        int v = (int)(127.0f * t + 0.5f);
         if (v < 0)
             v = 0;
         if (v > 127)

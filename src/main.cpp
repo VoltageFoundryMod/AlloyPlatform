@@ -261,7 +261,7 @@ static SVFFilter sSvfFilter;
 static OTALadder sOtaLadder;
 FilterEngine *gFilterInst = &sSvfFilter; // default: clean Cytomic SVF
 FilterType gFilterType = FilterType::SVF;
-float gFilterCutoff = 8000.0f;
+float gFilterCutoff = kDefaultFilterCutoff;
 float gFilterRes = 0.0f;
 FilterMode gFilterMode = FilterMode::OFF;
 // ADSR envelope params (used when gEnvelopeType == ADSR)
@@ -685,7 +685,7 @@ void updateControl() {
     }
     // Smooth cutoff + resonance, then recompute coefficients (tanf — safe at 128 Hz).
     {
-        static float sFilterCutoff = 8000.0f;
+        static float sFilterCutoff = 1000.0f;
         static float sFilterRes = 0.0f;
         sFilterCutoff += (gFilterCutoff - sFilterCutoff) * 0.1f;
         sFilterRes += (gFilterRes - sFilterRes) * 0.1f;

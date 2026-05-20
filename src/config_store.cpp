@@ -215,7 +215,7 @@ void configStore_applyDefaults() {
     d.curveTime = 1.0f;
     d.volume = 1.0f;
     d.midiChannel = 0;
-    d.filterCutoff = 8000.0f;
+    d.filterCutoff = kDefaultFilterCutoff;
     d.filterRes = 0.0f;
     d.filterMode = (uint8_t)FilterMode::OFF;
     d.filterType = (uint8_t)FilterType::SVF;

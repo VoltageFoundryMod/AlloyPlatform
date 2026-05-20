@@ -34,6 +34,12 @@ static constexpr uint32_t kConfigMagic = 0xAF10CF01; // "AlloyFlux Config v1"
 static constexpr uint8_t kConfigVersion = 3;
 static constexpr uint8_t kMaxPresets = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
 
+// Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
+// on the log 20–16000 Hz scale.  CC 74 → 20 × (16000/20)^(74/127) ≈ 983.2 Hz.
+// Used in both gFilterCutoff init (main.cpp) and configStore_applyDefaults so
+// the in-RAM value always matches what the web configurator reads back over MIDI.
+static constexpr float kDefaultFilterCutoff = 983.2f;
+
 struct AlloyConfig {
     uint32_t magic;
     uint8_t version;

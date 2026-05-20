@@ -37,10 +37,15 @@ static constexpr uint8_t kSysExCmdPresetReset = 0x06;    // payload[0] = slot 0-
 static constexpr uint8_t kSysExCmdSetMidiChannel = 0x07; // payload[0] = 0 (omni) or 1-16
 
 // Convert a float parameter value into a 7-bit CC value.
-static inline uint8_t sFloatToCC(float val, float minV, float maxV) {
+static inline uint8_t sFloatToCC(float val, float minV, float maxV, bool logScale = false) {
     if (maxV <= minV)
         return 0;
-    const int v = (int)(127.0f * (val - minV) / (maxV - minV) + 0.5f);
+    float t;
+    if (logScale && minV > 0.0f)
+        t = logf(val / minV) / logf(maxV / minV);
+    else
+        t = (val - minV) / (maxV - minV);
+    const int v = (int)(127.0f * t + 0.5f);
     return (uint8_t)(v < 0 ? 0 : v > 127 ? 127
                                          : v);
 }
@@ -53,7 +58,7 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     for (uint8_t i = 0; i < kCCParamCount; i++) {
         const CCParam &p = kCCParams[i];
         buf[n++] = p.cc;
-        buf[n++] = sFloatToCC(*p.target, p.valMin, p.valMax);
+        buf[n++] = sFloatToCC(*p.target, p.valMin, p.valMax, p.logScale);
     }
     // Special / select params not in kCCParams
     // CC 77 — filter mode: OFF=0, LP=26, HP=51, BP=77, NOTCH=102
