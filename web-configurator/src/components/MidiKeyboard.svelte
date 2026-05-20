@@ -198,11 +198,10 @@
         >X &#9658;</button
       >
     </div>
-    <!-- Panic / Sustain -->
+    <!-- Panic / Drone -->
     <div class="misc-ctrl">
       <button class="panic-btn" onclick={() => midi.sendPanic()}>Panic</button>
-      <button onclick={() => midi.sendSustain(true)}>Sus &#8595;</button>
-      <button onclick={() => midi.sendSustain(false)}>Sus &#8593;</button>
+      <button onclick={() => midi.sendSustain(true)}>Drone</button>
     </div>
   </div>
 
