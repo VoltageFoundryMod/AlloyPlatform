@@ -4,6 +4,7 @@
 #include "dsp/ChorusEngine.h" // ChorusMode enum
 #include "dsp/CurveEngine.h"  // EnvelopeType enum (M5x)
 #include "dsp/FilterEngine.h" // FilterMode, FilterType enums (M26a / M5x)
+#include "scale_quantizer.h"  // ScaleId enum (M49)
 
 /**
  * Shared synthesis parameters — defined in main.cpp.
@@ -55,6 +56,10 @@ extern bool gVelocitySensitive; // true (default) = MIDI velocity scales output;
 // Portamento / glide
 extern float gGlideTime;   // portamento slide time in seconds (CC 5); 0.0 = instant
 extern bool gGlideEnabled; // portamento on/off (CC 65); false = instant transitions
+
+// Scale quantizer (M49)
+extern ScaleId gQuantizeScale; // CHROMATIC = bypass (default)
+extern int8_t gTranspose;      // semitone offset: −24…+24, default 0
 
 // MIDI configuration
 extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel

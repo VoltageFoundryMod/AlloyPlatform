@@ -35,6 +35,7 @@ export interface CCParam {
   unit?: string; // slider display suffix
   step?: number; // slider drag granularity (defaults to 0.001)
   scale?: "log"; // optional: use logarithmic mapping for the slider
+  ccRange?: { min: number; max: number }; // map native min…max to a CC sub-range instead of 0–127
   type?: ParamType; // defaults to "slider"
   options?: SelectOption[]; // select type only
   rowBreakBefore?: boolean; // insert a full-width row break before this param in the grid
@@ -385,6 +386,48 @@ export const PARAM_MAP: CCParam[] = [
       { label: "On (default)", ccMin: 64, ccMax: 127 },
     ],
   },
+  // CC 103: Scale quantizer (M49) — 0=chromatic/off, 1–14=scale index
+  {
+    cc: 103,
+    name: "scale",
+    label: "Input Quantization",
+    category: "Voice",
+    min: 0,
+    max: 14,
+    default: 0,
+    type: "select",
+    options: [
+      { label: "Off (chromatic)", ccMin: 0, ccMax: 0 },
+      { label: "Major", ccMin: 1, ccMax: 1 },
+      { label: "Minor", ccMin: 2, ccMax: 2 },
+      { label: "Harmonic Minor", ccMin: 3, ccMax: 3 },
+      { label: "Melodic Minor", ccMin: 4, ccMax: 4 },
+      { label: "Pentatonic Maj", ccMin: 5, ccMax: 5 },
+      { label: "Pentatonic Min", ccMin: 6, ccMax: 6 },
+      { label: "Blues", ccMin: 7, ccMax: 7 },
+      { label: "Dorian", ccMin: 8, ccMax: 8 },
+      { label: "Phrygian", ccMin: 9, ccMax: 9 },
+      { label: "Lydian", ccMin: 10, ccMax: 10 },
+      { label: "Mixolydian", ccMin: 11, ccMax: 11 },
+      { label: "Locrian", ccMin: 12, ccMax: 12 },
+      { label: "Whole Tone", ccMin: 13, ccMax: 13 },
+      { label: "Diminished", ccMin: 14, ccMax: 14 },
+    ],
+  },
+  // CC 104: Transpose (M49) — CC value 0–48 encodes −24…+24 semitones (offset 24)
+  // Native value is semitones (−24…+24); ccRange maps that to CC 0–48.
+  {
+    cc: 104,
+    name: "transpose",
+    label: "Transpose",
+    category: "Voice",
+    min: -24,
+    max: 24,
+    default: 0,
+    unit: "st",
+    step: 1,
+    ccRange: { min: 0, max: 48 },
+  },
 
   // ── Chorus ───────────────────────────────────────────────────────────────
   // CC 93: Effect 3 Depth = Chorus — 0–31=OFF, 32–63=I, 64–95=II, 96–127=I+II
@@ -524,19 +567,26 @@ export const PARAMS_BY_CATEGORY = Object.fromEntries(
 
 /** Convert a 0–127 MIDI CC value to the parameter's float range (slider params only). */
 export function ccToFloat(param: CCParam, ccValue: number): number {
+  const ccLo = param.ccRange?.min ?? 0;
+  const ccHi = param.ccRange?.max ?? 127;
+  const t = (ccValue - ccLo) / (ccHi - ccLo);
   if (param.scale === "log") {
-    // Log mapping: CC 0 → min, CC 127 → max
-    return param.min * Math.pow(param.max / param.min, ccValue / 127);
+    return param.min * Math.pow(param.max / param.min, t);
   }
-  return param.min + (ccValue / 127) * (param.max - param.min);
+  return param.min + t * (param.max - param.min);
 }
 
 /** Convert a float value to a 0–127 MIDI CC value (slider params only). */
 export function floatToCC(param: CCParam, value: number): number {
+  const ccLo = param.ccRange?.min ?? 0;
+  const ccHi = param.ccRange?.max ?? 127;
+  const t = (value - param.min) / (param.max - param.min);
   if (param.scale === "log") {
     return Math.round(
-      (Math.log(value / param.min) / Math.log(param.max / param.min)) * 127,
+      ccLo +
+        (Math.log(value / param.min) / Math.log(param.max / param.min)) *
+          (ccHi - ccLo),
     );
   }
-  return Math.round(((value - param.min) / (param.max - param.min)) * 127);
+  return Math.round(ccLo + t * (ccHi - ccLo));
 }

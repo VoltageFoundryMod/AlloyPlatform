@@ -44,6 +44,8 @@
 //   94  Effect 4 Depth (Detune/Celeste)  rel     (RELATION: semitones above ROOT)
 //   95  Effect 5 Depth                   delaymix  (0.0–1.0)
 //  102  (undefined)                      veloc  (velocity sensitivity ≥64=on) — special
+//  103  (undefined)                      scale  (0=chromatic/off … 14=diminished) — special
+//  104  (undefined)                      transpose  (0–48 encodes −24…+24 st) — special
 //  110  (undefined)                      midichan  (0=omni, 1–16) — SysEx only
 //  112  (undefined)                      revmodspeed  (M40: LFO rate 0.1–4.0)
 //  113  (undefined)                      revmoddepth  (M40: LFO depth 0.0–1.0)

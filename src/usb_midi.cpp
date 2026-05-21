@@ -6,9 +6,14 @@
 #include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
 #include "params.h"
+#include "scale_quantizer.h"
 #include <Adafruit_TinyUSB.h>
 #include <MIDI.h>
 #include <math.h>
+
+// Scale quantizer globals (M49)
+ScaleId gQuantizeScale = ScaleId::CHROMATIC;
+int8_t gTranspose = 0;
 
 // ---------------------------------------------------------------------------
 // SysEx patch dump — AlloyFlux protocol
@@ -104,6 +109,12 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     // CC 116 — reverb on/off
     buf[n++] = 116;
     buf[n++] = gRevEnabled ? 127 : 0;
+    // CC 103 — scale quantizer (M49): 0=chromatic (off), 1–14=scale index
+    buf[n++] = 103;
+    buf[n++] = (uint8_t)gQuantizeScale;
+    // CC 104 — transpose (M49): 0–48 encodes −24…+24 semitones (offset 24)
+    buf[n++] = 104;
+    buf[n++] = (uint8_t)constrain((int)gTranspose + 24, 0, 48);
     // CC 110 — MIDI receive channel (0 = omni, 1–16 = specific channel)
     buf[n++] = 110;
     buf[n++] = gMidiChannel; // 0-16 fits in 7 bits
@@ -174,7 +185,7 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
             slot = sPolyRR % 4;
         }
         sPolyRR = (sPolyRR + 1) % 4;
-        sPolySlots[slot].freq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
+        sPolySlots[slot].freq = constrain(midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)), 20.0f, 8000.0f);
         sPolySlots[slot].velocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
         sPolySlots[slot].midiNote = note;
         sPolyEnvs[slot]->setGate(true);
@@ -182,7 +193,7 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
     }
 
     sActiveNote = note;
-    gBaseFreq = constrain(midiNoteToHz(note), 20.0f, 8000.0f);
+    gBaseFreq = constrain(midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)), 20.0f, 8000.0f);
     gMidiVelocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
     gGatePatched = true; // arm envelope — MIDI is now the gate source
     gGateHigh = true;
@@ -279,6 +290,14 @@ static void onControlChange(byte channel, byte cc, byte value) {
         if (!gVelocitySensitive) {
             gMidiVelocity = 1.0f; // immediately restore full volume for live notes
         }
+        break;
+    case 103: // Scale quantizer (M49) — 0=chromatic (off), 1–14=scale index
+        gQuantizeScale = (value < (uint8_t)ScaleId::COUNT)
+                             ? (ScaleId)value
+                             : ScaleId::CHROMATIC;
+        break;
+    case 104: // Transpose (M49) — 0–48 encodes −24…+24 semitones
+        gTranspose = (int8_t)constrain((int)value - 24, -24, 24);
         break;
     case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
         gRevFrozen = (value >= 64);

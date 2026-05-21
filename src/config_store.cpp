@@ -91,6 +91,9 @@ static void packConfig(AlloyConfig &cfg) {
     // Portamento / glide
     cfg.glideTime = gGlideTime;
     cfg.glideEnabled = gGlideEnabled;
+    // Scale quantizer (M49)
+    cfg.quantizeScale = (uint8_t)gQuantizeScale;
+    cfg.transpose = gTranspose;
 }
 
 // Apply a validated config struct to all gXxx globals.
@@ -142,6 +145,11 @@ static void applyConfig(const AlloyConfig &cfg) {
     // Portamento / glide
     gGlideTime = cfg.glideTime;
     gGlideEnabled = cfg.glideEnabled;
+    // Scale quantizer (M49)
+    gQuantizeScale = (cfg.quantizeScale < (uint8_t)ScaleId::COUNT)
+                         ? (ScaleId)cfg.quantizeScale
+                         : ScaleId::CHROMATIC;
+    gTranspose = (int8_t)constrain((int)cfg.transpose, -24, 24);
 }
 
 // ---------------------------------------------------------------------------
@@ -250,5 +258,7 @@ void configStore_applyDefaults() {
     d.velocitySensitive = true;
     d.glideTime = 0.0f;
     d.glideEnabled = false;
+    d.quantizeScale = (uint8_t)ScaleId::CHROMATIC;
+    d.transpose = 0;
     applyConfig(d);
 }

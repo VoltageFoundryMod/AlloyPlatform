@@ -38,15 +38,27 @@
 
 <div class="param-select">
   <span class="select-label">{param.label}</span>
-  <div class="btn-group">
-    {#each opts as opt, idx}
-      <button
-        class="opt-btn"
-        class:active={selectedIdx === idx}
-        onclick={() => select(idx)}>{opt.label}</button
-      >
-    {/each}
-  </div>
+  {#if opts.length > 6}
+    <select
+      class="opt-dropdown"
+      value={selectedIdx}
+      onchange={(e) => select(Number((e.target as HTMLSelectElement).value))}
+    >
+      {#each opts as opt, idx}
+        <option value={idx}>{opt.label}</option>
+      {/each}
+    </select>
+  {:else}
+    <div class="btn-group">
+      {#each opts as opt, idx}
+        <button
+          class="opt-btn"
+          class:active={selectedIdx === idx}
+          onclick={() => select(idx)}>{opt.label}</button
+        >
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -98,6 +110,23 @@
   .opt-btn.active {
     background: #1a3d1a;
     color: #6fcf6f;
+    border-color: #3a7040;
+  }
+
+  .opt-dropdown {
+    font-size: 0.78rem;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    border-radius: 4px;
+    border: 1px solid #444;
+    background: #1e1e32;
+    color: #ccc;
+    appearance: auto;
+    min-width: 10rem;
+  }
+
+  .opt-dropdown:focus {
+    outline: 1px solid #3a7040;
     border-color: #3a7040;
   }
 </style>

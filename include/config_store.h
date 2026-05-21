@@ -7,6 +7,7 @@
 #include "dsp/FilterEngine.h"
 #include "dsp/FxChain.h"
 #include "dsp/ReverbEngine.h"
+#include "scale_quantizer.h" // ScaleId enum (M49)
 
 /**
  * Flash config persistence — Milestone 30 (config save/load).
@@ -31,7 +32,7 @@
  */
 
 static constexpr uint32_t kConfigMagic = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t kConfigVersion = 4;
+static constexpr uint8_t kConfigVersion = 5;
 static constexpr uint8_t kMaxPresets = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
@@ -97,6 +98,9 @@ struct AlloyConfig {
     // Portamento / glide
     float glideTime;   // 0.0 = instant, 0.001–2.0 s
     bool glideEnabled; // portamento on/off
+    // Scale quantizer (M49)
+    uint8_t quantizeScale; // cast of ScaleId enum; 0 = CHROMATIC (bypass)
+    int8_t transpose;      // semitone offset −24…+24; 0 = no transpose
 };
 
 enum class ConfigSaveResult : uint8_t {

@@ -7,6 +7,7 @@
 #include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
 #include "params.h"
+#include "scale_quantizer.h"
 #include <Arduino.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,6 +262,12 @@ static void cmd_status(const char * /*args*/, Print &out) {
         out.print(F(" glidetime="));
         out.print(gGlideTime, 3);
     }
+    out.print(F(" scale="));
+    out.print(kScaleNames[(uint8_t)gQuantizeScale]);
+    if (gTranspose != 0) {
+        out.print(F(" transpose="));
+        out.print(gTranspose);
+    }
     out.println();
 
     // Line 2 — post-effects state
@@ -417,6 +424,51 @@ static void cmd_glidetime(const char *args, Print &out) {
     } else {
         out.print(F("glidetime: "));
         out.println(gGlideTime, 3);
+    }
+}
+
+static void cmd_scale(const char *args, Print &out) {
+    if (*args == '\0') {
+        out.print(F("scale: "));
+        out.println(kScaleNames[(uint8_t)gQuantizeScale]);
+        return;
+    }
+    // "off" and "chromatic" both mean CHROMATIC (bypass).
+    if (strcmp(args, "off") == 0 || strcmp(args, "chromatic") == 0) {
+        gQuantizeScale = ScaleId::CHROMATIC;
+        out.println(F("scale -> chromatic (off)"));
+        return;
+    }
+    for (uint8_t i = 0; i < (uint8_t)ScaleId::COUNT; i++) {
+        if (strcmp(args, kScaleNames[i]) == 0) {
+            gQuantizeScale = (ScaleId)i;
+            out.print(F("scale -> "));
+            out.println(kScaleNames[i]);
+            return;
+        }
+    }
+    out.print(F("unknown scale; options: "));
+    for (uint8_t i = 0; i < (uint8_t)ScaleId::COUNT; i++) {
+        out.print(kScaleNames[i]);
+        if (i + 1 < (uint8_t)ScaleId::COUNT)
+            out.print(' ');
+    }
+    out.println();
+}
+
+static void cmd_transpose(const char *args, Print &out) {
+    if (*args) {
+        int v = atoi(args);
+        if (v < -24 || v > 24) {
+            out.println(F("usage: transpose <-24..24>"));
+            return;
+        }
+        gTranspose = (int8_t)v;
+        out.print(F("transpose -> "));
+        out.println(gTranspose);
+    } else {
+        out.print(F("transpose: "));
+        out.println(gTranspose);
     }
 }
 
@@ -997,6 +1049,11 @@ static void cmd_dump(const char * /*args*/, Print &out) {
     out.println(gGlideEnabled ? 127 : 0);
     out.print(F("cc:102="));
     out.println(gVelocitySensitive ? 127 : 0);
+    out.print(F("cc:103="));
+    out.println((uint8_t)gQuantizeScale);
+    // cc:104 = transpose: encode signed −24…+24 as 0–48 (offset 24) for 7-bit CC safety
+    out.print(F("cc:104="));
+    out.println((uint8_t)constrain((int)gTranspose + 24, 0, 48));
     out.print(F("cc:114="));
     out.println(gRevFrozen ? 127 : 0);
     out.print(F("cc:115="));
@@ -1044,6 +1101,8 @@ const CommandEntry kCommands[] = {
     {"veloc",     "<on|off>    MIDI velocity sensitivity: on=velocity scales vol (default), off=fixed", cmd_veloc},
     {"glide",     "<on|off>    portamento on/off: on=pitch slides between notes, off=instant",          cmd_glide},
     {"glidetime", "<0-2>       portamento slide time in seconds (0=instant, default)",                  cmd_glidetime},
+    {"scale",     "<name|off>  scale quantization (chromatic=off, major, minor, dorian...)",           cmd_scale},
+    {"transpose", "<-24..24>   MIDI note transpose in semitones (default: 0)",                        cmd_transpose},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
     {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
     {"dump",      "            output all params as cc:N=V lines (web configurator sync)", cmd_dump},
