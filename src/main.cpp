@@ -259,7 +259,8 @@ static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
 static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
 // Set to true whenever SHIFT is consumed by a combo or knob action so the
 // trig-on-release is suppressed. Reset automatically on SHIFT release.
-static bool sShiftConsumed = false;
+static bool sShiftConsumed = false; // suppresses trig-on-release when SHIFT used in combo
+static bool sModeConsumed = false;  // suppresses mode-cycle-on-release when MODE used in combo
 
 // ---------------------------------------------------------------------------
 // M26 Post-effects engines and parameters
@@ -391,12 +392,15 @@ void updateControl() {
     // A static flag prevents repeated firings while both are held.
     // sShiftConsumed (file-scope): set by any combo or shift+knob handler so the
     // trig on release is suppressed. Reset each time SHIFT is released.
+    // sModeConsumed: same pattern for MODE — set when MODE is used in a combo so
+    // the mode-cycle on release is suppressed.
     {
         static bool sDroneComboFired = false;
         if (gBtnMode.isDown() && gBtnShift.isDown()) {
             if (!sDroneComboFired) {
                 sDroneComboFired = true;
                 sShiftConsumed = true; // don't trig on SHIFT release
+                sModeConsumed = true;  // don't cycle on MODE release
                 gGatePatched = false;
                 gGateHigh = false;
                 gMidiVelocity = 1.0f; // restore full volume when returning to drone/CV
@@ -406,25 +410,29 @@ void updateControl() {
             }
         } else {
             sDroneComboFired = false;
-            // Mode solo (Shift not held): cycle voice mode.
-            if (gBtnMode.pressed()) {
-                // Cycle through implemented voice modes only.
-                static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CLOUD,
-                                                         VoiceMode::CHORD, VoiceMode::CASCADE,
-                                                         VoiceMode::STRING, VoiceMode::POLY};
-                static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
-                uint8_t idx = 0;
-                for (uint8_t i = 0; i < kN; i++) {
-                    if (kActiveModes[i] == gVoiceMode) {
-                        idx = i;
-                        break;
+            // Mode solo: cycle voice mode on RELEASE so holding MODE can be used
+            // as a secondary shift key for future combos (mirrors SHIFT behaviour).
+            if (gBtnMode.released()) {
+                if (!sModeConsumed) {
+                    // Cycle through implemented voice modes only.
+                    static const VoiceMode kActiveModes[] = {VoiceMode::PAIR, VoiceMode::CLOUD,
+                                                             VoiceMode::CHORD, VoiceMode::CASCADE,
+                                                             VoiceMode::STRING, VoiceMode::POLY};
+                    static constexpr uint8_t kN = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
+                    uint8_t idx = 0;
+                    for (uint8_t i = 0; i < kN; i++) {
+                        if (kActiveModes[i] == gVoiceMode) {
+                            idx = i;
+                            break;
+                        }
                     }
-                }
-                gVoiceMode = kActiveModes[(idx + 1) % kN];
+                    gVoiceMode = kActiveModes[(idx + 1) % kN];
 #ifdef SERIAL_CONTROL
-                Serial.print(F("mode -> "));
-                Serial.println(voiceModeName(gVoiceMode));
+                    Serial.print(F("mode -> "));
+                    Serial.println(voiceModeName(gVoiceMode));
 #endif
+                }
+                sModeConsumed = false; // reset for next press
             }
             // Shift solo: trig fires on RELEASE (not press) so holding SHIFT for
             // a combo or future SHIFT+pot functions doesn't accidentally trigger.
