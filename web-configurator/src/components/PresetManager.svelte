@@ -29,6 +29,10 @@
   let editingSlot = $state<number | null>(null);
   let editName = $state("");
   let importError = $state<string | null>(null);
+  // Inline confirmation: tracks which reset is pending a second click.
+  // Value is the slot number (or "all"), null = no pending confirm.
+  let confirmPending = $state<number | "all" | null>(null);
+  let confirmTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 
   function startRename(slot: PresetSlot) {
     editingSlot = slot.slot;
@@ -57,15 +61,22 @@
     presets.load(slot);
   }
 
-  async function handleReset(slot: number | "all") {
-    const label =
-      slot === "all"
-        ? "all presets"
-        : slot === 0
-          ? "live state"
-          : `preset ${slot}`;
-    if (!confirm(`Reset ${label}? This cannot be undone.`)) return;
-    presets.reset(slot);
+  function handleReset(slot: number | "all") {
+    if (confirmPending === slot) {
+      // Second click — confirmed, execute reset
+      if (confirmTimer) clearTimeout(confirmTimer);
+      confirmPending = null;
+      confirmTimer = null;
+      presets.reset(slot);
+    } else {
+      // First click — arm confirmation, auto-cancel after 3 s
+      if (confirmTimer) clearTimeout(confirmTimer);
+      confirmPending = slot;
+      confirmTimer = setTimeout(() => {
+        confirmPending = null;
+        confirmTimer = null;
+      }, 3000);
+    }
   }
 
   // ── Patch file export ──────────────────────────────────────────────────────
@@ -106,7 +117,7 @@
   }
 
   const isSerialConnected = $derived($serial.connected);
-  const isMidiConnected = $derived($midi.connected);
+  const isMidiConnected = $derived($midi.deviceConnected);
   const isConnected = $derived(isSerialConnected || isMidiConnected);
 </script>
 
@@ -138,13 +149,14 @@
       </button>
       <button
         class="btn-danger"
+        class:btn-confirm={confirmPending === 0}
         onclick={() => handleReset(0)}
         disabled={!isConnected}
         title={isConnected
           ? "Reset live state to factory defaults"
           : "Connect MIDI or Serial"}
       >
-        Defaults Reset
+        {confirmPending === 0 ? "Confirm Reset?" : "Defaults Reset"}
       </button>
     </div>
   </div>
@@ -217,11 +229,13 @@
           {#if slot.slot !== 0}
             <button
               class="btn-sm btn-danger-sm"
+              class:btn-confirm={confirmPending === slot.slot}
               onclick={() => handleReset(slot.slot)}
               disabled={!isConnected}
               title={isConnected
                 ? "Reset this slot to defaults"
-                : "Connect MIDI or Serial"}>✕</button
+                : "Connect MIDI or Serial"}
+              >{confirmPending === slot.slot ? "Sure?" : "✕"}</button
             >
           {/if}
         </div>
@@ -392,5 +406,19 @@
   .btn-danger:disabled {
     opacity: 0.35;
     cursor: not-allowed;
+  }
+  .btn-confirm {
+    border-color: #b06020 !important;
+    background: #3a2000 !important;
+    color: #ffb84d !important;
+    animation: pulse-confirm 0.6s ease-in-out infinite alternate;
+  }
+  @keyframes pulse-confirm {
+    from {
+      opacity: 0.8;
+    }
+    to {
+      opacity: 1;
+    }
   }
 </style>

@@ -49,7 +49,8 @@
 
   function sendMidiChannel(ch: number) {
     midiChannel = ch;
-    if ($midi.connected) midi.sendSysEx(SysexCmd.SET_MIDI_CHANNEL, [ch & 0x7f]);
+    if ($midi.deviceConnected)
+      midi.sendSysEx(SysexCmd.SET_MIDI_CHANNEL, [ch & 0x7f]);
   }
 
   // Refs for pushing incoming MIDI-in to the right component
@@ -126,7 +127,7 @@
    */
   function applyFromFile(pairs: CCPair[]) {
     applyPatch(pairs, false); // update UI
-    if ($midi.connected) {
+    if ($midi.deviceConnected) {
       // Send all pairs in one APPLY_PATCH SysEx message
       const payload = pairs.flatMap(({ cc, value }) => [
         cc & 0x7f,
@@ -140,7 +141,7 @@
   // Auto-sync on MIDI connect — send REQUEST_DUMP, apply PATCH_DUMP response
   // ---------------------------------------------------------------------------
   $effect(() => {
-    if (!$midi.connected) return;
+    if (!$midi.deviceConnected) return;
     // Small delay so the device has time to finish USB enumeration
     const timer = setTimeout(() => midi.sendSysEx(SysexCmd.REQUEST, []), 300);
     const unsubSysEx = midi.onSysEx((body: Uint8Array) => {
@@ -463,7 +464,7 @@
               sendMidiChannel(
                 parseInt((e.target as HTMLSelectElement).value, 10),
               )}
-            disabled={!$midi.connected}
+            disabled={!$midi.deviceConnected}
           >
             <option value={0}>Omni (All)</option>
             {#each Array.from({ length: 16 }, (_, i) => i + 1) as ch}

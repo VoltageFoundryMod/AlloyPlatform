@@ -326,6 +326,18 @@ Glide applies to all monophonic voice modes (PAIR, CLOUD, CHORD, CASCADE, STRING
 
 ---
 
+### Scale Quantizer & Transpose
+
+The scale quantizer snaps incoming MIDI notes to a chosen musical scale before they are played. Notes that fall outside the scale are shifted to the nearest in-scale semitone (ties go up).
+
+**Scale select:** CC 103 (0 = Off / chromatic, 1–14 = scale index). Available scales: Major, Minor (Natural), Harmonic Minor, Melodic Minor, Pentatonic Major, Pentatonic Minor, Blues, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Whole Tone, Diminished. Select with the **Web Configurator** (Voice → Scale) or send CC 103 directly.
+
+**Transpose:** CC 104 shifts all incoming MIDI notes by −24 to +24 semitones. The CC value encodes the offset as `value − 24` (CC 24 = −0 st, CC 0 = −24 st, CC 48 = +24 st). Transpose is applied before scale quantization, so the root stays consistent when you move both together.
+
+Quantization applies to all MIDI NoteOn events (monophonic and POLY modes). The `pitch` serial command for calibration bypasses quantization.
+
+---
+
 ## Shift Functions Summary
 
 Hold **SHIFT** and turn a knob to access its secondary parameter. The L4 LED (near SHIFT button) lights white while SHIFT is held.
@@ -472,22 +484,24 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 
 #### Envelope & Articulation
 
-| CC     | Parameter            | Range                 | Description                                        |
-| ------ | -------------------- | --------------------- | -------------------------------------------------- |
-| CC 5   | Glide Time           | 0–127                 | Portamento slide time (0–2 s)                      |
-| CC 64  | Sustain / Gate       | ≥64=on                | Hold voices sustained (drone toggle)               |
-| CC 65  | Glide On/Off         | ≥64=on / <64=off      | Enable or disable portamento glide                 |
-| CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                     |
-| CC 72  | ADSR Release         | 0–127                 | ADSR release time (0.001–4 s)                      |
-| CC 73  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                       |
-| CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                |
-| CC 82  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                        |
-| CC 83  | ADSR Sustain         | 0–127                 | ADSR sustain level (0–1)                           |
-| CC 88  | Curve Time           | 0–127                 | Envelope time scale (0.25× – 4×)                   |
-| CC 89  | Drift Speed          | 0–127                 | Drift glide rate                                   |
-| CC 102 | Velocity Sensitivity | ≥64=on / <64=off      | On = velocity scales volume (default), Off = fixed |
-| CC 119 | Drone Return         | any                   | Clear gate arm, return to continuous drone         |
-| CC 123 | All Notes Off        | any                   | Panic — release all voices                         |
+| CC     | Parameter            | Range                 | Description                                                                                                                                                                                 |
+| ------ | -------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CC 5   | Glide Time           | 0–127                 | Portamento slide time (0–2 s)                                                                                                                                                               |
+| CC 64  | Sustain / Gate       | ≥64=on                | Hold voices sustained (drone toggle)                                                                                                                                                        |
+| CC 65  | Glide On/Off         | ≥64=on / <64=off      | Enable or disable portamento glide                                                                                                                                                          |
+| CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                                                                                                                                                              |
+| CC 72  | ADSR Release         | 0–127                 | ADSR release time (0.001–4 s)                                                                                                                                                               |
+| CC 73  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                                                                                                                                                                |
+| CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                                                                                                                                                         |
+| CC 82  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                                                                                                                                                                 |
+| CC 83  | ADSR Sustain         | 0–127                 | ADSR sustain level (0–1)                                                                                                                                                                    |
+| CC 88  | Curve Time           | 0–127                 | Envelope time scale (0.25× – 4×)                                                                                                                                                            |
+| CC 89  | Drift Speed          | 0–127                 | Drift glide rate                                                                                                                                                                            |
+| CC 102 | Velocity Sensitivity | ≥64=on / <64=off      | On = velocity scales volume (default), Off = fixed                                                                                                                                          |
+| CC 103 | Scale Quantizer      | 0–14                  | 0=Off/chromatic, 1=Major, 2=Minor, 3=Harm. Minor, 4=Mel. Minor, 5=Penta Maj, 6=Penta Min, 7=Blues, 8=Dorian, 9=Phrygian, 10=Lydian, 11=Mixolydian, 12=Locrian, 13=Whole Tone, 14=Diminished |
+| CC 104 | Transpose            | 0–48                  | Semitone offset: value−24 (0=−24 st, 24=0 st, 48=+24 st)                                                                                                                                    |
+| CC 119 | Drone Return         | any                   | Clear gate arm, return to continuous drone                                                                                                                                                  |
+| CC 123 | All Notes Off        | any                   | Panic — release all voices                                                                                                                                                                  |
 
 #### Filter
 
@@ -534,6 +548,8 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | ------ | ------------ | ------------------------------------------------------------------------------------ | ------------------------ |
 | CC 115 | Voice Mode   | 0–20=PAIR / 21–41=CLOUD / 42–62=CHORD / 63–83=CASCADE / 84–104=STRING / 105–127=POLY | Switch voice mode        |
 | CC 110 | MIDI Channel | 0–127 → 0=omni, 1–16                                                                 | Set MIDI receive channel |
+
+For MIDI SysEx implementation, check the MIDI & SysEx reference: [AlloyFlux-MIDI-reference.md](AlloyFlux-MIDI-reference.md).
 
 ---
 

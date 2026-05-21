@@ -132,9 +132,6 @@
     - [Teletype I2C Integration](#teletype-i2c-integration)
     - [Web USB Configurator (future expansion)](#web-usb-configurator-future-expansion)
   - [Development Milestones](#development-milestones)
-  - [Project Refinement](#project-refinement)
-    - [Software](#software)
-    - [Hardware](#hardware)
   - [Future Expansion](#future-expansion)
 
 ---
@@ -2134,8 +2131,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 29. **USB MIDI + MIDI channel config** — `Adafruit_USBD_MIDI` + `MIDI Library` via `-DUSE_TINYUSB`; composite CDC+MIDI device (serial console + MIDI coexist on same USB); Note On/Off → `gBaseFreq`/`gGateHigh` (monophonic, last-note priority); full CC map via `paramMap_dispatchCC`; Program Change 1–5 → VoiceMode; `usbMidi_init()` before `Serial.begin()` with `TinyUSBDevice.mounted()` wait; Web MIDI compatible (Chrome/Edge via `navigator.requestMIDIAccess`); `gMidiChannel` (0=omni, 1–16) set via `midichan` serial command; channel filter in all MIDI callbacks
 - [x] 29b. **Flash config persistence** — `include/config_store.h` / `src/config_store.cpp`; Earle Philhower EEPROM emulation (wear-levelled circular buffer); `AlloyConfig` struct covers all synthesis + effects parameters (see M42/M42a); `configStore_load()` in `setup()` auto-restores on boot; `config save|load|reset [slot|all]` serial commands; three-layer flash protection: dirty check (memcmp), 10 s rate limit (live slot only), magic+version invalidation on struct change; 10-slot layout (`kMaxPresets=10`): slot 0 = auto-save live state, slots 1–9 = user presets; `config reset all` = factory reset
 - [x] 29c. **MIDI SysEx config backup/restore** — dump/load `AlloyConfig` struct as SysEx message; allows users to manage presets via external MIDI controllers or DAWs that support SysEx, without needing the Web Configurator
-- [ ] 29d. **MIDI CC mapping configurator** — allow users to assign MIDI CCs to parameters via Web Configurator; store mappings in flash; update `paramMap_dispatchCC` to use dynamic mapping
-- [x] 29e. **MIDI channel configurator** — allow users to set MIDI channel (0=omni, 1–16) via Web Configurator; store in flash; filter incoming MIDI messages accordingly
+- [x] 29d. **MIDI channel configurator** — allow users to set MIDI channel (0=omni, 1–16) via Web Configurator; store in flash; filter incoming MIDI messages accordingly
 - [ ] 30. **APA102/SK9822 Dotstar LEDs** — bitbang SPI on GP7/GP8, full LED language per mode
 - [x] 31. **Button UI (partial)** — `ButtonEngine` class: active-low INPUT_PULLUP, 4-tick debounce (~31 ms), `pressed()`/`released()`/`held()`/`isDown()` events; **GP10 MODE** cycles PAIR→CHORD; **GP11 SHIFT** — trig fires on **release** (not press) so holding SHIFT for combos doesn’t accidentally trigger; `sShiftConsumed` file-scope flag suppresses trig-on-release whenever SHIFT is consumed by any combo or future SHIFT+knob handler; **SHIFT held + MODE tap** → drone mode (`gGatePatched=false`, `sShiftConsumed=true`); SHIFT+knob secondary pot functions pending (M31 remainder); MODE reserved as potential third shift layer for future use
 - [ ] 32. **PCB design** — KiCad, 14HP panel, Thonkiconn jacks, Pico 2 footprint
@@ -2148,7 +2144,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
 - [x] 38. **POLY mode — 4-voice true polyphony** — implement independent voice allocator for POLY mode; each MIDI note gets its own `ShapeOsc` + independent `CurveEngine` instance; round-robin allocation with oldest-note steal; voices distributed L→R across stereo field; V/OCT+GATE always slot 0; Program Change 6 → POLY mode; `mode poly` serial command; LED: D13 lime/yellow-green, D12 brightness tracks active voice count; evaluate CPU load on RP2350 with 4 independent envelopes + chorus
 - [x] 39a. **Implement load/save presets via MIDI Sysex** — allows users to store and recall presets from web configurator
-- [ ] 39b. **Document MIDI implementation and SysEx format** — provide clear documentation on the MIDI CC mappings, SysEx message structure for presets, and how to integrate with external controllers or software
+- [x] 39b. **Document MIDI implementation and SysEx format** — provide clear documentation on the MIDI CC mappings, SysEx message structure for presets, and how to integrate with external controllers or software
 - [x] 40. **Expose reverb modulation parameters via MIDI CC** — `gRevModSpeed` (CC 112, 0.1–4.0) and `gRevModDepth` (CC 113, 0.0–1.0) added to central param map; `reverb modspeed/moddepth` serial sub-commands; `setModulation()` virtual method on `ReverbEngine`; change-detected in `updateControl()` at 128 Hz (partial — Web Configurator UI pending)
 - [x] 41. **Reverb freeze mode** — CC 114 (≥64=on, <64=off) and `reverb freeze on/off` serial command; `freeze()` virtual method on `ReverbEngine`; `DattorroReverb`: decay→1.0 + new input gated when frozen; tail holds indefinitely at full level; re-introducing input mixes in cleanly on next onset (partial — SHIFT+knob macro gesture pending)
 - [x] 42. **Improve flash persistence data** — all synthesis + effects parameters now persisted; `AlloyConfig` extended with filter (cutoff/res/mode/type), envelope (AR vs ADSR, full ADSR params + loop), reverb (enabled/mix/size/damping/modSpeed/modDepth/frozen), delay (time/feedback/mix), and FxOrder (filterPostChorus/delayPostReverb); `kConfigVersion` bumped 2→3 (old configs invalidated, safe defaults applied); RAM 236KB (45.2%), Flash 3.0%
@@ -2157,26 +2153,13 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 44. **Implement internal modulator LFO** — single or multi-waveform LFO (sine/triangle/saw/ramp/square); assignable to parameters like filter cutoff, reverb size, delay time; rate and depth controls; potential for tempo sync via MIDI clock; evaluate CPU load and sonic impact; consider adding as a modulation source in the Web Configurator with visual feedback
 - [ ] 45. **Implement internal modulator matrix** — flexible routing of modulation sources (LFOs, envelopes, MIDI CCs) to any parameter; matrix stored in flash; real-time control via Web Configurator; evaluate CPU load and optimize as needed
 - [ ] 46. **Implement Wavefolder** — non-linear waveshaping for added harmonic complexity; simple tanh or more complex multi-stage folding; parameterized by `foldAmount`; evaluate CPU load and sonic impact. Potentially add as a post-effect in the chain for more character.
-- [ ] 47. **Improve envelope shapes** — Add envelope curve as exponential in addition to current linear.
+- [ ] 47. **Improve new envelope** — Add new envelope that could be routed. Add exponential curve in addition to current linear.
 - [ ] 48. **Create controller VST3 plugin** — optional software plugin for DAWs, using the same codebase where possible; MIDI control surface that sends commands to the hardware module; visual feedback of parameters and states; potential for preset management and integration with DAW automation
-- [ ] 49. **Scale quantization + transposition engine** — quantize incoming V/OCT and MIDI note pitch to a user-selected scale (chromatic, major, natural minor, pentatonic, dorian, etc.); transposition offset shifts the root note up/down in semitones; scale and root stored in flash; `scale <name>` and `transpose <semitones>` serial commands; CC assignment for real-time transpose; Web Configurator scale picker with keyboard visualization; *inspired by Seashell’s “customisable scale transposition engine”*
+- [x] 49. **Scale quantization + transposition engine** — **Implemented.** 15-scale bitmask quantizer (`include/scale_quantizer.h`): CHROMATIC (bypass), MAJOR, NATURAL_MINOR, HARMONIC_MINOR, MELODIC_MINOR, PENTATONIC_MAJ, PENTATONIC_MIN, BLUES, DORIAN, PHRYGIAN, LYDIAN, MIXOLYDIAN, LOCRIAN, WHOLE_TONE, DIMINISHED. `quantizeNote(note, scale, transpose)` inline function searches outward ±1–6 semitones, ties go up. Applied to all MIDI NoteOn paths (mono + POLY) in `usb_midi.cpp`; serial `pitch` command bypassed. CC 103 = scale select (0–14 direct enum index); CC 104 = transpose (0–48 encodes −24…+24 st offset). `scale <name>` and `transpose <semitones>` serial commands. Config fields `quantizeScale` / `transpose` persisted in flash (kConfigVersion 5). Web Configurator: Voice → Scale (select) + Transpose (slider). *Inspired by Seashell's “customisable scale transposition engine”*
 - [ ] 50. **MIDI learn mode** — gesture-based dynamic CC-to-parameter binding; hold a dedicated combo (e.g. SHIFT+MODE long-press), wiggle any hardware knob or CV source, then send any MIDI CC — the module binds that CC to that parameter; learned mappings stored in flash alongside preset slot; `learn` and `learn clear [param]` serial commands; Web Configurator shows current mapping with per-param override / clear; supersedes static M29d; *inspired by Seashell’s “MIDI learn functionality”*
 - [ ] 51. **Web Configurator UX redesign (Seashell-inspired)** — streamlined single-screen layout inspired by Seashell’s compact controller software: fewer visual layers, larger touch targets, collapsible category strips, real-time oscilloscope/waveform preview pane driven by an audio snapshot CC stream; optional PWA install for standalone desktop/mobile use (replaces browser-tab workflow); evaluate Electron wrapper for OS-level MIDI device enumeration without Web MIDI permission prompts; *inspired by Seashell’s dedicated controller app (macOS/Windows/Linux builds)*
 - [ ] 52. **Expand modulation matrix (Seashell-style macro control)** — build on M45 to add hardware macro knob: one knob simultaneously drives multiple mod-matrix destinations with per-destination depth and polarity; useful for performance (one twist = filter + reverb + drift together); store macro assignments in preset; Web Configurator drag-assign UI; *inspired by Seashell’s “4×4 modulation matrix mixer with hardware macro control”*
 
-
-## Project Refinement
-
-### Software
-
-- [ ] Understand if the multiple voices should be mixed to the stereo output and if these voices should be used by the chord engine or the MIDI/I2C input
-- [x] Define the command list which will span Serial control, MIDI CCs, Web USB/MIDI configurator and I2C — aim for consistent parameter names across all interfaces; **done: `param_map.h` single CC table shared by all transports**
-
-### Hardware
-
-- [ ] Evaluate adding CV inputs for all/most parameters
-- [x] Commit to normalization probe (GP22) for CV jack cable detection — MI-style shared bus approach; mux jack switch approach abandoned as more complex with less clean analog path
-- [ ] Evaluate adding an expansion module (2hp) for future features with additional inputs and outputs
 
 ---
 

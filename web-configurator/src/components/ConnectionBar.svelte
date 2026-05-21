@@ -24,6 +24,14 @@
       <span class="badge error">Not supported</span>
     {:else if !$midi.connected}
       <button onclick={connectMidi}>Connect MIDI</button>
+    {:else if !$midi.deviceConnected}
+      <span class="badge warn">Device disconnected</span>
+      <button onclick={connectMidi} title="Scan for devices">Rescan</button>
+      <button
+        class="btn-disconnect"
+        onclick={() => midi.disconnect()}
+        title="Disconnect MIDI">✕</button
+      >
     {:else}
       <span class="badge ok">Connected</span>
       <select

@@ -20,6 +20,7 @@ export type MidiPortInfo = { id: string; name: string };
 export interface MidiStore {
   supported: boolean;
   connected: boolean;
+  deviceConnected: boolean;
   outputs: MidiPortInfo[];
   inputs: MidiPortInfo[];
   selectedOutput: string | null;
@@ -32,6 +33,7 @@ function createMidi() {
     supported:
       typeof navigator !== "undefined" && "requestMIDIAccess" in navigator,
     connected: false,
+    deviceConnected: false,
     outputs: [],
     inputs: [],
     selectedOutput: null,
@@ -115,23 +117,34 @@ function createMidi() {
     access.inputs.forEach((i) =>
       inputs.push({ id: i.id, name: i.name ?? i.id }),
     );
-    store.update((s) => ({
-      ...s,
-      connected: true,
-      outputs,
-      inputs,
-      // Auto-select first AlloyFlux port if available, otherwise first port
-      selectedOutput:
-        s.selectedOutput ??
-        outputs.find((o) => /alloy/i.test(o.name))?.id ??
-        outputs[0]?.id ??
-        null,
-      selectedInput:
-        s.selectedInput ??
-        inputs.find((i) => /alloy/i.test(i.name))?.id ??
-        inputs[0]?.id ??
-        null,
-    }));
+    store.update((s) => {
+      // Keep selection only if the port still exists; otherwise re-auto-select
+      const outStillExists = s.selectedOutput
+        ? outputs.some((o) => o.id === s.selectedOutput)
+        : false;
+      const inStillExists = s.selectedInput
+        ? inputs.some((i) => i.id === s.selectedInput)
+        : false;
+      const selectedOutput = outStillExists
+        ? s.selectedOutput
+        : (outputs.find((o) => /alloy/i.test(o.name))?.id ??
+          outputs[0]?.id ??
+          null);
+      const selectedInput = inStillExists
+        ? s.selectedInput
+        : (inputs.find((i) => /alloy/i.test(i.name))?.id ??
+          inputs[0]?.id ??
+          null);
+      return {
+        ...s,
+        connected: true,
+        deviceConnected: selectedOutput !== null,
+        outputs,
+        inputs,
+        selectedOutput,
+        selectedInput,
+      };
+    });
     subscribeInputs();
   }
 
@@ -192,6 +205,7 @@ function createMidi() {
     store.update((s) => ({
       ...s,
       connected: false,
+      deviceConnected: false,
       outputs: [],
       inputs: [],
       selectedOutput: null,

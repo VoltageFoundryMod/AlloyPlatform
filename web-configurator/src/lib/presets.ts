@@ -53,7 +53,7 @@ function createPresets() {
     if (get(serial).connected) {
       const cmd = slot === 0 ? "config save" : `config save ${slot}`;
       await serial.send(cmd);
-    } else if (get(midi).connected) {
+    } else if (get(midi).deviceConnected) {
       midi.sendSysEx(SysexCmd.PRESET_SAVE, [slot & 0x7f]);
     }
     store.update((ps) =>
@@ -67,7 +67,7 @@ function createPresets() {
       await serial.send(cmd);
       // Re-request dump so the UI reflects the newly loaded preset
       await serial.send("dump");
-    } else if (get(midi).connected) {
+    } else if (get(midi).deviceConnected) {
       // PRESET_LOAD (0x05) triggers configStore_load on the device and
       // the firmware automatically responds with a PATCH_DUMP, so the
       // App.svelte onSysEx handler will apply the new state automatically.
@@ -88,7 +88,7 @@ function createPresets() {
       if (slot === 0 || slot === "all") {
         await serial.send("dump");
       }
-    } else if (get(midi).connected) {
+    } else if (get(midi).deviceConnected) {
       const arg = slot === "all" ? 0x7f : (slot as number) & 0x7f;
       midi.sendSysEx(SysexCmd.PRESET_RESET, [arg]);
       // MIDI path: firmware now auto-responds with PATCH_DUMP for slot 0 / all reset.
