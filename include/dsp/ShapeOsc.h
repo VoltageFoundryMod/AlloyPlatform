@@ -30,12 +30,28 @@ class ShapeOsc {
     static constexpr uint16_t TABLE_CELLS = 2048;
     static constexpr uint8_t N_SHAPES = 5;
 
+    /** Default constructor — call setTables() before use. */
+    ShapeOsc() : _phase(0), _phaseInc(0), _tA(0), _blend(0), _sampleRate(UPDATE_RATE) {
+        for (uint8_t i = 0; i < N_SHAPES; i++)
+            _tables[i] = nullptr;
+    }
+
     ShapeOsc(const int16_t *sine,
              const int16_t *tri,
              const int16_t *saw,
              const int16_t *pulse,
              const int16_t *hollow)
-        : _phase(0), _phaseInc(0), _tA(0), _blend(0) {
+        : _phase(0), _phaseInc(0), _tA(0), _blend(0), _sampleRate(UPDATE_RATE) {
+        _tables[0] = sine;
+        _tables[1] = tri;
+        _tables[2] = saw;
+        _tables[3] = pulse;
+        _tables[4] = hollow;
+    }
+
+    /** Assign wavetable pointers after default construction. */
+    void setTables(const int16_t *sine, const int16_t *tri, const int16_t *saw,
+                   const int16_t *pulse, const int16_t *hollow) {
         _tables[0] = sine;
         _tables[1] = tri;
         _tables[2] = saw;
@@ -44,8 +60,11 @@ class ShapeOsc {
     }
 
     void setFreq(float freq) {
-        _phaseInc = (uint32_t)((TABLE_CELLS * freq / UPDATE_RATE) * 65536.0f);
+        _phaseInc = (uint32_t)((TABLE_CELLS * freq / (float)_sampleRate) * 65536.0f);
     }
+
+    /** Runtime sample-rate override — call when VCV host changes rate. */
+    void setSampleRate(uint32_t sr) { _sampleRate = sr; }
 
     // shape: 0.0 (sine) … 1.0 (hollow pulse).  Clamped internally.
     // Pre-computes the table-pair index and blend factor so next() is float-free.
@@ -125,6 +144,7 @@ class ShapeOsc {
     const int16_t *_tables[N_SHAPES];
     uint32_t _phase;
     uint32_t _phaseInc;
-    uint8_t _tA;    // lower table index (0..3), updated in setShape()
-    uint8_t _blend; // crossfade 0=100%tA … 255=~100%tA+1, updated in setShape()
+    uint8_t _tA;          // lower table index (0..3), updated in setShape()
+    uint8_t _blend;       // crossfade 0=100%tA … 255=~100%tA+1, updated in setShape()
+    uint32_t _sampleRate; // effective sample rate — default = UPDATE_RATE template param
 };

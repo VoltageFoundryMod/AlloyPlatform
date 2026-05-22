@@ -61,13 +61,14 @@ class ChorusEngine {
     static constexpr float CENTER_DELAY_S = 0.007f; // 7 ms
     static constexpr float MAX_MOD_S = 0.003f;      // ±3 ms
 
-    static constexpr float CENTER_SAMPLES = CENTER_DELAY_S * (float)SAMPLE_RATE;
-    static constexpr float MAX_MOD_SAMPLES = MAX_MOD_S * (float)SAMPLE_RATE;
-
+    // LFO rates and default compile-time delay lengths (informational; actual
+    // values are computed at runtime in init() from the effective sample rate).
     static constexpr float LFO_RATE_L = 0.513f; // Hz
     static constexpr float LFO_RATE_R = 0.618f; // Hz
 
-    void init() {
+    void init(uint32_t sampleRate = SAMPLE_RATE) {
+        _centerSamples = CENTER_DELAY_S * (float)sampleRate;
+        _maxModSamples = MAX_MOD_S * (float)sampleRate;
         for (uint32_t i = 0; i < BUFFER_SAMPLES; i++) {
             _bufL[i] = 0;
             _bufR[i] = 0;
@@ -75,8 +76,8 @@ class ChorusEngine {
         _writePos = 0;
 
         // Pre-compute phasor increments — only trig calls ever made.
-        const float incL = LFO_RATE_L / (float)SAMPLE_RATE * 6.28318f;
-        const float incR = LFO_RATE_R / (float)SAMPLE_RATE * 6.28318f;
+        const float incL = LFO_RATE_L / (float)sampleRate * 6.28318f;
+        const float incR = LFO_RATE_R / (float)sampleRate * 6.28318f;
         _cosIncL = cosf(incL);
         _sinIncL = sinf(incL);
         _cosIncR = cosf(incR);
@@ -88,6 +89,9 @@ class ChorusEngine {
         _sinR = 1.0f;
         _cosR = 0.0f;
     }
+
+    /** Runtime sample-rate change — re-initialises phasors and delay params. */
+    void setSampleRate(uint32_t sr) { init(sr); }
 
     /**
      * Process one stereo sample pair in the audio ISR.
@@ -115,8 +119,8 @@ class ChorusEngine {
             const float sinR = (mode == ChorusMode::I) ? _sinL : _sinR;
 
             // LFO-modulated fractional delays (samples).
-            const float delayL = CENTER_SAMPLES + MAX_MOD_SAMPLES * sinL;
-            const float delayR = CENTER_SAMPLES + MAX_MOD_SAMPLES * sinR;
+            const float delayL = _centerSamples + _maxModSamples * sinL;
+            const float delayR = _centerSamples + _maxModSamples * sinR;
 
             // Linear-interpolated reads.
             const int32_t wetL = _readInterp(_bufL, delayL);
@@ -164,6 +168,10 @@ class ChorusEngine {
     int32_t _bufL[BUFFER_SAMPLES];
     int32_t _bufR[BUFFER_SAMPLES];
     uint32_t _writePos = 0;
+
+    // Runtime-computed delay lengths (set in init()).
+    float _centerSamples = CENTER_DELAY_S * (float)SAMPLE_RATE;
+    float _maxModSamples = MAX_MOD_S * (float)SAMPLE_RATE;
 
     // Phasor state — magnitude-1 quadrature pairs.
     float _sinL = 0.0f, _cosL = 1.0f;

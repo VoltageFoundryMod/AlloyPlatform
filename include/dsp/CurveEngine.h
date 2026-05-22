@@ -58,8 +58,8 @@ class AREnvelope : public EnvelopeEngine {
         const float ts = (timeScale < 0.01f) ? 0.01f : timeScale;
         const float attTime = (0.001f + c2 * 0.799f) * ts;
         const float relTime = (0.080f + c2 * 0.920f) * ts;
-        _attCoeff = 1.0f - expf(-1.0f / (attTime * (float)SAMPLE_RATE));
-        _relDecay = expf(-1.0f / (relTime * (float)SAMPLE_RATE));
+        _attCoeff = 1.0f - expf(-1.0f / (attTime * (float)_sampleRate));
+        _relDecay = expf(-1.0f / (relTime * (float)_sampleRate));
     }
 
     void setGate(bool high) override {
@@ -102,6 +102,9 @@ class AREnvelope : public EnvelopeEngine {
         _env = 0.0f;
     }
 
+    /** Runtime sample-rate override — call when VCV host changes rate. */
+    void setSampleRate(uint32_t sr) { _sampleRate = sr; }
+
   private:
     enum State : uint8_t { IDLE,
                            ATTACK,
@@ -112,6 +115,7 @@ class AREnvelope : public EnvelopeEngine {
     float _relDecay = 0.999f;
     float _curve = 0.5f;
     bool _gateHigh = false;
+    uint32_t _sampleRate = SAMPLE_RATE;
 };
 
 // Backwards-compatibility alias — existing code that uses CurveEngine<RATE> still compiles.
@@ -144,7 +148,7 @@ class ADSREnvelope : public EnvelopeEngine {
                  float releaseTime, bool loop = false) {
         _sustain = (sustainLevel < 0.0f) ? 0.0f : (sustainLevel > 1.0f ? 1.0f : sustainLevel);
         _loop = loop;
-        const float sr = (float)SAMPLE_RATE;
+        const float sr = (float)_sampleRate;
         _attCoeff = 1.0f - _coeff(attackTime, sr); // additive step: env += coeff*(1-env)
         _decCoeff = 1.0f - _coeff(decayTime, sr);  // additive step toward sustain
         _relCoeff = _coeff(releaseTime, sr);       // multiplicative: env *= coeff
@@ -205,6 +209,9 @@ class ADSREnvelope : public EnvelopeEngine {
     /** Start a one-shot attack (useful for trig commands and SHIFT button). */
     void trigger() { _state = ATTACK; }
 
+    /** Runtime sample-rate override — call when VCV host changes rate. */
+    void setSampleRate(uint32_t sr) { _sampleRate = sr; }
+
   private:
     // Continuous one-pole decay coefficient toward a target.
     // attCoeff = 1 - exp(-1/(time*sr)):  env += coeff*(target - env) per sample.
@@ -229,4 +236,5 @@ class ADSREnvelope : public EnvelopeEngine {
     float _relCoeff = 0.999f; // decay multiplier (per-sample)
     bool _loop = false;
     bool _gateHigh = false;
+    uint32_t _sampleRate = SAMPLE_RATE;
 };
