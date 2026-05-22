@@ -1,0 +1,23 @@
+{
+  "slug": "AlloyFlux",
+  "name": "Alloy Flux Synthesizer Voice",
+  "version": "1.0.0",
+  "license": "VCV Rack EULA",
+  "brand": "Voltage Foundry Modular",
+  "author": "Carlos Eduardo de Paula",
+  "authorEmail": "carlosedp@gmail.com",
+  "authorUrl": "",
+  "pluginUrl": "",
+  "manualUrl": "",
+  "sourceUrl": "",
+  "donateUrl": "",
+  "changelogUrl": "",
+  "modules": [
+    {
+      "slug": "AlloyFlux",
+      "name": "AlloyFlux",
+      "description": "Dual Relation Oscillator",
+      "tags": ["Oscillator", "Polyphonic", "Digital", "Complex"]
+    }
+  ]
+}
