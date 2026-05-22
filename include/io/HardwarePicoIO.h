@@ -51,6 +51,13 @@ class HardwarePicoIO : public IHardwareIO {
             return gCurve; // already 0–1
         case PotId::SPACE:
             return gSpace / 2.0f; // 0–2 → 0–1
+        case PotId::FATNESS:
+            return gFatness; // already 0–1
+        case PotId::DRIFTSPEED:
+            // gDriftSpeed is in [0.001, 0.10] coeff; normalise to 0–1
+            return (gDriftSpeed - 0.001f) / (0.10f - 0.001f);
+        case PotId::VOL:
+            return gVolume; // already 0–1
         default:
             return 0.5f;
         }

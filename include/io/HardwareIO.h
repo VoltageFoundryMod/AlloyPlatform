@@ -12,6 +12,7 @@
 
 /** Panel knobs (pots).  Order reflects physical left→right / top→bottom layout. */
 enum class PotId : uint8_t {
+    // ---- 7 physical panel knobs (same on hardware and VCV) ----
     ROOT = 0, ///< Root pitch (V/Oct centre)
     RELATION, ///< RELATION — semitone offset for voice 2 (0–24 st)
     SHAPE,    ///< Waveform shape (sine → tri → saw → pulse → hollow) [0–1]
@@ -19,6 +20,11 @@ enum class PotId : uint8_t {
     COLOR,    ///< FM depth / ensemble Hz spread [0–1]
     CURVE,    ///< Envelope curve character (pluck ↔ swell) [0–1]
     SPACE,    ///< Stereo width [0–1]
+    // ---- SHIFT-secondary parameters (VCV: hidden params / context menu sliders;
+    //      hardware: same physical knob read when SHIFT held) ----
+    FATNESS,    ///< Sub-oscillator level [0–1]  (SHIFT+SHAPE on hardware)
+    DRIFTSPEED, ///< Drift glide rate [0–1]       (SHIFT+MOTION on hardware)
+    VOL,        ///< Master output volume [0–1]   (SHIFT+SPACE on hardware)
     POT_COUNT
 };
 
