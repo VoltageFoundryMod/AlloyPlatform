@@ -15,12 +15,19 @@
 // ---------------------------------------------------------------------------
 struct SubMenuSlider : rack::ui::MenuItem {
     static constexpr float SENSITIVITY = 0.001f;
+    static constexpr float SLIDER_WIDTH = 200.f; // wider than default menu item
 
     /** Not owned. */
     rack::Quantity *quantity = nullptr;
 
     SubMenuSlider() {
         box.size.y = BND_WIDGET_HEIGHT;
+        box.size.x = SLIDER_WIDTH;
+    }
+
+    void step() override {
+        rack::ui::MenuItem::step();
+        box.size.x = SLIDER_WIDTH; // prevent parent menu from shrinking us
     }
 
     void draw(const rack::widget::Widget::DrawArgs &args) override {
@@ -65,7 +72,7 @@ struct SubMenuSlider : rack::ui::MenuItem {
         struct SliderField : rack::ui::TextField {
             rack::Quantity *quantity;
             bool textSync = true;
-            SliderField() { box.size.x = 70.f; }
+            SliderField() { box.size.x = 150.f; }
 
             void onSelectKey(const rack::event::SelectKey &e) override {
                 if (e.action == GLFW_PRESS && e.key == GLFW_KEY_ENTER) {

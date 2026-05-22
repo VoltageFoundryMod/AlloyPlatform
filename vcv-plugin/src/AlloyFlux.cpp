@@ -2,7 +2,10 @@
 #include "SynthEngine.h"
 #include "VCVRackIO.h" // VCV-specific IHardwareIO implementation (M37d)
 #include "VoiceMode.h"
-#include "io/IOBridge.h" // fillSynthParams() shared bridge
+#include "dsp/ChorusEngine.h" // ChorusMode enum
+#include "dsp/CurveEngine.h"  // EnvelopeType enum
+#include "dsp/FilterEngine.h" // FilterMode, FilterType enums
+#include "io/IOBridge.h"      // fillSynthParams() shared bridge
 #include "plugin.hpp"
 
 // ---------------------------------------------------------------------------
@@ -39,6 +42,27 @@ struct AlloyFlux : Module {
         // Panel buttons
         MODE_PARAM,  // momentary — cycles voice mode on release
         SHIFT_PARAM, // momentary — toggles drone mode (VCV only)
+        // ---- M37g: Envelope (hidden, saved in patch) ----
+        ENV_TYPE_PARAM,     // 0=AR, 1=ADSR
+        ADSR_ATTACK_PARAM,  // [0.001, 2.0] s, default 0.05
+        ADSR_DECAY_PARAM,   // [0.001, 2.0] s, default 0.10
+        ADSR_SUSTAIN_PARAM, // [0.0, 1.0], default 0.8
+        ADSR_RELEASE_PARAM, // [0.001, 4.0] s, default 0.30
+        ADSR_LOOP_PARAM,    // 0=off, 1=loop
+        // ---- M37h: Effects (hidden, saved in patch) ----
+        CHORUS_MODE_PARAM,   // 0=OFF,1=I,2=II,3=I_II
+        FILTER_MODE_PARAM,   // 0=OFF,1=LP,2=HP,3=BP,4=NOTCH,5=LP4
+        FILTER_TYPE_PARAM,   // 0=SVF,1=LADDER
+        FILTER_CUTOFF_PARAM, // [20, 16000] Hz, default 8000
+        FILTER_RES_PARAM,    // [0, 1], default 0
+        REV_ENABLED_PARAM,   // 0=off, 1=on
+        REV_MIX_PARAM,       // [0, 1], default 0.35
+        REV_SIZE_PARAM,      // [0, 1], default 0.5
+        REV_DAMPING_PARAM,   // [0, 1], default 0.5
+        DELAY_ENABLED_PARAM, // 0=off, 1=on
+        DELAY_MIX_PARAM,     // [0, 1], default 0
+        DELAY_TIME_PARAM,    // [1, 1000] ms, default 100
+        DELAY_FB_PARAM,      // [0, 0.99], default 0.5
         PARAMS_LEN
     };
 
@@ -79,6 +103,10 @@ struct AlloyFlux : Module {
     bool _shiftWasDown = false;
     bool _droneComboFired = false;
     bool _modeConsumed = false;
+
+    // M37h: 1-frame dry buffer for inline reverb (avoids Core 1 split)
+    int32_t _prevDryL = 0;
+    int32_t _prevDryR = 0;
 
     AlloyFlux() : _io(this) {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
@@ -137,6 +165,31 @@ struct AlloyFlux : Module {
         configButton(SHIFT_PARAM, "Drone mode");
         _io.assignButton(ButtonId::MODE, MODE_PARAM);
         _io.assignButton(ButtonId::SHIFT, SHIFT_PARAM);
+
+        // M37g — Envelope (hidden)
+        configSwitch(ENV_TYPE_PARAM, 0.f, 1.f, 0.f, "Envelope type", {"AR", "ADSR"});
+        configParam(ADSR_ATTACK_PARAM, 0.001f, 2.0f, 0.05f, "Attack", " s");
+        configParam(ADSR_DECAY_PARAM, 0.001f, 2.0f, 0.10f, "Decay", " s");
+        configParam(ADSR_SUSTAIN_PARAM, 0.0f, 1.0f, 0.8f, "Sustain");
+        configParam(ADSR_RELEASE_PARAM, 0.001f, 4.0f, 0.30f, "Release", " s");
+        configSwitch(ADSR_LOOP_PARAM, 0.f, 1.f, 0.f, "Envelope loop", {"Off", "On"});
+
+        // M37h — Effects (hidden)
+        configSwitch(CHORUS_MODE_PARAM, 0.f, 3.f, 3.f, "Chorus mode",
+                     {"Off", "Chorus I", "Chorus II", "Chorus I+II"});
+        configSwitch(FILTER_MODE_PARAM, 0.f, 5.f, 0.f, "Filter mode",
+                     {"Off", "LP", "HP", "BP", "Notch", "LP4"});
+        configSwitch(FILTER_TYPE_PARAM, 0.f, 1.f, 0.f, "Filter type", {"SVF", "Ladder"});
+        configParam(FILTER_CUTOFF_PARAM, 20.f, 16000.f, 8000.f, "Filter cutoff", " Hz");
+        configParam(FILTER_RES_PARAM, 0.f, 1.f, 0.f, "Filter resonance");
+        configSwitch(REV_ENABLED_PARAM, 0.f, 1.f, 0.f, "Reverb", {"Off", "On"});
+        configParam(REV_MIX_PARAM, 0.f, 1.f, 0.35f, "Reverb mix");
+        configParam(REV_SIZE_PARAM, 0.f, 1.f, 0.5f, "Reverb size");
+        configParam(REV_DAMPING_PARAM, 0.f, 1.f, 0.5f, "Reverb damping");
+        configSwitch(DELAY_ENABLED_PARAM, 0.f, 1.f, 0.f, "Delay", {"Off", "On"});
+        configParam(DELAY_MIX_PARAM, 0.f, 1.f, 0.f, "Delay mix");
+        configParam(DELAY_TIME_PARAM, 1.f, 1000.f, 100.f, "Delay time", " ms");
+        configParam(DELAY_FB_PARAM, 0.f, 0.99f, 0.5f, "Delay feedback");
     }
 
     void onSampleRateChange(const SampleRateChangeEvent &e) override {
@@ -209,6 +262,35 @@ struct AlloyFlux : Module {
             _params.gateHigh = false;
         }
 
+        // M37g — envelope params
+        _params.envelopeType = params[ENV_TYPE_PARAM].getValue() >= 0.5f
+                                   ? EnvelopeType::ADSR
+                                   : EnvelopeType::AR;
+        _params.adsrAttack = params[ADSR_ATTACK_PARAM].getValue();
+        _params.adsrDecay = params[ADSR_DECAY_PARAM].getValue();
+        _params.adsrSustain = params[ADSR_SUSTAIN_PARAM].getValue();
+        _params.adsrRelease = params[ADSR_RELEASE_PARAM].getValue();
+        _params.adsrLoop = params[ADSR_LOOP_PARAM].getValue() >= 0.5f;
+
+        // M37h — effects params
+        _params.chorusMode = static_cast<ChorusMode>(
+            (int)params[CHORUS_MODE_PARAM].getValue());
+        _params.filterMode = static_cast<FilterMode>(
+            (int)params[FILTER_MODE_PARAM].getValue());
+        _params.filterType = static_cast<FilterType>(
+            (int)params[FILTER_TYPE_PARAM].getValue());
+        _params.filterCutoff = params[FILTER_CUTOFF_PARAM].getValue();
+        _params.filterRes = params[FILTER_RES_PARAM].getValue();
+        _params.revEnabled = params[REV_ENABLED_PARAM].getValue() >= 0.5f;
+        _params.revMix = params[REV_MIX_PARAM].getValue();
+        _params.revSize = params[REV_SIZE_PARAM].getValue();
+        _params.revDamping = params[REV_DAMPING_PARAM].getValue();
+        _params.delayMix = params[DELAY_ENABLED_PARAM].getValue() >= 0.5f
+                               ? params[DELAY_MIX_PARAM].getValue()
+                               : 0.f;
+        _params.delayTime = params[DELAY_TIME_PARAM].getValue();
+        _params.delayFeedback = params[DELAY_FB_PARAM].getValue();
+
         gGatePatched = _params.gatePatched;
         gGateHigh = _params.gateHigh;
 
@@ -218,9 +300,26 @@ struct AlloyFlux : Module {
             _engine.control(_params, _polySlots, out);
         }
 
+        // M37h — inline reverb: process last frame's dry signal, pass wet to audio().
+        // 1-frame latency (~0.02 ms at 44100 Hz) is acoustically transparent.
+        int32_t revWetL = 0, revWetR = 0;
+        if (_params.revEnabled) {
+            constexpr float kNorm = 1.0f / 32512.0f;
+            float wetL, wetR;
+            _engine.reverb->process(
+                (float)_prevDryL * kNorm,
+                (float)_prevDryR * kNorm,
+                &wetL, &wetR);
+            revWetL = (int32_t)(wetL * 32512.0f);
+            revWetR = (int32_t)(wetR * 32512.0f);
+        }
+
         int32_t outL = 0, outR = 0, dryL = 0, dryR = 0;
-        _engine.audio(/*revWetL*/ 0, /*revWetR*/ 0, /*revMix*/ 0.0f, /*revEnabled*/ false,
+        _engine.audio(revWetL, revWetR, _params.revMix, _params.revEnabled,
                       &outL, &outR, &dryL, &dryR);
+
+        _prevDryL = dryL;
+        _prevDryR = dryR;
 
         constexpr float kScale = 5.0f / 32512.0f;
         outputs[L_OUTPUT].setVoltage((float)outL * kScale);
@@ -272,7 +371,7 @@ struct AlloyFluxWidget : ModuleWidget {
     }
 
     // -----------------------------------------------------------------------
-    // Context menu — SHIFT-secondary params as drag sliders
+    // Context menu
     // -----------------------------------------------------------------------
     void appendContextMenu(rack::ui::Menu *menu) override {
         ModuleWidget::appendContextMenu(menu);
@@ -300,7 +399,8 @@ struct AlloyFluxWidget : ModuleWidget {
             }));
 
         // --- Shift parameters (top-level sliders) ---
-        menu->addChild(rack::createMenuLabel("Shift parameters"));
+        menu->addChild(new rack::ui::MenuSeparator);
+        menu->addChild(rack::createMenuLabel("Shifted Controls"));
 
         auto *fatSlider = new SubMenuSlider;
         fatSlider->text = "Fatness";
@@ -316,6 +416,179 @@ struct AlloyFluxWidget : ModuleWidget {
         volSlider->text = "Volume";
         volSlider->quantity = m->getParamQuantity(AlloyFlux::VOL_PARAM);
         menu->addChild(volSlider);
+        menu->addChild(rack::createMenuLabel("Additional Controls"));
+        // --- Envelope submenu ---
+        bool isAdsr = m->params[AlloyFlux::ENV_TYPE_PARAM].getValue() >= 0.5f;
+        const char *envTypeName = isAdsr ? "ADSR" : "AR";
+        menu->addChild(rack::createSubmenuItem(
+            "Envelope", envTypeName,
+            [=](rack::ui::Menu *submenu) {
+                submenu->addChild(rack::createCheckMenuItem(
+                    "AR", "",
+                    [=]() { return !isAdsr; },
+                    [=]() { m->params[AlloyFlux::ENV_TYPE_PARAM].setValue(0.f); }));
+                submenu->addChild(rack::createCheckMenuItem(
+                    "ADSR", "",
+                    [=]() { return isAdsr; },
+                    [=]() { m->params[AlloyFlux::ENV_TYPE_PARAM].setValue(1.f); }));
+
+                submenu->addChild(new rack::ui::MenuSeparator);
+
+                auto *atk = new SubMenuSlider;
+                atk->text = "Attack";
+                atk->quantity = m->getParamQuantity(AlloyFlux::ADSR_ATTACK_PARAM);
+                submenu->addChild(atk);
+
+                auto *dec = new SubMenuSlider;
+                dec->text = "Decay";
+                dec->quantity = m->getParamQuantity(AlloyFlux::ADSR_DECAY_PARAM);
+                submenu->addChild(dec);
+
+                auto *sus = new SubMenuSlider;
+                sus->text = "Sustain";
+                sus->quantity = m->getParamQuantity(AlloyFlux::ADSR_SUSTAIN_PARAM);
+                submenu->addChild(sus);
+
+                auto *rel = new SubMenuSlider;
+                rel->text = "Release";
+                rel->quantity = m->getParamQuantity(AlloyFlux::ADSR_RELEASE_PARAM);
+                submenu->addChild(rel);
+
+                bool loopOn = m->params[AlloyFlux::ADSR_LOOP_PARAM].getValue() >= 0.5f;
+                submenu->addChild(rack::createCheckMenuItem(
+                    "Loop", "",
+                    [=]() { return loopOn; },
+                    [=]() { m->params[AlloyFlux::ADSR_LOOP_PARAM].setValue(loopOn ? 0.f : 1.f); }));
+            }));
+
+        // --- Chorus submenu ---
+        struct {
+            const char *label;
+            float val;
+        } modes[] = {
+            {"Off", 0.f}, {"I", 1.f}, {"II", 2.f}, {"I + II", 3.f}};
+        int cur = m->params[AlloyFlux::CHORUS_MODE_PARAM].getValue();
+        const char *chorusName = modes[cur].label;
+        menu->addChild(rack::createSubmenuItem(
+            "Chorus", chorusName,
+            [=](rack::ui::Menu *submenu) {
+                for (auto &mo : modes) {
+                    float v = mo.val;
+                    submenu->addChild(rack::createCheckMenuItem(
+                        mo.label, "",
+                        [=]() { return m->params[AlloyFlux::CHORUS_MODE_PARAM].getValue() == v; },
+                        [=]() { m->params[AlloyFlux::CHORUS_MODE_PARAM].setValue(v); }));
+                }
+                (void)cur;
+            }));
+
+        // --- Filter submenu ---
+        int curFilterType = (int)m->params[AlloyFlux::FILTER_TYPE_PARAM].getValue();
+        const char *filterTypeName = curFilterType < 1 ? "SVF" : "Ladder";
+        struct {
+            const char *label;
+            float val;
+        } fmodes[] = {
+            {"Off", 0.f}, {"LP", 1.f}, {"HP", 2.f}, {"BP", 3.f}, {"Notch", 4.f}, {"LP4", 5.f}};
+        int curFilterMode = (int)m->params[AlloyFlux::FILTER_MODE_PARAM].getValue();
+        std::string filterLabel = std::string(filterTypeName) + " (" + fmodes[curFilterMode].label + ")";
+
+        menu->addChild(rack::createSubmenuItem(
+            "Filter", filterLabel,
+            [=](rack::ui::Menu *submenu) {
+                // Type
+                submenu->addChild(rack::createCheckMenuItem(
+                    "SVF", "",
+                    [=]() { return m->params[AlloyFlux::FILTER_TYPE_PARAM].getValue() < 0.5f; },
+                    [=]() { m->params[AlloyFlux::FILTER_TYPE_PARAM].setValue(0.f); }));
+                submenu->addChild(rack::createCheckMenuItem(
+                    "Ladder", "",
+                    [=]() { return m->params[AlloyFlux::FILTER_TYPE_PARAM].getValue() >= 0.5f; },
+                    [=]() { m->params[AlloyFlux::FILTER_TYPE_PARAM].setValue(1.f); }));
+
+                submenu->addChild(new rack::ui::MenuSeparator);
+
+                // Mode
+                for (auto &fm : fmodes) {
+                    float v = fm.val;
+                    submenu->addChild(rack::createCheckMenuItem(
+                        fm.label, "",
+                        [=]() { return m->params[AlloyFlux::FILTER_MODE_PARAM].getValue() == v; },
+                        [=]() { m->params[AlloyFlux::FILTER_MODE_PARAM].setValue(v); }));
+                }
+
+                submenu->addChild(new rack::ui::MenuSeparator);
+
+                auto *cut = new SubMenuSlider;
+                cut->text = "Cutoff";
+                cut->quantity = m->getParamQuantity(AlloyFlux::FILTER_CUTOFF_PARAM);
+                submenu->addChild(cut);
+
+                auto *res = new SubMenuSlider;
+                res->text = "Resonance";
+                res->quantity = m->getParamQuantity(AlloyFlux::FILTER_RES_PARAM);
+                submenu->addChild(res);
+            }));
+
+        // --- Reverb submenu ---
+        int curRev = m->params[AlloyFlux::REV_ENABLED_PARAM].getValue() >= 0.5f ? 1 : 0;
+        const char *revName = curRev ? "On" : "Off";
+        menu->addChild(rack::createSubmenuItem(
+            "Reverb", revName,
+            [=](rack::ui::Menu *submenu) {
+                bool en = m->params[AlloyFlux::REV_ENABLED_PARAM].getValue() >= 0.5f;
+                submenu->addChild(rack::createCheckMenuItem(
+                    "Enable", "",
+                    [=]() { return en; },
+                    [=]() { m->params[AlloyFlux::REV_ENABLED_PARAM].setValue(en ? 0.f : 1.f); }));
+
+                submenu->addChild(new rack::ui::MenuSeparator);
+
+                auto *mix = new SubMenuSlider;
+                mix->text = "Mix";
+                mix->quantity = m->getParamQuantity(AlloyFlux::REV_MIX_PARAM);
+                submenu->addChild(mix);
+
+                auto *sz = new SubMenuSlider;
+                sz->text = "Size";
+                sz->quantity = m->getParamQuantity(AlloyFlux::REV_SIZE_PARAM);
+                submenu->addChild(sz);
+
+                auto *damp = new SubMenuSlider;
+                damp->text = "Damping";
+                damp->quantity = m->getParamQuantity(AlloyFlux::REV_DAMPING_PARAM);
+                submenu->addChild(damp);
+            }));
+
+        // --- Delay submenu ---
+        int curDelay = m->params[AlloyFlux::DELAY_ENABLED_PARAM].getValue() >= 0.5f ? 1 : 0;
+        const char *delayName = curDelay ? "On" : "Off";
+        menu->addChild(rack::createSubmenuItem(
+            "Delay", delayName,
+            [=](rack::ui::Menu *submenu) {
+                bool en = m->params[AlloyFlux::DELAY_ENABLED_PARAM].getValue() >= 0.5f;
+                submenu->addChild(rack::createCheckMenuItem(
+                    "Enable", "",
+                    [=]() { return en; },
+                    [=]() { m->params[AlloyFlux::DELAY_ENABLED_PARAM].setValue(en ? 0.f : 1.f); }));
+
+                submenu->addChild(new rack::ui::MenuSeparator);
+
+                auto *mix = new SubMenuSlider;
+                mix->text = "Mix";
+                mix->quantity = m->getParamQuantity(AlloyFlux::DELAY_MIX_PARAM);
+                submenu->addChild(mix);
+
+                auto *time = new SubMenuSlider;
+                time->text = "Time";
+                time->quantity = m->getParamQuantity(AlloyFlux::DELAY_TIME_PARAM);
+                submenu->addChild(time);
+
+                auto *fb = new SubMenuSlider;
+                fb->text = "Feedback";
+                fb->quantity = m->getParamQuantity(AlloyFlux::DELAY_FB_PARAM);
+                submenu->addChild(fb);
+            }));
     }
 };
 
