@@ -52,6 +52,8 @@
 #include "dsp/ReverbEngine.h"
 #include "dsp/SVFFilter.h"
 #include "dsp_shared.h"
+#include "io/HardwarePicoIO.h" // M37d — IHardwareIO implementation for Pico
+#include "io/IOBridge.h"       // M37d — fillSynthParams()
 #include "io/serial_console.h"
 #include "params.h"
 // ---------------------------------------------------------------------------
@@ -87,6 +89,8 @@ uint32_t sTrigReleaseAt = 0;
 // Button engines (Milestone 31) — polled at 128 Hz in updateControl().
 static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
 static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
+// M37d — hardware IO abstraction layer; owns readPot/readCV/readButton/writeLight.
+static HardwarePicoIO sHardwareIO(gBtnMode, gBtnShift);
 // Set to true whenever SHIFT is consumed by a combo or knob action so the
 // trig-on-release is suppressed. Reset automatically on SHIFT release.
 static bool sShiftConsumed = false; // suppresses trig-on-release when SHIFT used in combo
@@ -274,11 +278,13 @@ void updateControl() {
     }
 
     // -----------------------------------------------------------------------
-    // M37b: populate SynthParams from goal globals and run SynthEngine
+    // M37d/M37b: populate SynthParams — IO layer first, then MIDI/serial globals.
+    // fillSynthParams() covers hardware-knob/CV driven fields (baseFreq, gate).
+    // All other fields (filter, reverb, ADSR, …) continue via gXxx globals.
     // -----------------------------------------------------------------------
     {
         SynthParams p;
-        p.baseFreq = gBaseFreq;
+        fillSynthParams(sHardwareIO, p); // M37d: baseFreq, gateHigh, gatePatched
         p.shape = gShape;
         p.fatness = gFatness;
         p.subOctave = gSubOctave;
@@ -288,8 +294,7 @@ void updateControl() {
         p.relation = gRelation;
         p.curve = gCurve;
         p.curveTime = gCurveTime;
-        p.gateHigh = gGateHigh;
-        p.gatePatched = gGatePatched;
+        // p.gateHigh / p.gatePatched — set by fillSynthParams() above.
         p.volume = gVolume;
         p.midiVelocity = gMidiVelocity;
         p.glideTime = gGlideTime;

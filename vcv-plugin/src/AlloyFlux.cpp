@@ -1,4 +1,6 @@
 #include "SynthEngine.h"
+#include "VCVRackIO.h"   // VCV-specific IHardwareIO implementation (M37d)
+#include "io/IOBridge.h" // fillSynthParams() shared bridge (M37d)
 #include "plugin.hpp"
 
 // ---------------------------------------------------------------------------
@@ -36,18 +38,24 @@ struct AlloyFlux : Module {
     };
 
     SynthEngine _engine;
+    VCVRackIO _io; // M37d — VCV IHardwareIO impl
     PolySlot _polySlots[4] = {};
     SynthParams _params;
     int _controlCounter = 0;
     int _controlDiv = 344; // ~128 Hz at 44100
 
-    AlloyFlux() {
+    AlloyFlux() : _io(this) {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
         configParam(ROOT_PARAM, -4.0f, 4.0f, 0.0f, "Root pitch", " V");
         configInput(VOCT_INPUT, "V/Oct pitch");
         configInput(GATE_INPUT, "Gate");
         configOutput(L_OUTPUT, "Left");
         configOutput(R_OUTPUT, "Right");
+
+        // M37d — register IO mappings (extended in M37e as more params are added).
+        _io.assignPot(PotId::ROOT, ROOT_PARAM, -4.0f, 4.0f);
+        _io.assignCV(CVId::VOCT, VOCT_INPUT);
+        _io.assignCV(CVId::GATE, GATE_INPUT);
     }
 
     void onSampleRateChange(const SampleRateChangeEvent &e) override {
@@ -67,22 +75,15 @@ struct AlloyFlux : Module {
     }
 
     void process(const ProcessArgs &args) override {
-        // Gate input → drone or envelope
-        bool gateConnected = inputs[GATE_INPUT].isConnected();
-        gGatePatched = gateConnected;
-        gGateHigh = gateConnected && (inputs[GATE_INPUT].getVoltage() >= 1.0f);
-
-        // V/Oct pitch from knob + CV input
-        float voct = params[ROOT_PARAM].getValue();
-        if (inputs[VOCT_INPUT].isConnected())
-            voct += inputs[VOCT_INPUT].getVoltage();
-        _params.baseFreq = 440.0f * rack::dsp::exp2_taylor5(voct);
+        // M37d — populate SynthParams from the VCV IO layer.
+        fillSynthParams(_io, _params);
+        // Mirror gate state to globals required by SynthEngine::audio() internals.
+        gGatePatched = _params.gatePatched;
+        gGateHigh = _params.gateHigh;
 
         // Control-rate tick (~128 Hz)
         if (++_controlCounter >= _controlDiv) {
             _controlCounter = 0;
-            _params.gateHigh = gGateHigh;
-            _params.gatePatched = gateConnected;
             SynthControlOutput out;
             _engine.control(_params, _polySlots, out);
         }
