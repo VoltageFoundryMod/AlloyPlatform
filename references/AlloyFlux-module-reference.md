@@ -246,13 +246,13 @@ All pins accounted for. No pin used twice.
 | ---- | -------- | ------------------- | ------ | -------------------------------------------------------------------- |
 | GP0  | 1        | Spare               | —      | Future expansion                                                     |
 | GP1  | 2        | Spare               | —      | Future expansion                                                     |
-| GP2  | 4        | Spare               | —      | Future expansion                                                     |
-| GP3  | 5        | Mux S0              | Out    | 74HC4067 select bit 0                                                |
-| GP4  | 6        | Mux S1              | Out    | 74HC4067 select bit 1                                                |
-| GP5  | 7        | Mux S2              | Out    | 74HC4067 select bit 2                                                |
-| GP6  | 9        | Mux S3              | Out    | 74HC4067 select bit 3                                                |
-| GP7  | 10       | Dotstar LED data    | Out    | LED chain (all 5 LEDs)                                               |
-| GP8  | 11       | Dotstar LED clk     | Out    | LED chain (all 5 LEDs)                                               |
+| GP2  | 4        | Mux S0              | Out    | 74HC4067 select bit 0                                                |
+| GP3  | 5        | Mux S1              | Out    | 74HC4067 select bit 1                                                |
+| GP4  | 6        | Mux S2              | Out    | 74HC4067 select bit 2                                                |
+| GP5  | 7        | Mux S3              | Out    | 74HC4067 select bit 3                                                |
+| GP6  | 9        | Dotstar LED data    | Out    | LED chain (all 5 LEDs)                                               |
+| GP7  | 10       | Dotstar LED clk     | Out    | LED chain (all 5 LEDs)                                               |
+| GP8  | 11       | UART1 TX            | Out    | Hardware MIDI Out (TRS jack)                                         |
 | GP9  | 12       | UART1 RX            | In     | Hardware MIDI in (TRS jack)                                          |
 | GP10 | 14       | MODE button         | In     | Internal pull-up — cycles voice modes                                |
 | GP11 | 15       | SHIFT button        | In     | Internal pull-up — secondary pot functions; MODE+SHIFT combo → drone |
@@ -2159,6 +2159,7 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [ ] 50. **MIDI learn mode** — gesture-based dynamic CC-to-parameter binding; hold a dedicated combo (e.g. SHIFT+MODE long-press), wiggle any hardware knob or CV source, then send any MIDI CC — the module binds that CC to that parameter; learned mappings stored in flash alongside preset slot; `learn` and `learn clear [param]` serial commands; Web Configurator shows current mapping with per-param override / clear; supersedes static M29d; *inspired by Seashell’s “MIDI learn functionality”*
 - [ ] 51. **Web Configurator UX redesign (Seashell-inspired)** — streamlined single-screen layout inspired by Seashell’s compact controller software: fewer visual layers, larger touch targets, collapsible category strips, real-time oscilloscope/waveform preview pane driven by an audio snapshot CC stream; optional PWA install for standalone desktop/mobile use (replaces browser-tab workflow); evaluate Electron wrapper for OS-level MIDI device enumeration without Web MIDI permission prompts; *inspired by Seashell’s dedicated controller app (macOS/Windows/Linux builds)*
 - [ ] 52. **Expand modulation matrix (Seashell-style macro control)** — build on M45 to add hardware macro knob: one knob simultaneously drives multiple mod-matrix destinations with per-destination depth and polarity; useful for performance (one twist = filter + reverb + drift together); store macro assignments in preset; Web Configurator drag-assign UI; *inspired by Seashell’s “4×4 modulation matrix mixer with hardware macro control”*
+- [ ] 53. **Handle Clock** — MIDI clock sync for LFOs, envelopes, and delay time; `clock` serial command to set tempo; MIDI Clock Start/Stop/Continue handling; evaluate CPU load and timing accuracy; consider adding tap tempo via button for non-MIDI use. Forward MIDI to MIDI Out for external clock sync.
 
 
 ---
