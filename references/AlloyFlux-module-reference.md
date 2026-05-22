@@ -131,6 +131,7 @@
     - [Serial Console Control](#serial-console-control)
     - [Teletype I2C Integration](#teletype-i2c-integration)
     - [Web USB Configurator (future expansion)](#web-usb-configurator-future-expansion)
+    - [VCV Rack Module Port](#vcv-rack-module-port)
   - [Development Milestones](#development-milestones)
   - [Future Expansion](#future-expansion)
 
@@ -2094,6 +2095,34 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 
 ---
 
+### VCV Rack Module Port
+
+The intent is to have a software module in VCV Rack that shares the same DSP codebase and parameter structure as the hardware module. This allows users to prototype patches in software, or use the module's unique features in a DAW environment.
+
+The VCV Module will implement a shim layer that translates VCV's control inputs (knobs, CV jacks, MIDI) into the same parameter set used by the hardware firmware. The DSP code will be shared as a library between the two.
+
+This allows having in the module codebase, all required features for hardware integration like reading CV, reading potentiometers, MIDI input, handling LEDs and colors, etc. but in the VCV Rack environment, those will be fed by the VCV interface instead of the physical hardware inputs. The audio output will go to VCV's audio engine instead of the PCM5102. This also allows testing and iterating on features that require complex interaction (like the modulation matrix, or the SHAPE morphing) in a more visual and flexible environment before finalizing them in hardware.
+
+The ideal workflow is to develop and test new features in the VCV Rack module first, where iteration is faster, and then port them to the hardware firmware with confidence that they work as intended.
+
+The implementation should structure the codebase to maximize shared code between the hardware and VCV versions, with clear abstraction layers for hardware-specific functionality (e.g. ADC reading, MIDI parsing) that can be stubbed or replaced in the VCV environment.
+
+Eg. The potentiometers should all be mapped to floats between 0.0 and 1.0 in the shared code and the inputs from both hardware and VCV should adhere to this. CV should work the same way — normalized to 0.0–1.0 range, with the same scaling and response curves applied in the shared code. MIDI input should also be abstracted to a common event structure that both hardware and VCV can generate.
+
+Also the audio output layer should be abstracted so that the same DSP code can output to either the PCM5102 or VCV's audio engine without modification.
+
+Preset saving and loading can also be shared, with the hardware version saving to flash and the VCV version saving to disk, but both using the same data format using VCV Rack preset conventions.
+
+The VCV Rack plugin guide is at <https://vcvrack.com/manual/PluginGuide> and the doxygen api docs is at <https://vcvrack.com/docs-v2/>.
+
+**Architecture decisions:**
+
+- **Sample rate:** Firmware stays at 32768 Hz (power-of-2, PIO-friendly, clean 256 samples/control tick). All DSP engine constructors accept sample rate as a runtime argument rather than a compile-time template parameter — hardware passes `MOZZI_AUDIO_RATE`, VCV passes `args.sampleRate`.
+- **`SynthEngine`:** All voice/effects DSP logic is extracted from `main.cpp` into a platform-independent class. Both `main.cpp` (hardware) and `AlloyFlux.cpp` (VCV) call into it. Features added to `SynthEngine` arrive on both platforms automatically.
+- **`IHardwareIO`:** A thin abstract interface (`readPot`, `readCV`, `readButton`, `writeLight`) decouples hardware I/O from DSP logic. `HardwarePicoIO` implements mux ADC reads, hysteresis, ButtonEngine debounce, APA102 SPI. `VCVRackIO` reads `params[]`/`inputs[]` and writes `lights[]`. LED patterns, CV conditioning, and button debounce are implemented once in the hardware shim.
+
+---
+
 ## Development Milestones
 
 - [x] 1. **Sine wave out via PCM5102** — implemented via serial; board=adafruit_itsybitsy_m0
@@ -2141,7 +2170,19 @@ A Web USB or WebMIDI/SysEx browser interface for advanced configuration and pres
 - [x] 36a. **Web Configurator MIDI CC control** — allow real-time parameter changes via Web MIDI API; visualize internal state (e.g. chord shape, LFO waveforms) in the UI for performance feedback
 - [x] 36b. **Web Configurator preset management** — create, save, load presets from the browser; store in flash via SysEx or direct USB commands; backup/restore presets to/from files on the user's computer
 - [ ] 36c. **Web Configurator parameter editing** — advanced configuration options like chord shape table editing, LFO wavetable upload, envelope curve configuration, MIDI CC mapping, etc.
-- [ ] 37. **Create a VCV Rack port** — optional software emulation for VCV Rack, using the same codebase where possible
+- [ ] 37. **VCV Rack port** — software module sharing the same DSP codebase as the hardware firmware. [Ref](#vcv-rack-module-port)
+  - [ ] 37a. **Plugin scaffold** — `vcv-plugin/` directory at repo root; `plugin.json` manifest (`slug: AlloyFlux`, `brand: Voltage Foundry Modular`); `Makefile` linking against Rack SDK 2.6.6 with `-I../include`; `plugin.hpp` / `plugin.cpp`; empty plugin loads in VCV Rack without errors.
+  - [ ] 37b. **`SynthEngine` extraction** — all DSP logic moved from `main.cpp` into a platform-independent `include/SynthEngine.h` / `src/SynthEngine.cpp`; sample rate converted from compile-time template parameter to runtime constructor argument on all engines (`ShapeOsc`, `AREnvelope`, `ADSREnvelope`, `DriftEngine`, `ChorusEngine`) — hardware passes `MOZZI_AUDIO_RATE` (32768), VCV passes `args.sampleRate`; wavetable generation logic extracted to shared header; hardware `main.cpp` reduced to a thin shim calling `SynthEngine`; firmware build verified clean after refactor.
+  - [ ] 37c. **VCV minimal audio** — `AlloyFlux.cpp` VCV `Module` struct; instantiates `SynthEngine`; ROOT knob wired to `setBaseFreq()`; stereo ±5V audio output; audible sine tone confirms DSP path through VCV audio engine.
+  - [ ] 37d. **`IHardwareIO` abstraction** — `include/io/HardwareIO.h` defines `IHardwareIO` interface: `readPot(id)→0–1`, `readCV(id)→0–1`, `readButton(id)→bool`, `writeLight(id, r, g, b)`; `VCVRackIO` implementation reads `params[]`/`inputs[]`, writes `lights[]`; `HardwarePicoIO` implementation wraps existing mux ADC reads, ButtonEngine debounce, APA102 SPI — all hardware-specific logic lives here once; `main.cpp` and `AlloyFlux.cpp` both program against `IHardwareIO`.
+  - [ ] 37e. **All knobs + CV jacks** — `configParam()` for all 7 knobs (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE) with correct ranges; `configInput()` for all CV jacks (V/OCT 1V/oct, GATE, REL CV, SHP CV, MTN CV, SPC CV, FM IN, Assignable CV); `configOutput()` for L/R; scaling in `VCVRackIO::readCV()` matches hardware ADC conditioning path.
+  - [ ] 37f. **Voice modes** — MODE button param and context-menu switch expose all 6 modes (PAIR/CLOUD/CHORD/CASCADE/STRING/POLY); `configSwitch()` with named labels; all mode logic already contained in `SynthEngine` after 37b.
+  - [ ] 37g. **CurveEngine + gate** — GATE input drives envelope; CURVE knob; drone mode when GATE unpatched; AR/ADSR type selectable via right-click context menu (mirrors M43).
+  - [ ] 37h. **Effects chain** — Chorus, Space, Filter (SVF/OTA), DattorroReverb, DelayEngine all run inline in `process()` (no Core 1 split needed in VCV); reverb/delay mix/time/feedback exposed as VCV-side params not on hardware panel.
+  - [ ] 37i. **MIDI input** — `rack::midi::InputQueue` in module; NoteOn/Off → pitch/gate; CC dispatch via shared `paramMap_dispatchCC()` — same CC numbers as hardware.
+  - [ ] 37j. **Scale quantizer** — SCALE and TRANSPOSE params wired through `quantizeNote()` on all note paths (same as `usb_midi.cpp`).
+  - [ ] 37k. **Panel SVG + LEDs** — 14HP panel SVG matching hardware layout; 5× RGB LEDs mapped to voice activity / mode state / shift state per LED language spec (M30); light behaviour implemented once in `SynthEngine` or `IHardwareIO`, visible on both platforms.
+  - [ ] 37l. **JSON state serialization** — `dataToJson()` / `dataFromJson()` saves voice mode, envelope type, filter type, FxOrder, MIDI channel, scale, transpose; VCV patch recall restores full synth state.
 - [x] 38. **POLY mode — 4-voice true polyphony** — implement independent voice allocator for POLY mode; each MIDI note gets its own `ShapeOsc` + independent `CurveEngine` instance; round-robin allocation with oldest-note steal; voices distributed L→R across stereo field; V/OCT+GATE always slot 0; Program Change 6 → POLY mode; `mode poly` serial command; LED: D13 lime/yellow-green, D12 brightness tracks active voice count; evaluate CPU load on RP2350 with 4 independent envelopes + chorus
 - [x] 39a. **Implement load/save presets via MIDI Sysex** — allows users to store and recall presets from web configurator
 - [x] 39b. **Document MIDI implementation and SysEx format** — provide clear documentation on the MIDI CC mappings, SysEx message structure for presets, and how to integrate with external controllers or software
