@@ -13,6 +13,7 @@
 //
 //  CC   Standard meaning (GM/MMA)       Our use
 //  ---  -------------------------------- -------
+//   16  General Purpose Controller 1     rootfreq  (base pitch: CC 0=−4V, 64≈0V=440Hz, 127=+4V) — special
 //    1  Modulation Wheel                 motion  (drift + chorus depth)
 //    5  Portamento Time                  glidetime  (portamento slide speed 0–2 s)
 //    7  Channel Volume                   vol
@@ -67,7 +68,7 @@ const CCParam kCCParams[] = {
     {  71,  0.0f,    1.0f,    &gCurve,                    "curve",       false },  // Timbre/Resonance
     {  72,  0.001f,  4.0f,    &gAdsrRelease,              "adsrrelease", false },  // Release Time ✓
     {  73,  0.001f,  4.0f,    &gAdsrAttack,               "adsrattack",  false },  // Attack Time ✓
-    {  74,  20.0f, 16000.0f,  &gFilterCutoff,             "filtercutoff", true },  // VCF Cutoff ✓
+    {  74,  20.0f, 16000.0f,  &gFilterCutoff,             "filtercutoff", true },  // VCF Cutff ✓
     {  75,  0.0f,    1.0f,    &gFilterRes,                "filterres",   false },  // SC6
     {  78,  0.0f,    1.0f,    &gShape,                    "shape",       false },  // SC9 waveform
     {  82,  0.001f,  4.0f,    &gAdsrDecay,                "adsrdecay",   false },  // General Purpose

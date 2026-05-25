@@ -199,6 +199,7 @@ void updateControl() {
     serialConsole_update();
 #ifdef USE_TINYUSB
     usbMidi_update();
+    usbMidi_sendFeedback();
 #endif
 
     // -----------------------------------------------------------------------

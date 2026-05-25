@@ -229,6 +229,11 @@ static void onControlChange(byte channel, byte cc, byte value) {
 
     // Special cases: not simple float parameters.
     switch (cc) {
+    case 16: { // Root pitch V/Oct offset — CC 0=−4V, 64≈0V=440Hz, 127=+4V
+        float volts = -4.0f + (value / 127.0f) * 8.0f;
+        gBaseFreq = 440.0f * powf(2.0f, volts);
+        break;
+    }
     case 64: // Sustain pedal — arms gate; release only on pedal-up (value < 64)
         gGatePatched = true;
         gGateHigh = (value >= 64);
@@ -439,6 +444,33 @@ void usbMidi_init() {
 
 void usbMidi_update() {
     MidiUsb.read();
+}
+
+// ---------------------------------------------------------------------------
+// CC feedback — emit changed parameters to the USB host at control rate.
+// Builds a full CC snapshot, diffs against the previous one, and sends
+// individual CC messages only for values that have changed.
+// Cost: ~25 comparisons + only the changed CCs over the wire (0–3 typical).
+// ---------------------------------------------------------------------------
+void usbMidi_sendFeedback() {
+    static uint8_t sLastCC[128]; // last-sent CC value per CC number
+    static bool sInit = false;
+    if (!sInit) {
+        memset(sLastCC, 0xFF, sizeof(sLastCC)); // 0xFF = never sent
+        sInit = true;
+    }
+
+    // Build full snapshot into a temp buffer, then diff and send.
+    static uint8_t buf[128]; // max 64 CC pairs = 128 bytes
+    uint8_t n = sBuildPatchPairs(buf);
+    for (uint8_t i = 0; i + 1 < n; i += 2) {
+        uint8_t cc = buf[i] & 0x7F;
+        uint8_t val = buf[i + 1] & 0x7F;
+        if (sLastCC[cc] != val) {
+            sLastCC[cc] = val;
+            MidiUsb.sendControlChange(cc, val, gMidiChannel == 0 ? 1 : gMidiChannel);
+        }
+    }
 }
 
 #endif // USE_TINYUSB

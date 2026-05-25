@@ -16,9 +16,11 @@
   let {
     getPatchSnapshot,
     applyFromFile,
+    applyDefaults,
   }: {
     getPatchSnapshot: () => CCPair[];
     applyFromFile: (pairs: CCPair[]) => void;
+    applyDefaults: () => void;
   } = $props();
 
   /** Svelte action: focus element on mount */
@@ -68,6 +70,11 @@
       confirmPending = null;
       confirmTimer = null;
       presets.reset(slot);
+      // Apply defaults immediately to the web UI so it syncs without
+      // needing a PATCH_DUMP reply (VCV may not send one unless midiOutput
+      // is configured; hardware will send a real dump shortly that confirms
+      // the same values and overwrites cleanly).
+      if (slot === 0 || slot === "all") applyDefaults();
     } else {
       // First click — arm confirmation, auto-cancel after 3 s
       if (confirmTimer) clearTimeout(confirmTimer);

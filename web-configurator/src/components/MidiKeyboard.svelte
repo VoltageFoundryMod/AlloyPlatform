@@ -232,12 +232,12 @@
         aria-label="{NOTE_NAMES[vk.semitone]}{baseOctave +
           Math.floor(vk.offset / 12)}"
       >
-        {#if hint}<span class="kbd-hint">{hint}</span>{/if}
         {#if vk.semitone === 0}
           <span class="note-lbl"
             >C{baseOctave + Math.floor(vk.offset / 12)}</span
           >
         {/if}
+        {#if hint}<span class="kbd-hint">{hint}</span>{/if}
       </div>
     {/each}
     <!-- Black keys: left = (whiteIndex - 0.35) * whiteW % -->

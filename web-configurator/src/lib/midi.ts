@@ -19,6 +19,7 @@ export type MidiPortInfo = { id: string; name: string };
 
 export interface MidiStore {
   supported: boolean;
+  scanned: boolean;
   connected: boolean;
   deviceConnected: boolean;
   outputs: MidiPortInfo[];
@@ -32,6 +33,7 @@ function createMidi() {
   const store: Writable<MidiStore> = writable({
     supported:
       typeof navigator !== "undefined" && "requestMIDIAccess" in navigator,
+    scanned: false,
     connected: false,
     deviceConnected: false,
     outputs: [],
@@ -107,7 +109,7 @@ function createMidi() {
     );
   }
 
-  function refresh() {
+  function refreshList() {
     if (!access) return;
     const outputs: MidiPortInfo[] = [];
     const inputs: MidiPortInfo[] = [];
@@ -118,44 +120,62 @@ function createMidi() {
       inputs.push({ id: i.id, name: i.name ?? i.id }),
     );
     store.update((s) => {
-      // Keep selection only if the port still exists; otherwise re-auto-select
-      const outStillExists = s.selectedOutput
-        ? outputs.some((o) => o.id === s.selectedOutput)
-        : false;
-      const inStillExists = s.selectedInput
-        ? inputs.some((i) => i.id === s.selectedInput)
-        : false;
-      const selectedOutput = outStillExists
-        ? s.selectedOutput
-        : (outputs.find((o) => /alloy/i.test(o.name))?.id ??
-          outputs[0]?.id ??
-          null);
-      const selectedInput = inStillExists
-        ? s.selectedInput
-        : (inputs.find((i) => /alloy/i.test(i.name))?.id ??
-          inputs[0]?.id ??
-          null);
+      // Keep existing selection if port still present; auto-select otherwise.
+      const selectedOutput =
+        s.selectedOutput && outputs.some((o) => o.id === s.selectedOutput)
+          ? s.selectedOutput
+          : (outputs.find((o) => /alloy/i.test(o.name))?.id ??
+            outputs[0]?.id ??
+            null);
+      const selectedInput =
+        s.selectedInput && inputs.some((i) => i.id === s.selectedInput)
+          ? s.selectedInput
+          : (inputs.find((i) => /alloy/i.test(i.name))?.id ??
+            inputs[0]?.id ??
+            null);
+      // If already connected and the active port disappeared, mark disconnected.
+      const deviceConnected = s.connected ? selectedOutput !== null : false;
       return {
         ...s,
-        connected: true,
-        deviceConnected: selectedOutput !== null,
+        scanned: true,
         outputs,
         inputs,
         selectedOutput,
         selectedInput,
+        deviceConnected,
       };
     });
-    subscribeInputs();
+    if (get(store).connected) subscribeInputs();
   }
 
-  async function connect() {
+  /** Request Web MIDI access and enumerate available ports. */
+  async function scan() {
     try {
+      store.update((s) => ({ ...s, error: null }));
       access = await navigator.requestMIDIAccess({ sysex: true });
-      access.onstatechange = refresh;
-      refresh();
+      access.onstatechange = refreshList;
+      refreshList();
     } catch (e) {
       store.update((s) => ({ ...s, error: String(e) }));
     }
+  }
+
+  /** Connect to the currently selected (or specified) output port. */
+  function connect(outputId?: string) {
+    const state = get(store);
+    const id = outputId ?? state.selectedOutput;
+    if (!id) {
+      store.update((s) => ({ ...s, error: "No device selected" }));
+      return;
+    }
+    store.update((s) => ({
+      ...s,
+      connected: true,
+      deviceConnected: true,
+      selectedOutput: id,
+      error: null,
+    }));
+    subscribeInputs();
   }
 
   function getOutput(): MIDIOutput | null {
@@ -196,26 +216,18 @@ function createMidi() {
   }
 
   function disconnect() {
-    if (access) {
-      // Close all ports
-      for (const output of access.outputs.values()) output.close();
-      for (const input of access.inputs.values()) input.close();
-      access = null;
-    }
+    // Keep access and port lists so the user can reconnect without rescanning.
     store.update((s) => ({
       ...s,
       connected: false,
       deviceConnected: false,
-      outputs: [],
-      inputs: [],
-      selectedOutput: null,
-      selectedInput: null,
       error: null,
     }));
   }
 
   return {
     subscribe: store.subscribe,
+    scan,
     connect,
     disconnect,
     setChannel,

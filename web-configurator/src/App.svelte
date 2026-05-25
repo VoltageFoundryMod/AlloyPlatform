@@ -122,6 +122,25 @@
   }
 
   /**
+   * Apply factory defaults to the web UI (no device send).
+   * Called immediately after the web sends PRESET_RESET so the UI syncs
+   * without needing a PATCH_DUMP reply from the device (which VCV may not
+   * send if midiOutput isn't configured).
+   * Hardware will follow up with a real PATCH_DUMP that confirms the same
+   * values; it arrives later and overwrites cleanly.
+   */
+  function applyDefaults() {
+    const defaultPairs: CCPair[] = PARAM_MAP.map((p) => ({
+      cc: p.cc,
+      value:
+        !p.type || p.type === "slider"
+          ? floatToCC(p, p.default ?? 0)
+          : (p.default ?? 0),
+    }));
+    applyPatch(defaultPairs, false);
+  }
+
+  /**
    * Import a patch from a file: update the UI and send APPLY_PATCH to the
    * device via MIDI SysEx (if MIDI is connected).
    */
@@ -447,7 +466,7 @@
       </section>
 
       <section class="presets-panel">
-        <PresetManager {getPatchSnapshot} {applyFromFile} />
+        <PresetManager {getPatchSnapshot} {applyFromFile} {applyDefaults} />
       </section>
 
       <section class="midi-settings-panel cat-section">

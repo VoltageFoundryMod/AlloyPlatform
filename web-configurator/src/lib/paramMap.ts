@@ -81,6 +81,15 @@ export const PARAM_MAP: CCParam[] = [
 
   // ── Oscillator ───────────────────────────────────────────────────────────
   {
+    cc: 16,
+    name: "root",
+    label: "Root",
+    category: "Oscillator",
+    min: -4,
+    max: +4,
+    default: 0,
+  },
+  {
     cc: 78,
     name: "shape",
     label: "Shape",
@@ -201,7 +210,7 @@ export const PARAM_MAP: CCParam[] = [
   {
     cc: 71,
     name: "curve",
-    label: "Shape",
+    label: "Curve",
     category: "Envelope",
     min: 0,
     max: 1,
@@ -449,21 +458,6 @@ export const PARAM_MAP: CCParam[] = [
   },
 
   // ── Reverb ───────────────────────────────────────────────────────────────
-  // CC 116: reverb on/off (≥64=on) — firmware: usb_midi.cpp case 116
-  {
-    cc: 116,
-    name: "revon",
-    label: "Enable",
-    category: "Reverb",
-    min: 0,
-    max: 127,
-    default: 0,
-    type: "select",
-    options: [
-      { label: "Off", ccMin: 0, ccMax: 63 },
-      { label: "On", ccMin: 64, ccMax: 127 },
-    ],
-  },
   {
     cc: 91,
     name: "revmix",
@@ -471,7 +465,7 @@ export const PARAM_MAP: CCParam[] = [
     category: "Reverb",
     min: 0,
     max: 1,
-    default: 0.35,
+    default: 0,
   },
   {
     cc: 117,
@@ -511,20 +505,14 @@ export const PARAM_MAP: CCParam[] = [
   },
 
   // ── Delay ────────────────────────────────────────────────────────────────
-  // CC 85: delay on/off (≥64=on, mix stored/restored) — firmware: usb_midi.cpp case 85
   {
-    cc: 85,
-    name: "delayon",
-    label: "Enable",
+    cc: 95,
+    name: "delaymix",
+    label: "Mix",
     category: "Delay",
     min: 0,
-    max: 127,
-    default: 0,
-    type: "select",
-    options: [
-      { label: "Off", ccMin: 0, ccMax: 63 },
-      { label: "On", ccMin: 64, ccMax: 127 },
-    ],
+    max: 1,
+    default: 0.0,
   },
   {
     cc: 86,
@@ -545,15 +533,6 @@ export const PARAM_MAP: CCParam[] = [
     min: 0,
     max: 0.95,
     default: 0.5,
-  },
-  {
-    cc: 95,
-    name: "delaymix",
-    label: "Mix",
-    category: "Delay",
-    min: 0,
-    max: 1,
-    default: 0.0,
   },
 ];
 

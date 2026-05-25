@@ -26,4 +26,9 @@ void usbMidi_init();
  *  Call from updateControl() — runs on Core 0 at MOZZI_CONTROL_RATE. */
 void usbMidi_update();
 
+/** Send CC feedback for any parameters that changed since the last call.
+ *  Diffs current values against a cached snapshot; only emits changed CCs.
+ *  Call from updateControl() after usbMidi_update(), once per tick. */
+void usbMidi_sendFeedback();
+
 #endif // USE_TINYUSB

@@ -5,8 +5,12 @@
   import { midi } from "../lib/midi";
   import { serial } from "../lib/serial";
 
-  async function connectMidi() {
-    await midi.connect();
+  async function scanMidi() {
+    await midi.scan();
+  }
+
+  function connectMidi() {
+    midi.connect();
   }
 
   async function connectSerial() {
@@ -22,17 +26,32 @@
     <span class="conn-label">MIDI</span>
     {#if !$midi.supported}
       <span class="badge error">Not supported</span>
+    {:else if !$midi.scanned}
+      <!-- Step 1: not yet scanned — just a scan button -->
+      <button onclick={scanMidi}>Scan for MIDI Devices</button>
     {:else if !$midi.connected}
-      <button onclick={connectMidi}>Connect MIDI</button>
-    {:else if !$midi.deviceConnected}
-      <span class="badge warn">Device disconnected</span>
-      <button onclick={connectMidi} title="Scan for devices">Rescan</button>
+      <!-- Step 2: scanned, not connected — show dropdown + actions -->
+      {#if $midi.outputs.length === 0}
+        <span class="badge warn">No devices found</span>
+      {:else}
+        <select
+          value={$midi.selectedOutput}
+          onchange={(e) =>
+            midi.selectOutput((e.target as HTMLSelectElement).value)}
+        >
+          {#each $midi.outputs as port}
+            <option value={port.id}>{port.name}</option>
+          {/each}
+        </select>
+      {/if}
+      <button onclick={scanMidi} title="Refresh device list">Rescan</button>
       <button
-        class="btn-disconnect"
-        onclick={() => midi.disconnect()}
-        title="Disconnect MIDI">✕</button
+        onclick={connectMidi}
+        disabled={$midi.outputs.length === 0}
+        title="Connect to selected device">Connect</button
       >
     {:else}
+      <!-- Step 3: connected — show status + device switcher -->
       <span class="badge ok">Connected</span>
       <select
         value={$midi.selectedOutput}

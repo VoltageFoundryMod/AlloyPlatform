@@ -244,7 +244,7 @@ void configStore_applyDefaults() {
     d.adsrRelease = 0.30f;
     d.adsrLoop = false;
     d.revEnabled = false;
-    d.revMix = 0.35f;
+    d.revMix = 0.0f;
     d.revSize = 0.5f;
     d.revDamping = 0.5f;
     d.revModSpeed = 1.0f;
