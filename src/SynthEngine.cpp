@@ -404,7 +404,7 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[4],
             _polyEnvArr[i].setCurve(_sCurve, p.curveTime);
             _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f : f * subMult);
             _subVoices[i].setShape(0.75f);
-            const int16_t w = (int16_t)(64.0f * polySlots[i].velocity);
+            const int16_t w = (int16_t)(128.0f * polySlots[i].velocity);
             _panL[i] = w;
             _panR[i] = w;
         }
