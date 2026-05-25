@@ -99,7 +99,7 @@ class ChorusEngine {
      * inL / inR   — input samples (16-bit range ±32768)
      * depth       — 0.0 (dry) … 1.0 (full chorus), driven by sMotion
      * mode        — ChorusMode: OFF / I / II / I_II
-     * *outL/*outR — wet+dry mix
+     * *outL / *outR — wet+dry mix
      *
      * No trig, no division, no branches (other than buffer wrap — masked).
      * Both phasors always advance regardless of mode so re-enabling is glitch-free.
