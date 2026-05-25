@@ -10,6 +10,7 @@ SOURCES += src/AlloyFlux.cpp
 # SynthEngine lives outside the plugin dir; add the object directly so
 # compile.mk's patsubst doesn't resolve it to vcv-plugin/src/*.o
 OBJECTS += build/SynthEngine.cpp.o
+DISTRIBUTABLES += res
 
 include $(RACK_DIR)/plugin.mk
 
