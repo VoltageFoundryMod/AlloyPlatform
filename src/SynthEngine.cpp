@@ -149,8 +149,15 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[4],
     if (p.envelopeType == EnvelopeType::AR) {
         static_cast<AREnvelope<32768u> *>(curveEng)->setCurve(_sCurve, _sCurveTime);
     } else {
+        // In ADSR mode, CURVE is a global time scale for A, D, R (sustain is
+        // amplitude, not time, so it is unaffected).
+        //   curve 0.0 → ×0.25  (tight / percussive)
+        //   curve 0.5 → ×1.0   (knob values unchanged)
+        //   curve 1.0 → ×4.0   (slow / pad-like)
+        const float tScale = powf(4.0f, 2.0f * _sCurve - 1.0f);
         static_cast<ADSREnvelope<32768u> *>(curveEng)->setADSR(
-            p.adsrAttack, p.adsrDecay, p.adsrSustain, p.adsrRelease, p.adsrLoop);
+            p.adsrAttack * tScale, p.adsrDecay * tScale, p.adsrSustain,
+            p.adsrRelease * tScale, p.adsrLoop);
     }
 
     // ------------------------------------------------------------------

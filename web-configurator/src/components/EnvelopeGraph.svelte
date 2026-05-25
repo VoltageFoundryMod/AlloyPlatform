@@ -6,6 +6,7 @@
    *            curve=0 → pluck (instant attack, fast decay)
    *            curve=1 → swell (slow attack, long decay)
    * ADSR mode: independent attack / decay / sustain / release.
+   *            curve scales A/D/R:  0→×0.25 (percussive), 0.5→×1.0, 1→×4.0
    *
    * The dashed vertical line marks the gate-off boundary.
    */
@@ -98,11 +99,17 @@
     return { pathD, xA, xHe, xR, aw, rw, holdW };
   }
 
-  const geom = $derived.by(() =>
-    isAdsr
-      ? { kind: "adsr" as const, ...adsrGeom(attack, decay, sustain, release) }
-      : { kind: "ar" as const, ...arGeom(curve, curveTime) },
-  );
+  const geom = $derived.by(() => {
+    if (isAdsr) {
+      // Apply CURVE time scale: 4^(2×curve-1)
+      const tScale = Math.pow(4, 2 * curve - 1);
+      return {
+        kind: "adsr" as const,
+        ...adsrGeom(attack * tScale, decay * tScale, sustain, release * tScale),
+      };
+    }
+    return { kind: "ar" as const, ...arGeom(curve, curveTime) };
+  });
 </script>
 
 <div class="env-graph">
@@ -203,8 +210,6 @@
     border: 1px solid #2a2a42;
     border-radius: 6px;
     padding: 0.3rem 0.5rem 0;
-    width: 40%;
-    align-self: center;
   }
 
   svg {
