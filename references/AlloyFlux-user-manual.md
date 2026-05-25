@@ -528,7 +528,6 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | CC 112 | Reverb Mod Speed | 0–127            | Reverb LFO rate multiplier (0.1–4×) |
 | CC 113 | Reverb Mod Depth | 0–127            | Reverb LFO depth (0–1)              |
 | CC 114 | Reverb Freeze    | ≥64=on / <64=off | Freeze reverb tail indefinitely     |
-| CC 116 | Reverb On/Off    | ≥64=on / <64=off | Enable or disable reverb            |
 | CC 117 | Reverb Size      | 0–127            | Plate size / decay time (0–1)       |
 | CC 118 | Reverb Damping   | 0–127            | High frequency damping (0–1)        |
 
@@ -537,7 +536,6 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | CC    | Parameter      | Range                                | Description              |
 | ----- | -------------- | ------------------------------------ | ------------------------ |
 | CC 80 | Delay Position | 0–63=pre-reverb / 64–127=post-reverb | Effect chain placement   |
-| CC 85 | Delay On/Off   | ≥64=on / <64=off                     | Enable or disable delay  |
 | CC 86 | Delay Time     | 0–127                                | Delay time (10–500 ms)   |
 | CC 87 | Delay Feedback | 0–127                                | Feedback amount (0–0.95) |
 | CC 95 | Delay Mix      | 0–127                                | Delay wet level (0–1)    |

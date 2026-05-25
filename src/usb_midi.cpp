@@ -84,9 +84,6 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     // CC 81 — envelope type: AR=0, ADSR=96
     buf[n++] = 81;
     buf[n++] = (gEnvelopeType == EnvelopeType::ADSR) ? 96 : 0;
-    // CC 85 — delay on/off
-    buf[n++] = 85;
-    buf[n++] = (gDelayMix > 0.001f) ? 127 : 0;
     // CC 89 — chorus mode: OFF=0, I=48, II=80, I+II=112
     buf[n++] = 89;
     buf[n++] = (gChorusMode == ChorusMode::OFF) ? 0 : (gChorusMode == ChorusMode::I) ? 48
@@ -106,9 +103,6 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
                : (gVoiceMode == VoiceMode::CASCADE) ? 73
                : (gVoiceMode == VoiceMode::STRING)  ? 94
                                                     : 116; // POLY
-    // CC 116 — reverb on/off
-    buf[n++] = 116;
-    buf[n++] = gRevEnabled ? 127 : 0;
     // CC 103 — scale quantizer (M49): 0=chromatic (off), 1–14=scale index
     buf[n++] = 103;
     buf[n++] = (uint8_t)gQuantizeScale;
@@ -266,17 +260,6 @@ static void onControlChange(byte channel, byte cc, byte value) {
         gEnvelopeType = (value < 64) ? EnvelopeType::AR : EnvelopeType::ADSR;
         gCurveEng->reset();
         break;
-    case 85: { // Delay on/off — ≥64 = on, <64 = off (zeroes mix; CC 88 restores it)
-        static float sStoredDelayMix = 0.5f;
-        if (value >= 64) {
-            gDelayMix = sStoredDelayMix; // restore last-used mix
-        } else {
-            if (gDelayMix > 0.001f)
-                sStoredDelayMix = gDelayMix; // remember before zeroing
-            gDelayMix = 0.0f;
-        }
-        break;
-    }
     case 93: // Chorus mode — 0-31=OFF, 32-63=I, 64-95=II, 96-127=I+II
         if (value < 32)
             gChorusMode = ChorusMode::OFF;
@@ -320,9 +303,6 @@ static void onControlChange(byte channel, byte cc, byte value) {
             gVoiceMode = VoiceMode::STRING;
         else
             gVoiceMode = VoiceMode::POLY;
-        break;
-    case 116: // Reverb on/off — ≥64 = on
-        gRevEnabled = (value >= 64);
         break;
     case 119: // Drone return — clears gGatePatched, module returns to continuous drone
         gGatePatched = false;

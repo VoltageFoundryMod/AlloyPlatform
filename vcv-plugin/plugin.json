@@ -17,7 +17,14 @@
       "slug": "AlloyFlux",
       "name": "Alloy Flux",
       "description": "Dual Relation Oscillator",
-      "tags": ["Oscillator", "Polyphonic", "Digital", "Complex"]
+      "tags": [
+        "Oscillator",
+        "Polyphonic",
+        "Digital",
+        "Complex",
+        "Hardware clone",
+        "Synth voice"
+      ]
     }
   ]
 }

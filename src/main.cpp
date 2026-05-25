@@ -315,6 +315,7 @@ void updateControl() {
         p.filterMode = gFilterMode;
         p.fxOrder = gFxOrder;
         p.revMix = gRevMix;
+        gRevEnabled = (gRevMix > 0.001f); // derived from mix; no longer set by CC
         p.revEnabled = gRevEnabled;
         p.revSize = gRevSize;
         p.revDamping = gRevDamping;

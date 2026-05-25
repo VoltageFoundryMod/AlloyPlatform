@@ -72,6 +72,12 @@ struct AlloyFlux : Module {
         // ---- M37j: Scale quantizer (hidden, saved in patch) ----
         SCALE_PARAM,     // 0–14, ScaleId enum, default 0 (Chromatic = bypass)
         TRANSPOSE_PARAM, // [-24, 24] semitones, default 0
+        // ---- M37m: Portamento, sub-octave, rev freeze, vel sens (hidden) ----
+        GLIDE_ENABLE_PARAM, // 0=off, 1=on
+        GLIDE_TIME_PARAM,   // [0, 2] s, default 0
+        SUB_OCTAVE_PARAM,   // 0=1 oct below, 1=2 oct below
+        REV_FROZEN_PARAM,   // 0=off, 1=frozen
+        VEL_SENS_PARAM,     // 0=off (fixed 1.0), 1=on (follows MIDI vel)
         PARAMS_LEN
     };
 
@@ -108,6 +114,9 @@ struct AlloyFlux : Module {
         {440.0f, 1.0f, 255},
     };
     uint8_t _polyRR = 0;
+    uint8_t _cvPolySlot = 255;                            // poly slot currently held by a CV gate trigger (255 = none)
+    float _midiVelocity = 1.0f;                           // mono-mode last note velocity (0–1)
+    std::vector<std::pair<uint8_t, uint8_t>> _presets[9]; // user preset slots 1–9; empty = not yet saved
     SynthParams _params;
     int _controlCounter = 0;
     int _controlDiv = 344; // ~128 Hz at 44100
@@ -236,6 +245,12 @@ struct AlloyFlux : Module {
                       "Pentatonic Maj", "Pentatonic Min", "Blues", "Dorian", "Phrygian",
                       "Lydian", "Mixolydian", "Locrian", "Whole Tone", "Diminished"});
         configParam(TRANSPOSE_PARAM, -24.f, 24.f, 0.f, "Transpose", " st");
+        // M37m — Portamento / glide, sub-octave, reverb freeze, velocity sensitivity
+        configSwitch(GLIDE_ENABLE_PARAM, 0.f, 1.f, 0.f, "Portamento", {"Off", "On"});
+        configParam(GLIDE_TIME_PARAM, 0.0f, 2.0f, 0.0f, "Glide time", " s");
+        configSwitch(SUB_OCTAVE_PARAM, 0.f, 1.f, 0.f, "Sub octave", {"1 oct below", "2 oct below"});
+        configSwitch(REV_FROZEN_PARAM, 0.f, 1.f, 0.f, "Reverb freeze", {"Off", "Frozen"});
+        configSwitch(VEL_SENS_PARAM, 0.f, 1.f, 1.f, "Velocity sensitivity", {"Off", "On"});
     }
 
     void onSampleRateChange(const SampleRateChangeEvent &e) override {
@@ -386,122 +401,276 @@ struct AlloyFlux : Module {
     // can sync its displayed values to the current plugin state.
     // Called exclusively from the audio thread (via _dumpPending flag).
     // -----------------------------------------------------------------------
-    void sendPatchDump() {
-        syncMidiOutput();
-        std::vector<uint8_t> buf;
-        buf.reserve(90);
-        buf.push_back(0xF0); // SysEx start
-        buf.push_back(0x7D); // non-commercial manufacturer ID
-        buf.push_back(0x41); // 'A' — AlloyFlux device signature
-        buf.push_back(0x46); // 'F'
-        buf.push_back(0x02); // PATCH_DUMP command
-
-        // Helper: linear float range → 7-bit CC value
+    // Build a snapshot of the current patch as raw CC pairs.
+    // Shared by sendPatchDump(), PRESET_SAVE, and APPLY_PATCH.
+    std::vector<std::pair<uint8_t, uint8_t>> _snapshotPairs() {
+        using P = std::pair<uint8_t, uint8_t>;
+        std::vector<P> out;
+        out.reserve(42);
         auto cc7 = [&](uint8_t cc, float lo, float hi, float val) {
             int v = (int)std::round((val - lo) / (hi - lo) * 127.f);
-            buf.push_back(cc);
-            buf.push_back((uint8_t)std::max(0, std::min(127, v)));
+            out.push_back({cc, (uint8_t)std::max(0, std::min(127, v))});
         };
-
-        // Root pitch: CC16  (-4 V … +4 V)
         cc7(16, -4.f, 4.f, params[ROOT_PARAM].getValue());
-        // Core voice
         cc7(1, 0.f, 1.f, params[MOTION_PARAM].getValue());
         cc7(7, 0.f, 1.f, params[VOL_PARAM].getValue());
         cc7(8, 0.f, 1.f, params[SPACE_PARAM].getValue());
-        // Oscillator
         cc7(78, 0.f, 1.f, params[SHAPE_PARAM].getValue());
         cc7(84, 0.f, 1.f, params[FATNESS_PARAM].getValue());
         cc7(89, 0.f, 1.f, params[DRIFTSPEED_PARAM].getValue());
         cc7(92, 0.f, 1.f, params[COLOR_PARAM].getValue());
         cc7(94, 0.f, 1.f, params[RELATION_PARAM].getValue());
-        // Envelope curve
         cc7(71, 0.f, 1.f, params[CURVE_PARAM].getValue());
-        // Envelope type: CC81  0=AR (CC 0), 1=ADSR (CC 96)
-        buf.push_back(81);
-        buf.push_back(params[ENV_TYPE_PARAM].getValue() >= 0.5f ? 96 : 0);
-        // ADSR timings: [0.001, 4.0] s  (CC maps via 0.001 + norm*3.999)
+        out.push_back({81, params[ENV_TYPE_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
         cc7(73, 0.001f, 4.0f, params[ADSR_ATTACK_PARAM].getValue());
         cc7(82, 0.001f, 4.0f, params[ADSR_DECAY_PARAM].getValue());
         cc7(83, 0.f, 1.f, params[ADSR_SUSTAIN_PARAM].getValue());
         cc7(72, 0.001f, 4.0f, params[ADSR_RELEASE_PARAM].getValue());
-        // Filter cutoff: log scale  20 * 800^norm Hz
         {
             float hz = std::max(20.f, std::min(16000.f, params[FILTER_CUTOFF_PARAM].getValue()));
             int v = (int)std::round(std::log(hz / 20.f) / std::log(800.f) * 127.f);
-            buf.push_back(74);
-            buf.push_back((uint8_t)std::max(0, std::min(127, v)));
+            out.push_back({74, (uint8_t)std::max(0, std::min(127, v))});
         }
-        // Filter resonance
         cc7(75, 0.f, 1.f, params[FILTER_RES_PARAM].getValue());
-        // Filter mode: stored 0–4 → 5 equal CC bands (midpoints)
         {
             static const uint8_t kFMMid[] = {12, 38, 63, 89, 114};
             int fm = std::max(0, std::min(4, (int)params[FILTER_MODE_PARAM].getValue()));
-            buf.push_back(76);
-            buf.push_back(kFMMid[fm]);
+            out.push_back({76, kFMMid[fm]});
         }
-        // Filter type: 0=SVF, 1=Ladder
-        buf.push_back(77);
-        buf.push_back(params[FILTER_TYPE_PARAM].getValue() >= 0.5f ? 96 : 0);
-        // Chorus mode: stored 0–3 → 4 equal CC bands (midpoints 15/48/80/112)
+        out.push_back({77, params[FILTER_TYPE_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
         {
             static const uint8_t kCMMid[] = {15, 48, 80, 112};
             int cm = std::max(0, std::min(3, (int)params[CHORUS_MODE_PARAM].getValue()));
-            buf.push_back(93);
-            buf.push_back(kCMMid[cm]);
+            out.push_back({93, kCMMid[cm]});
         }
-        // Reverb
         cc7(91, 0.f, 1.f, params[REV_MIX_PARAM].getValue());
         cc7(117, 0.f, 1.f, params[REV_SIZE_PARAM].getValue());
         cc7(118, 0.f, 1.f, params[REV_DAMPING_PARAM].getValue());
         cc7(112, 0.1f, 4.f, params[REV_MOD_SPEED_PARAM].getValue());
         cc7(113, 0.f, 1.f, params[REV_MOD_DEPTH_PARAM].getValue());
-        // Delay time: 10–500 ms CC range
         cc7(86, 10.f, 500.f, params[DELAY_TIME_PARAM].getValue());
-        // Delay feedback: stored = norm * 0.95  →  CC = stored / 0.95 * 127
         {
             float fb = params[DELAY_FB_PARAM].getValue();
             int v = (int)std::round(fb / 0.95f * 127.f);
-            buf.push_back(87);
-            buf.push_back((uint8_t)std::max(0, std::min(127, v)));
+            out.push_back({87, (uint8_t)std::max(0, std::min(127, v))});
         }
-        // Delay mix
         cc7(95, 0.f, 1.f, params[DELAY_MIX_PARAM].getValue());
-        // FX chain ordering
-        buf.push_back(79);
-        buf.push_back(params[FX_FILTER_POS_PARAM].getValue() >= 0.5f ? 96 : 0);
-        buf.push_back(80);
-        buf.push_back(params[FX_DELAY_POS_PARAM].getValue() >= 0.5f ? 96 : 0);
-        // Scale quantizer: direct CC value 0–14
+        out.push_back({79, params[FX_FILTER_POS_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
+        out.push_back({80, params[FX_DELAY_POS_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
         {
             int sc = std::max(0, std::min(14, (int)params[SCALE_PARAM].getValue()));
-            buf.push_back(103);
-            buf.push_back((uint8_t)sc);
+            out.push_back({103, (uint8_t)sc});
         }
-        // Transpose: stored = CC − 24  →  CC = stored + 24
         {
             int tr = (int)std::round(params[TRANSPOSE_PARAM].getValue());
-            buf.push_back(104);
-            buf.push_back((uint8_t)std::max(0, std::min(127, tr + 24)));
+            out.push_back({104, (uint8_t)std::max(0, std::min(127, tr + 24))});
         }
-        // Voice mode: enum 0–5 → CC115 band midpoints
         {
             static const uint8_t kVMMid[] = {10, 31, 52, 73, 94, 116};
             int vm = std::max(0, std::min(5, (int)_voiceMode));
-            buf.push_back(115);
-            buf.push_back(kVMMid[vm]);
+            out.push_back({115, kVMMid[vm]});
         }
-        // Drone mode: emit CC119 only when active
-        if (_droneMode) {
-            buf.push_back(119);
-            buf.push_back(96);
-        }
+        cc7(5, 0.f, 2.f, params[GLIDE_TIME_PARAM].getValue());
+        out.push_back({65, params[GLIDE_ENABLE_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
+        out.push_back({90, params[SUB_OCTAVE_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
+        out.push_back({102, params[VEL_SENS_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
+        out.push_back({114, params[REV_FROZEN_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
+        if (_droneMode)
+            out.push_back({119, (uint8_t)96});
+        return out;
+    }
 
-        buf.push_back(0xF7); // SysEx end
+    void sendPatchDump() {
+        syncMidiOutput();
+        const auto pairs = _snapshotPairs();
+        std::vector<uint8_t> buf;
+        buf.reserve(6 + pairs.size() * 2);
+        buf.push_back(0xF0);
+        buf.push_back(0x7D);
+        buf.push_back(0x41);
+        buf.push_back(0x46);
+        buf.push_back(0x02); // PATCH_DUMP
+        for (auto &p : pairs) {
+            buf.push_back(p.first);
+            buf.push_back(p.second);
+        }
+        buf.push_back(0xF7);
         rack::midi::Message msg;
         msg.bytes.assign(buf.begin(), buf.end());
         midiOutput.sendMessage(msg);
+    }
+
+    // Apply a single CC/value pair — shared by MIDI CC handler, APPLY_PATCH, and PRESET_LOAD.
+    void _applyCC(uint8_t cc, uint8_t value) {
+        float norm = value / 127.0f;
+        switch (cc) {
+        case 16:
+            params[ROOT_PARAM].setValue(-4.0f + norm * 8.0f);
+            break;
+        case 1:
+            params[MOTION_PARAM].setValue(norm);
+            break;
+        case 7:
+            params[VOL_PARAM].setValue(norm);
+            break;
+        case 8:
+            params[SPACE_PARAM].setValue(norm);
+            break;
+        case 64:
+            // Web "Drone" button sends CC 64 value 127.
+            // Treat as a drone-mode trigger only — do NOT set _midiSustain,
+            // otherwise notes never release (web never sends CC 64 off).
+            if (value >= 64)
+                _droneMode = true;
+            break;
+        case 78:
+            params[SHAPE_PARAM].setValue(norm);
+            break;
+        case 84:
+            params[FATNESS_PARAM].setValue(norm);
+            break;
+        case 89:
+            params[DRIFTSPEED_PARAM].setValue(norm);
+            break;
+        case 92:
+            params[COLOR_PARAM].setValue(norm);
+            break;
+        case 94:
+            params[RELATION_PARAM].setValue(norm);
+            break;
+        case 71:
+            params[CURVE_PARAM].setValue(norm);
+            break;
+        case 81:
+            params[ENV_TYPE_PARAM].setValue(value < 64 ? 0.f : 1.f);
+            break;
+        case 73:
+            params[ADSR_ATTACK_PARAM].setValue(0.001f + norm * 3.999f);
+            break;
+        case 82:
+            params[ADSR_DECAY_PARAM].setValue(0.001f + norm * 3.999f);
+            break;
+        case 83:
+            params[ADSR_SUSTAIN_PARAM].setValue(norm);
+            break;
+        case 72:
+            params[ADSR_RELEASE_PARAM].setValue(0.001f + norm * 3.999f);
+            break;
+        case 74:
+            params[FILTER_CUTOFF_PARAM].setValue(20.0f * powf(800.0f, norm));
+            break;
+        case 75:
+            params[FILTER_RES_PARAM].setValue(norm);
+            break;
+        case 76: {
+            int fm = value < 26 ? 0 : value < 51 ? 1
+                                  : value < 77   ? 2
+                                  : value < 102  ? 3
+                                                 : 4;
+            params[FILTER_MODE_PARAM].setValue((float)fm);
+            break;
+        }
+        case 77:
+            params[FILTER_TYPE_PARAM].setValue(value < 64 ? 0.f : 1.f);
+            break;
+        case 93: {
+            int cm = value < 32 ? 0 : value < 64 ? 1
+                                  : value < 96   ? 2
+                                                 : 3;
+            params[CHORUS_MODE_PARAM].setValue((float)cm);
+            break;
+        }
+        case 91:
+            params[REV_MIX_PARAM].setValue(norm);
+            break;
+        case 117:
+            params[REV_SIZE_PARAM].setValue(norm);
+            break;
+        case 118:
+            params[REV_DAMPING_PARAM].setValue(norm);
+            break;
+        case 112:
+            params[REV_MOD_SPEED_PARAM].setValue(0.1f + norm * 3.9f);
+            break;
+        case 113:
+            params[REV_MOD_DEPTH_PARAM].setValue(norm);
+            break;
+        case 86:
+            params[DELAY_TIME_PARAM].setValue(10.0f + norm * 490.0f);
+            break;
+        case 87:
+            params[DELAY_FB_PARAM].setValue(norm * 0.95f);
+            break;
+        case 95:
+            params[DELAY_MIX_PARAM].setValue(norm);
+            break;
+        case 79:
+            params[FX_FILTER_POS_PARAM].setValue(value < 64 ? 0.f : 1.f);
+            break;
+        case 80:
+            params[FX_DELAY_POS_PARAM].setValue(value < 64 ? 0.f : 1.f);
+            break;
+        case 103: {
+            uint8_t sv = value < (uint8_t)ScaleId::COUNT ? value : 0;
+            params[SCALE_PARAM].setValue((float)sv);
+            break;
+        }
+        case 104:
+            params[TRANSPOSE_PARAM].setValue((float)((int)value - 24));
+            break;
+        case 115: {
+            VoiceMode vm;
+            if (value <= 20)
+                vm = VoiceMode::PAIR;
+            else if (value <= 41)
+                vm = VoiceMode::CLOUD;
+            else if (value <= 62)
+                vm = VoiceMode::CHORD;
+            else if (value <= 83)
+                vm = VoiceMode::CASCADE;
+            else if (value <= 104)
+                vm = VoiceMode::STRING;
+            else
+                vm = VoiceMode::POLY;
+            _voiceMode = vm;
+            break;
+        }
+        case 5:
+            params[GLIDE_TIME_PARAM].setValue(norm * 2.0f);
+            break;
+        case 65:
+            params[GLIDE_ENABLE_PARAM].setValue(value >= 64 ? 1.f : 0.f);
+            break;
+        case 90:
+            params[SUB_OCTAVE_PARAM].setValue(value >= 64 ? 1.f : 0.f);
+            break;
+        case 102:
+            params[VEL_SENS_PARAM].setValue(value >= 64 ? 1.f : 0.f);
+            break;
+        case 114:
+            params[REV_FROZEN_PARAM].setValue(value >= 64 ? 1.f : 0.f);
+            break;
+        case 119:
+            _droneMode = true;
+            break;
+        case 123: // All Notes Off / Panic — silence everything, leave NOT in drone mode
+            _midiGate = false;
+            _midiNote = -1;
+            _midiKeyHeld = false;
+            _midiSustain = false;
+            for (int i = 0; i < 4; i++) {
+                if (_engine.polyEnvs[i]) {
+                    _engine.polyEnvs[i]->setGate(false);
+                    _engine.polyEnvs[i]->reset();
+                }
+                _polySlots[i].midiNote = 255;
+            }
+            _cvPolySlot = 255;
+            _droneMode = false;
+            break;
+        default:
+            break;
+        }
     }
 
     void process(const ProcessArgs &args) override {
@@ -529,7 +698,7 @@ struct AlloyFlux : Module {
                             slot = _polyRR % 4;
                         _polyRR = (_polyRR + 1) % 4;
                         _polySlots[slot].freq = 440.0f * exp2f(((int)note - 69) / 12.0f);
-                        _polySlots[slot].velocity = value / 127.0f;
+                        _polySlots[slot].velocity = params[VEL_SENS_PARAM].getValue() >= 0.5f ? (value / 127.0f) : 1.0f;
                         _polySlots[slot].midiNote = note;
                         if (_engine.polyEnvs[slot])
                             _engine.polyEnvs[slot]->setGate(true);
@@ -540,6 +709,7 @@ struct AlloyFlux : Module {
                         _midiGate = true;
                         _midiKeyHeld = true;
                         _midiEverPlayed = true;
+                        _midiVelocity = value / 127.0f;
                     }
                 } else if (status == 0x8 || (status == 0x9 && value == 0)) {
                     // Note Off
@@ -559,181 +729,43 @@ struct AlloyFlux : Module {
                         }
                     }
                 } else if (status == 0xb) {
-                    // Control Change — CC map matches web configurator paramMap.ts
-                    float norm = value / 127.0f;
-                    switch (note) { // note byte = CC number
-                    // --- Core voice ---
-                    case 16: { // Root pitch offset: CC 0=-4V, 64=0V, 127=+4V
-                        float rootV = -4.0f + norm * 8.0f;
-                        params[ROOT_PARAM].setValue(rootV);
-                        break;
-                    }
-                    case 1: // Motion (CC1 mod wheel)
-                        params[MOTION_PARAM].setValue(norm);
-                        break;
-                    case 7: // Volume
-                        params[VOL_PARAM].setValue(norm);
-                        break;
-                    case 8: // Space / stereo width
-                        params[SPACE_PARAM].setValue(norm);
-                        break;
-                    case 64: // Sustain pedal
-                        _midiSustain = value >= 64;
-                        if (!_midiSustain && !_midiKeyHeld) {
-                            _midiGate = false;
-                            _midiNote = -1;
-                        }
-                        break;
-                    // --- Oscillator ---
-                    case 78: // Shape
-                        params[SHAPE_PARAM].setValue(norm);
-                        break;
-                    case 84: // Fatness
-                        params[FATNESS_PARAM].setValue(norm);
-                        break;
-                    case 89: // Drift speed
-                        params[DRIFTSPEED_PARAM].setValue(norm);
-                        break;
-                    case 92: // Color
-                        params[COLOR_PARAM].setValue(norm);
-                        break;
-                    case 94: // Relation (0-24 semitones, normalised to [0,1])
-                        params[RELATION_PARAM].setValue(norm);
-                        break;
-                    // --- Envelope ---
-                    case 71: // Curve
-                        params[CURVE_PARAM].setValue(norm);
-                        break;
-                    case 81: // Envelope type: 0-63=AR, 64-127=ADSR
-                        params[ENV_TYPE_PARAM].setValue(value < 64 ? 0.f : 1.f);
-                        break;
-                    case 73: // ADSR Attack  [0.001, 4] s
-                        params[ADSR_ATTACK_PARAM].setValue(0.001f + norm * 3.999f);
-                        break;
-                    case 82: // ADSR Decay   [0.001, 4] s
-                        params[ADSR_DECAY_PARAM].setValue(0.001f + norm * 3.999f);
-                        break;
-                    case 83: // ADSR Sustain [0, 1]
-                        params[ADSR_SUSTAIN_PARAM].setValue(norm);
-                        break;
-                    case 72: // ADSR Release [0.001, 4] s
-                        params[ADSR_RELEASE_PARAM].setValue(0.001f + norm * 3.999f);
-                        break;
-                    // --- Filter ---
-                    case 74: { // Filter cutoff 20–16 kHz, log scale
-                        float cutoff = 20.0f * powf(800.0f, norm);
-                        params[FILTER_CUTOFF_PARAM].setValue(cutoff);
-                        break;
-                    }
-                    case 75: // Filter resonance [0, 1]
-                        params[FILTER_RES_PARAM].setValue(norm);
-                        break;
-                    case 76: { // Filter mode: Off/LP/HP/BP/Notch bands
-                        int fm = value < 26 ? 0 : value < 51 ? 1
-                                              : value < 77   ? 2
-                                              : value < 102  ? 3
-                                                             : 4;
-                        params[FILTER_MODE_PARAM].setValue((float)fm);
-                        break;
-                    }
-                    case 77: // Filter type: 0-63=SVF, 64-127=Ladder
-                        params[FILTER_TYPE_PARAM].setValue(value < 64 ? 0.f : 1.f);
-                        break;
-                    // --- Chorus ---
-                    case 93: { // Chorus mode: 0-31=Off, 32-63=I, 64-95=II, 96-127=I+II
-                        int cm = value < 32 ? 0 : value < 64 ? 1
-                                              : value < 96   ? 2
-                                                             : 3;
-                        params[CHORUS_MODE_PARAM].setValue((float)cm);
-                        break;
-                    }
-                        // --- Reverb ---
-
-                    case 91: // Reverb mix [0, 1]
-                        params[REV_MIX_PARAM].setValue(norm);
-                        break;
-                    case 117: // Reverb size [0, 1]
-                        params[REV_SIZE_PARAM].setValue(norm);
-                        break;
-                    case 118: // Reverb damping [0, 1]
-                        params[REV_DAMPING_PARAM].setValue(norm);
-                        break;
-                    case 112: // Reverb mod speed [0.1, 4]
-                        params[REV_MOD_SPEED_PARAM].setValue(0.1f + norm * 3.9f);
-                        break;
-                    case 113: // Reverb mod depth [0, 1]
-                        params[REV_MOD_DEPTH_PARAM].setValue(norm);
-                        break;
-                        // --- Delay ---
-
-                    case 86: // Delay time 10–500 ms (web range)
-                        params[DELAY_TIME_PARAM].setValue(10.0f + norm * 490.0f);
-                        break;
-                    case 87: // Delay feedback [0, 0.95]
-                        params[DELAY_FB_PARAM].setValue(norm * 0.95f);
-                        break;
-                    case 95: // Delay mix [0, 1]
-                        params[DELAY_MIX_PARAM].setValue(norm);
-                        break;
-                    case 79: // Filter position: 0-63=pre-chorus, 64-127=post-chorus
-                        params[FX_FILTER_POS_PARAM].setValue(value < 64 ? 0.f : 1.f);
-                        break;
-                    case 80: // Delay position: 0-63=pre-reverb, 64-127=post-reverb
-                        params[FX_DELAY_POS_PARAM].setValue(value < 64 ? 0.f : 1.f);
-                        break;
-                    // --- Scale / Transpose ---
-                    case 103: {
-                        uint8_t sv = value < (uint8_t)ScaleId::COUNT ? value : 0;
-                        params[SCALE_PARAM].setValue((float)sv);
-                        break;
-                    }
-                    case 104:
-                        params[TRANSPOSE_PARAM].setValue((float)((int)value - 24));
-                        break;
-                    // --- Meta ---
-                    case 115: { // Voice mode: 6 bands
-                        VoiceMode vm;
-                        if (value <= 20)
-                            vm = VoiceMode::PAIR;
-                        else if (value <= 41)
-                            vm = VoiceMode::CLOUD;
-                        else if (value <= 62)
-                            vm = VoiceMode::CHORD;
-                        else if (value <= 83)
-                            vm = VoiceMode::CASCADE;
-                        else if (value <= 104)
-                            vm = VoiceMode::STRING;
-                        else
-                            vm = VoiceMode::POLY;
-                        _voiceMode = vm;
-                        break;
-                    }
-                    case 119: // Drone mode on
-                        _droneMode = true;
-                        break;
-                    case 123: // All notes off
-                        _midiGate = false;
-                        _midiNote = -1;
-                        _midiKeyHeld = false;
-                        break;
-                    default:
-                        break;
-                    }
+                    _applyCC(note, value);
                 } else if (msg.bytes[0] == 0xF0) {
                     // AlloyFlux SysEx handler
                     if (msg.bytes.size() >= 6 &&
                         msg.bytes[1] == 0x7D && msg.bytes[2] == 0x41 &&
                         msg.bytes[3] == 0x46 && msg.bytes.back() == 0xF7) {
                         const uint8_t cmd = msg.bytes[4];
+                        const uint8_t arg = msg.bytes.size() >= 7 ? msg.bytes[5] : 0;
                         if (cmd == 0x01) { // REQUEST_DUMP
                             _dumpPending.store(true);
-                        } else if (cmd == 0x06) { // PRESET_RESET → defaults + dump
-                            for (auto *pq : paramQuantities)
-                                if (pq)
-                                    pq->reset();
-                            _voiceMode = VoiceMode::PAIR;
-                            _droneMode = false;
+                        } else if (cmd == 0x03) { // APPLY_PATCH — apply CC pairs from body
+                            for (size_t i = 5; i + 1 < msg.bytes.size() - 1; i += 2)
+                                _applyCC(msg.bytes[i], msg.bytes[i + 1]);
                             _dumpPending.store(true);
+                        } else if (cmd == 0x04) { // PRESET_SAVE — snapshot current params to slot
+                            if (arg >= 1 && arg <= 9)
+                                _presets[arg - 1] = _snapshotPairs();
+                        } else if (cmd == 0x05) { // PRESET_LOAD — restore slot
+                            if (arg >= 1 && arg <= 9 && !_presets[arg - 1].empty()) {
+                                for (auto &p : _presets[arg - 1])
+                                    _applyCC(p.first, p.second);
+                                _dumpPending.store(true);
+                            }
+                        } else if (cmd == 0x06) { // PRESET_RESET
+                            if (arg == 0 || arg == 0x7f) {
+                                for (auto *pq : paramQuantities)
+                                    if (pq)
+                                        pq->reset();
+                                _voiceMode = VoiceMode::PAIR;
+                                _droneMode = true;
+                                _dumpPending.store(true);
+                            }
+                            if (arg >= 1 && arg <= 9)
+                                _presets[arg - 1].clear();
+                            else if (arg == 0x7f)
+                                for (auto &s : _presets)
+                                    s.clear();
                         }
                     }
                 }
@@ -780,6 +812,7 @@ struct AlloyFlux : Module {
                             _engine.polyEnvs[i]->setGate(false);
                     }
                     _polyRR = 0;
+                    _cvPolySlot = 255;
                 }
                 _modeConsumed = false;
             }
@@ -795,11 +828,18 @@ struct AlloyFlux : Module {
         // ---------------------------------------------------------------
         fillSynthParams(_io, _params);
         _params.voiceMode = _voiceMode;
+        // VCV Rack V/Oct convention: 0 V = C4 (261.626 Hz).
+        // Internally, 0 V on the V/Oct path = A4 (440 Hz) — 9 semitones = 0.75 V higher.
+        // Correct only when a cable is patched; free-running / ROOT-knob tuning is unaffected.
+        if (inputs[VOCT_INPUT].isConnected())
+            _params.baseFreq *= exp2f(-0.75f);
 
-        // Gate rising edge (CV jack) exits drone mode — mirrors hardware.
+        // Gate rising/falling edge detection (drone-exit + POLY CV allocation).
         bool gateNow = inputs[GATE_INPUT].isConnected() &&
                        inputs[GATE_INPUT].getVoltage() >= 1.f;
-        if (gateNow && !_prevGateHigh)
+        bool gateRising = gateNow && !_prevGateHigh;
+        bool gateFalling = !gateNow && _prevGateHigh;
+        if (gateRising)
             _droneMode = false;
         _prevGateHigh = gateNow;
 
@@ -839,6 +879,42 @@ struct AlloyFlux : Module {
             _params.baseFreq = 440.0f * exp2f((float)((int)qNote - 69) / 12.0f);
         }
 
+        // POLY mode + CV gate.
+        // Sentinels: 255=free, 128=CV gate held, 129=CV releasing (ringing out).
+        // Rising edge  → allocate round-robin; prefer free (255) then releasing (129).
+        // Falling edge → call setGate(false) but keep slot as 129 so tail rings out.
+        // Control tick → scan 129 slots; free when envelope level drops to silence.
+        if (_voiceMode == VoiceMode::POLY && inputs[GATE_INPUT].isConnected()) {
+            if (gateRising) {
+                // Prefer a truly free slot, then a releasing one, then steal RR.
+                uint8_t slot = 255;
+                uint8_t relSlot = 255;
+                for (uint8_t i = 0; i < 4; i++) {
+                    if (_polySlots[i].midiNote == 255) {
+                        slot = i;
+                        break;
+                    }
+                    if (_polySlots[i].midiNote == 129 && relSlot == 255)
+                        relSlot = i;
+                }
+                if (slot == 255)
+                    slot = (relSlot != 255) ? relSlot : _polyRR % 4;
+                _polyRR = (_polyRR + 1) % 4;
+                _polySlots[slot].freq = _params.baseFreq;
+                _polySlots[slot].velocity = 1.0f;
+                _polySlots[slot].midiNote = 128; // gate held
+                if (_engine.polyEnvs[slot])
+                    _engine.polyEnvs[slot]->setGate(true);
+                _cvPolySlot = slot;
+            } else if (gateFalling && _cvPolySlot < 4) {
+                // Release envelope but keep slot occupied so the tail rings out.
+                if (_engine.polyEnvs[_cvPolySlot])
+                    _engine.polyEnvs[_cvPolySlot]->setGate(false);
+                _polySlots[_cvPolySlot].midiNote = 129; // releasing
+                _cvPolySlot = 255;
+            }
+        }
+
         // M37g — envelope params
         _params.envelopeType = params[ENV_TYPE_PARAM].getValue() >= 0.5f
                                    ? EnvelopeType::ADSR
@@ -869,6 +945,12 @@ struct AlloyFlux : Module {
         _params.delayFeedback = params[DELAY_FB_PARAM].getValue();
         _params.fxOrder.filterPostChorus = params[FX_FILTER_POS_PARAM].getValue() >= 0.5f;
         _params.fxOrder.delayPostReverb = params[FX_DELAY_POS_PARAM].getValue() >= 0.5f;
+        // M37m — portamento/glide, sub-octave, reverb freeze, velocity sensitivity
+        _params.glideEnabled = params[GLIDE_ENABLE_PARAM].getValue() >= 0.5f;
+        _params.glideTime = params[GLIDE_TIME_PARAM].getValue();
+        _params.subOctave = params[SUB_OCTAVE_PARAM].getValue() >= 0.5f ? 2 : 1;
+        _params.revFrozen = params[REV_FROZEN_PARAM].getValue() >= 0.5f;
+        _params.midiVelocity = params[VEL_SENS_PARAM].getValue() >= 0.5f ? _midiVelocity : 1.0f;
 
         gGatePatched = _params.gatePatched;
         gGateHigh = _params.gateHigh;
@@ -878,6 +960,13 @@ struct AlloyFlux : Module {
             SynthControlOutput out;
             _engine.control(_params, _polySlots, out);
             sendCCFeedback();
+            // Free CV poly slots that have fully decayed (sentinel 129 = releasing).
+            for (int i = 0; i < 4; i++) {
+                if (_polySlots[i].midiNote == 129 &&
+                    _engine.polyEnvs[i] &&
+                    _engine.polyEnvs[i]->level() < 0.001f)
+                    _polySlots[i].midiNote = 255;
+            }
         }
 
         // M37h — inline reverb: process last frame's dry signal, pass wet to audio().
@@ -906,11 +995,23 @@ struct AlloyFlux : Module {
         outputs[R_OUTPUT].setVoltage((float)outR * kScale);
     }
 
-    // M37i: persist MIDI port driver/device/channel across patch save/load
+    // M37i: persist MIDI port config; M37l: persist preset slots 1–9
     json_t *dataToJson() override {
         json_t *rootJ = json_object();
         json_object_set_new(rootJ, "midiInput", midiInput.toJson());
         json_object_set_new(rootJ, "midiOutput", midiOutput.toJson());
+        json_t *presetsJ = json_array();
+        for (int s = 0; s < 9; s++) {
+            json_t *slotJ = json_array();
+            for (auto &p : _presets[s]) {
+                json_t *pairJ = json_array();
+                json_array_append_new(pairJ, json_integer(p.first));
+                json_array_append_new(pairJ, json_integer(p.second));
+                json_array_append_new(slotJ, pairJ);
+            }
+            json_array_append_new(presetsJ, slotJ);
+        }
+        json_object_set_new(rootJ, "presets", presetsJ);
         return rootJ;
     }
 
@@ -921,6 +1022,25 @@ struct AlloyFlux : Module {
         json_t *midiOutJ = json_object_get(rootJ, "midiOutput");
         if (midiOutJ)
             midiOutput.fromJson(midiOutJ);
+        json_t *presetsJ = json_object_get(rootJ, "presets");
+        if (presetsJ && json_is_array(presetsJ)) {
+            size_t s;
+            json_t *slotJ;
+            json_array_foreach(presetsJ, s, slotJ) {
+                if (s >= 9 || !json_is_array(slotJ))
+                    continue;
+                _presets[s].clear();
+                size_t p;
+                json_t *pairJ;
+                json_array_foreach(slotJ, p, pairJ) {
+                    if (!json_is_array(pairJ) || json_array_size(pairJ) < 2)
+                        continue;
+                    uint8_t cc = (uint8_t)json_integer_value(json_array_get(pairJ, 0));
+                    uint8_t val = (uint8_t)json_integer_value(json_array_get(pairJ, 1));
+                    _presets[s].push_back({cc, val});
+                }
+            }
+        }
     }
 };
 
@@ -1007,7 +1127,7 @@ struct AlloyFluxWidget : ModuleWidget {
         if (curTranspose != 0)
             scaleLabel += (curTranspose > 0 ? " +" : " ") + std::to_string(curTranspose);
         menu->addChild(rack::createSubmenuItem(
-            "Scale", scaleLabel,
+            "Input Quantization", scaleLabel,
             [=](rack::ui::Menu *submenu) {
                 for (int i = 0; i < (int)ScaleId::COUNT; i++) {
                     int idx = i;
@@ -1195,6 +1315,13 @@ struct AlloyFluxWidget : ModuleWidget {
                 modDepth->text = "Mod Depth";
                 modDepth->quantity = m->getParamQuantity(AlloyFlux::REV_MOD_DEPTH_PARAM);
                 submenu->addChild(modDepth);
+
+                submenu->addChild(new rack::ui::MenuSeparator);
+                bool frozen = m->params[AlloyFlux::REV_FROZEN_PARAM].getValue() >= 0.5f;
+                submenu->addChild(rack::createCheckMenuItem(
+                    "Freeze", "",
+                    [=]() { return frozen; },
+                    [=]() { m->params[AlloyFlux::REV_FROZEN_PARAM].setValue(frozen ? 0.f : 1.f); }));
             }));
 
         // --- Delay submenu ---
@@ -1227,6 +1354,95 @@ struct AlloyFluxWidget : ModuleWidget {
                 fb->text = "Feedback";
                 fb->quantity = m->getParamQuantity(AlloyFlux::DELAY_FB_PARAM);
                 submenu->addChild(fb);
+            }));
+
+        // --- Sub octave submenu ---
+        menu->addChild(rack::createSubmenuItem(
+            "Sub octave",
+            m->params[AlloyFlux::SUB_OCTAVE_PARAM].getValue() >= 0.5f ? "2 oct" : "1 oct",
+            [=](rack::ui::Menu *submenu) {
+                submenu->addChild(rack::createCheckMenuItem(
+                    "1 oct below", "",
+                    [=]() { return m->params[AlloyFlux::SUB_OCTAVE_PARAM].getValue() < 0.5f; },
+                    [=]() { m->params[AlloyFlux::SUB_OCTAVE_PARAM].setValue(0.f); }));
+                submenu->addChild(rack::createCheckMenuItem(
+                    "2 oct below", "",
+                    [=]() { return m->params[AlloyFlux::SUB_OCTAVE_PARAM].getValue() >= 0.5f; },
+                    [=]() { m->params[AlloyFlux::SUB_OCTAVE_PARAM].setValue(1.f); }));
+            }));
+
+        // --- Portamento submenu ---
+        menu->addChild(rack::createSubmenuItem(
+            "Portamento",
+            m->params[AlloyFlux::GLIDE_ENABLE_PARAM].getValue() >= 0.5f ? "On" : "Off",
+            [=](rack::ui::Menu *submenu) {
+                bool glideOn = m->params[AlloyFlux::GLIDE_ENABLE_PARAM].getValue() >= 0.5f;
+                submenu->addChild(rack::createCheckMenuItem(
+                    "Enable", "",
+                    [=]() { return glideOn; },
+                    [=]() { m->params[AlloyFlux::GLIDE_ENABLE_PARAM].setValue(glideOn ? 0.f : 1.f); }));
+                submenu->addChild(new rack::ui::MenuSeparator);
+                auto *sl = new SubMenuSlider;
+                sl->text = "Glide time";
+                sl->quantity = m->getParamQuantity(AlloyFlux::GLIDE_TIME_PARAM);
+                submenu->addChild(sl);
+            }));
+
+        // --- Velocity sensitivity ---
+        bool velSens = m->params[AlloyFlux::VEL_SENS_PARAM].getValue() >= 0.5f;
+        menu->addChild(rack::createCheckMenuItem(
+            "Velocity sensitivity", "",
+            [=]() { return velSens; },
+            [=]() { m->params[AlloyFlux::VEL_SENS_PARAM].setValue(velSens ? 0.f : 1.f); }));
+
+        // --- Presets (M37l) ---
+        menu->addChild(new rack::ui::MenuSeparator);
+        menu->addChild(rack::createSubmenuItem(
+            "Presets", "",
+            [=](rack::ui::Menu *submenu) {
+                submenu->addChild(rack::createSubmenuItem(
+                    "Save", "",
+                    [=](rack::ui::Menu *saveMenu) {
+                        for (int s = 1; s <= 9; s++) {
+                            bool hasSave = !m->_presets[s - 1].empty();
+                            saveMenu->addChild(rack::createMenuItem(
+                                "Preset " + std::to_string(s),
+                                hasSave ? "(overwrite)" : "",
+                                [=]() { m->_presets[s - 1] = m->_snapshotPairs(); }));
+                        }
+                    }));
+
+                submenu->addChild(rack::createSubmenuItem(
+                    "Load", "",
+                    [=](rack::ui::Menu *loadMenu) {
+                        for (int s = 1; s <= 9; s++) {
+                            bool hasSave = !m->_presets[s - 1].empty();
+                            auto *item = rack::createMenuItem(
+                                "Preset " + std::to_string(s),
+                                hasSave ? "" : "(empty)",
+                                [=]() {
+                                    for (auto &p : m->_presets[s - 1])
+                                        m->_applyCC(p.first, p.second);
+                                    m->_dumpPending.store(true);
+                                });
+                            item->disabled = !hasSave;
+                            loadMenu->addChild(item);
+                        }
+                    }));
+
+                submenu->addChild(rack::createSubmenuItem(
+                    "Clear", "",
+                    [=](rack::ui::Menu *clearMenu) {
+                        for (int s = 1; s <= 9; s++) {
+                            bool hasSave = !m->_presets[s - 1].empty();
+                            auto *item = rack::createMenuItem(
+                                "Preset " + std::to_string(s),
+                                hasSave ? "" : "(empty)",
+                                [=]() { m->_presets[s - 1].clear(); });
+                            item->disabled = !hasSave;
+                            clearMenu->addChild(item);
+                        }
+                    }));
             }));
 
         // --- Sync + MIDI settings (M37i) ---
