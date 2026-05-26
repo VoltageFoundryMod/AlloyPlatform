@@ -120,10 +120,10 @@ class SynthEngine {
      * Runs one-pole smoothing, voice frequency computation, and effect
      * coefficient updates.  Must NOT be called from the audio ISR.
      * @param p          goal-value snapshot for this tick
-     * @param polySlots  4-element POLY voice allocation array (written by MIDI)
+     * @param polySlots  6-element POLY voice allocation array (written by MIDI)
      * @param out        filled with smoothed params for Core 1 bookkeeping
      */
-    void control(const SynthParams &p, PolySlot polySlots[4], SynthControlOutput &out);
+    void control(const SynthParams &p, PolySlot polySlots[6], SynthControlOutput &out);
 
     /**
      * Audio-rate update: one stereo sample.
@@ -151,7 +151,7 @@ class SynthEngine {
     // -----------------------------------------------------------------------
     FilterEngine *filterInst = nullptr; // -> _svfFilter or _otaLadder
     EnvelopeEngine *curveEng = nullptr; // -> _arEnv or _adsrEnv
-    EnvelopeEngine *polyEnvs[4] = {};   // -> _polyEnvArr[0..3]
+    EnvelopeEngine *polyEnvs[6] = {};   // -> _polyEnvArr[0..5]
     ReverbEngine *reverb = nullptr;     // pre-set by constructor → always valid
 
     // Volatile members written by control(), read by audio() ISR — same
@@ -179,8 +179,8 @@ class SynthEngine {
     // -----------------------------------------------------------------------
     // Oscillators — 4 main voices + 4 sub voices.
     // -----------------------------------------------------------------------
-    ShapeOsc<32768u> _voices[4];
-    ShapeOsc<32768u> _subVoices[4];
+    ShapeOsc<32768u> _voices[6];
+    ShapeOsc<32768u> _subVoices[6];
 
     // -----------------------------------------------------------------------
     // Envelopes
@@ -190,13 +190,13 @@ class SynthEngine {
     EnvelopeType _envType = EnvelopeType::AR;
     EnvelopeType _prevEnvType = EnvelopeType::AR;
 
-    // POLY mode — 4 independent per-voice envelopes.
-    AREnvelope<32768u> _polyEnvArr[4];
+    // POLY mode — 6 independent per-voice envelopes.
+    AREnvelope<32768u> _polyEnvArr[6];
 
     // -----------------------------------------------------------------------
     // Effect engines
     // -----------------------------------------------------------------------
-    DriftEngine<4u> _drift;
+    DriftEngine<6u> _drift;
     ChorusEngine<32768u> _chorus;
 
     SVFFilter _svfFilter;
@@ -247,8 +247,8 @@ class SynthEngine {
 
     // Stereo pan weights (set by control(), read by audio()).
     uint8_t _activeVoices = 2u;
-    int16_t _panL[4] = {256, 0, 0, 0};
-    int16_t _panR[4] = {0, 256, 0, 0};
+    int16_t _panL[6] = {256, 0, 0, 0, 0, 0};
+    int16_t _panR[6] = {0, 256, 0, 0, 0, 0};
 
     // Gate edge detection (control()).
     bool _prevGate = false;

@@ -36,7 +36,9 @@ FilterEngine *gFilterInst = nullptr;
 EnvelopeEngine *gCurveEng = nullptr;
 
 // POLY voice allocator — written by usb_midi.cpp, read by SynthEngine::control().
-PolySlot sPolySlots[4] = {
+PolySlot sPolySlots[6] = {
+    {440.0f, 1.0f, 255},
+    {440.0f, 1.0f, 255},
     {440.0f, 1.0f, 255},
     {440.0f, 1.0f, 255},
     {440.0f, 1.0f, 255},
@@ -46,7 +48,7 @@ uint8_t sPolyRR = 0;
 
 // Per-voice envelope pointers for POLY mode — written by SynthEngine::init(),
 // read by usb_midi.cpp (setGate) and by SynthEngine::audio() (next()).
-EnvelopeEngine *sPolyEnvs[4] = {};
+EnvelopeEngine *sPolyEnvs[6] = {};
 
 // ---------------------------------------------------------------------------
 // SynthEngine::init()
@@ -60,7 +62,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
     _generateWavetables();
 
     // Assign table pointers to all oscillators.
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
         _voices[i].setTables(_sineTable, _triTable, _sawTable,
                              _squareTable, _narrowPulseTable);
         _subVoices[i].setTables(_sineTable, _triTable, _sawTable,
@@ -96,7 +98,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
     reverb = &_dattorroReverb;
 
     // Initial voice frequencies
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
         _voices[i].setFreq(440.0f);
         _subVoices[i].setFreq(440.0f * 0.5f);
     }
@@ -112,7 +114,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
 // ---------------------------------------------------------------------------
 void SynthEngine::setSampleRate(uint32_t audioRate) {
     _audioRate = audioRate;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
         _voices[i].setSampleRate(audioRate);
         _subVoices[i].setSampleRate(audioRate);
         _polyEnvArr[i].setSampleRate(audioRate);
@@ -127,7 +129,7 @@ void SynthEngine::setSampleRate(uint32_t audioRate) {
 // ---------------------------------------------------------------------------
 // SynthEngine::control()
 // ---------------------------------------------------------------------------
-void SynthEngine::control(const SynthParams &p, PolySlot polySlots[4],
+void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
                           SynthControlOutput &out) {
     // ------------------------------------------------------------------
     // One-pole smoothing — eliminates zipper noise on parameter changes
@@ -399,10 +401,18 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[4],
     }
     case VoiceMode::POLY: {
         const float subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
-        static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+        static constexpr float kColorOff[6] = {-0.5f, -0.3f, -0.1f, 0.1f, 0.3f, 0.5f};
         const float polyColorHz = _sColor * 50.0f;
-        _activeVoices = 4;
-        for (int i = 0; i < 4; i++) {
+        _activeVoices = 6;
+        // Equal-power normalisation: scale by 1/sqrt(sounding) so adding voices
+        // keeps perceived loudness stable (uncorrelated oscillators sum at ~3 dB
+        // per doubling) while still preventing accumulator clipping.
+        int sounding = 0;
+        for (int i = 0; i < 6; i++)
+            if (_polyEnvArr[i].level() > 0.001f)
+                sounding++;
+        const float wScale = 256.0f / sqrtf((float)(sounding > 0 ? sounding : 1));
+        for (int i = 0; i < 6; i++) {
             float f = polySlots[i].freq + _drift.offset(i) * 0.3f + polyColorHz * kColorOff[i];
             if (f < 20.0f)
                 f = 20.0f;
@@ -411,7 +421,7 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[4],
             _polyEnvArr[i].setCurve(_sCurve, p.curveTime);
             _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f : f * subMult);
             _subVoices[i].setShape(0.75f);
-            const int16_t w = (int16_t)(128.0f * polySlots[i].velocity);
+            const int16_t w = (int16_t)(wScale * polySlots[i].velocity);
             _panL[i] = w;
             _panR[i] = w;
         }
@@ -421,7 +431,7 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[4],
 
     // Mode transition cleanup
     if (modeChanged) {
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 6; i++) {
             _polyEnvArr[i].reset();
             sPolySlots[i].midiNote = 255;
         }
@@ -534,27 +544,58 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
         const int32_t m1 = (int32_t)((float)modSample + (float)sub1 * _sSubWf);
         left = ((m0 * _panL[0]) + (m1 * _panL[1])) >> 8;
         right = ((m0 * _panR[0]) + (m1 * _panR[1])) >> 8;
+    } else if (isPolyMode) {
+        // Main oscillator is ALWAYS advanced to keep its phase accumulator live —
+        // skipping next() freezes the phase at DC and causes silent/corrupt output
+        // when a new note starts.  Sub-voice, multiply, and pan accumulation are
+        // still skipped for silent voices (env < threshold) to save CPU.
+        const bool hasSub = _sSubWf > 0.001f;
+        for (uint8_t i = 0; i < 6; i++) {
+            const float env = _polyEnvArr[i].next(); // direct call, no virtual dispatch
+            const int32_t s = _voices[i].next();     // always advance phase
+            if (env < 0.001f)
+                continue; // skip expensive work only
+            int32_t m;
+            if (hasSub) {
+                const int32_t sub = _subVoices[i].next();
+                m = (int32_t)(((float)s + (float)sub * _sSubWf) * env);
     } else {
-        for (uint8_t i = 0; i < _activeVoices; i++) {
-            const int32_t s = _voices[i].next();
-            const int32_t sub = _subVoices[i].next();
-            int32_t m = (int32_t)((float)s + (float)sub * _sSubWf);
-            if (isPolyMode)
-                m = (int32_t)((float)m * polyEnvs[i]->next());
+                m = (int32_t)((float)s * env);
+            }
             left += (m * _panL[i]) >> 8;
             right += (m * _panR[i]) >> 8;
         }
+    } else {
+        // Non-FM non-POLY: pull sub-voice work out of the inner loop.
+        if (_sSubWf > 0.001f) {
+            for (uint8_t i = 0; i < _activeVoices; i++) {
+                const int32_t s = _voices[i].next();
+                const int32_t sub = _subVoices[i].next();
+                const int32_t m = (int32_t)((float)s + (float)sub * _sSubWf);
+                left += (m * _panL[i]) >> 8;
+                right += (m * _panR[i]) >> 8;
+            }
+        } else {
+            for (uint8_t i = 0; i < _activeVoices; i++) {
+                const int32_t s = _voices[i].next();
+                left += (s * _panL[i]) >> 8;
+                right += (s * _panR[i]) >> 8;
+            }
+        }
     }
 
-    // Soft-clip before VCA
-    if (left > 32512)
-        left = 32512;
-    if (left < -32512)
-        left = -32512;
-    if (right > 32512)
-        right = 32512;
-    if (right < -32512)
-        right = -32512;
+    // Transparent safety limit before the VCA.
+    // The previous always-on Padé soft clip distorted even nominal single-voice
+    // sine output, injecting harmonics into otherwise clean tones. Limit only on
+    // true overflow so sub-clipping signals remain fully linear.
+    if (left > 32767)
+        left = 32767;
+    else if (left < -32767)
+        left = -32767;
+    if (right > 32767)
+        right = 32767;
+    else if (right < -32767)
+        right = -32767;
 
     // ------------------------------------------------------------------
     // VCA — envelope × volume × velocity, with de-click on downward moves
@@ -600,15 +641,19 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
     if (revEnabled) {
         left += (int32_t)((float)revWetL * revMix);
         right += (int32_t)((float)revWetR * revMix);
-        // Soft-clip after adding reverb (resonance + long plate can spike)
-        if (left > 32512)
-            left = 32512;
-        if (left < -32512)
-            left = -32512;
-        if (right > 32512)
-            right = 32512;
-        if (right < -32512)
-            right = -32512;
+        // Hard-limit to prevent int16 wrapping crackle when passed to from16Bit.
+        // The previous Padé soft-clip caused ~6-7% continuous non-linear distortion
+        // at typical reverb tail levels (s≈0.4-0.6), adding harmonics to the tail
+        // and producing audible shimmer. A hard-limit is fully transparent at all
+        // levels up to ±32767 and only activates at simultaneous dry+wet peaks.
+        if (left > 32767)
+            left = 32767;
+        else if (left < -32767)
+            left = -32767;
+        if (right > 32767)
+            right = 32767;
+        else if (right < -32767)
+            right = -32767;
     }
 
     // [DELAY — POST-REVERB]

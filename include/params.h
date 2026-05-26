@@ -132,11 +132,11 @@ struct PolySlot {
 };
 
 // Defined in main.cpp — accessed by usb_midi.cpp for note allocation.
-extern PolySlot sPolySlots[4];
+extern PolySlot sPolySlots[6];
 // Round-robin slot counter — incremented on each Note On in POLY mode.
 extern uint8_t sPolyRR;
 
 // Per-voice AR envelopes for POLY mode — defined in main.cpp.
 // setCurve() called in updateControl(); next() called in updateAudio() ISR.
 // EnvelopeEngine forward-declared above; concrete type AREnvelope<MOZZI_AUDIO_RATE>.
-extern EnvelopeEngine *sPolyEnvs[4]; // pointers so ISR can call virtual next()
+extern EnvelopeEngine *sPolyEnvs[6]; // pointers so ISR can call virtual next()

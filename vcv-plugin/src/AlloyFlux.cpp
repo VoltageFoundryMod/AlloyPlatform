@@ -108,7 +108,9 @@ struct AlloyFlux : Module {
     // -----------------------------------------------------------------------
     SynthEngine _engine;
     VCVRackIO _io;
-    PolySlot _polySlots[4] = {
+    PolySlot _polySlots[6] = {
+        {440.0f, 1.0f, 255},
+        {440.0f, 1.0f, 255},
         {440.0f, 1.0f, 255},
         {440.0f, 1.0f, 255},
         {440.0f, 1.0f, 255},
@@ -665,7 +667,7 @@ struct AlloyFlux : Module {
             _midiNote = -1;
             _midiKeyHeld = false;
             _midiSustain = false;
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 6; i++) {
                 if (_engine.polyEnvs[i]) {
                     _engine.polyEnvs[i]->setGate(false);
                     _engine.polyEnvs[i]->reset();
@@ -693,17 +695,20 @@ struct AlloyFlux : Module {
                     // Note On
                     _droneMode = false;
                     if (_voiceMode == VoiceMode::POLY) {
-                        // POLY: allocate to a free slot; steal round-robin if all busy.
+                        // POLY: search for a free slot starting at _polyRR so
+                        // voices are assigned in rotation (same as CV/gate path).
+                        // Steal round-robin if all busy.
                         uint8_t slot = 255;
-                        for (uint8_t i = 0; i < 4; i++) {
-                            if (_polySlots[i].midiNote == 255) {
-                                slot = i;
+                        for (uint8_t i = 0; i < 6; i++) {
+                            uint8_t idx = (_polyRR + i) % 6;
+                            if (_polySlots[idx].midiNote == 255) {
+                                slot = idx;
                                 break;
                             }
                         }
                         if (slot == 255)
-                            slot = _polyRR % 4;
-                        _polyRR = (_polyRR + 1) % 4;
+                            slot = _polyRR % 6;
+                        _polyRR = (_polyRR + 1) % 6;
                         _polySlots[slot].freq = 440.0f * exp2f(((int)note - 69) / 12.0f);
                         _polySlots[slot].velocity = params[VEL_SENS_PARAM].getValue() >= 0.5f ? (value / 127.0f) : 1.0f;
                         _polySlots[slot].midiNote = note;
@@ -721,7 +726,7 @@ struct AlloyFlux : Module {
                 } else if (status == 0x8 || (status == 0x9 && value == 0)) {
                     // Note Off
                     if (_voiceMode == VoiceMode::POLY) {
-                        for (uint8_t i = 0; i < 4; i++) {
+                        for (uint8_t i = 0; i < 6; i++) {
                             if (_polySlots[i].midiNote == note) {
                                 if (_engine.polyEnvs[i])
                                     _engine.polyEnvs[i]->setGate(false);
@@ -813,7 +818,7 @@ struct AlloyFlux : Module {
                     }
                     _voiceMode = kModes[(idx + 1) % kN];
                     // Reset poly allocator state on mode change (clear stuck notes).
-                    for (int i = 0; i < 4; i++) {
+                    for (int i = 0; i < 6; i++) {
                         _polySlots[i].midiNote = 255;
                         if (_engine.polyEnvs[i])
                             _engine.polyEnvs[i]->setGate(false);
@@ -896,7 +901,7 @@ struct AlloyFlux : Module {
                 // Prefer a truly free slot, then a releasing one, then steal RR.
                 uint8_t slot = 255;
                 uint8_t relSlot = 255;
-                for (uint8_t i = 0; i < 4; i++) {
+                for (uint8_t i = 0; i < 6; i++) {
                     if (_polySlots[i].midiNote == 255) {
                         slot = i;
                         break;
@@ -905,15 +910,15 @@ struct AlloyFlux : Module {
                         relSlot = i;
                 }
                 if (slot == 255)
-                    slot = (relSlot != 255) ? relSlot : _polyRR % 4;
-                _polyRR = (_polyRR + 1) % 4;
+                    slot = (relSlot != 255) ? relSlot : _polyRR % 6;
+                _polyRR = (_polyRR + 1) % 6;
                 _polySlots[slot].freq = _params.baseFreq;
                 _polySlots[slot].velocity = 1.0f;
                 _polySlots[slot].midiNote = 128; // gate held
                 if (_engine.polyEnvs[slot])
                     _engine.polyEnvs[slot]->setGate(true);
                 _cvPolySlot = slot;
-            } else if (gateFalling && _cvPolySlot < 4) {
+            } else if (gateFalling && _cvPolySlot < 6) {
                 // Release envelope but keep slot occupied so the tail rings out.
                 if (_engine.polyEnvs[_cvPolySlot])
                     _engine.polyEnvs[_cvPolySlot]->setGate(false);
@@ -969,7 +974,7 @@ struct AlloyFlux : Module {
             _engine.control(_params, _polySlots, out);
             sendCCFeedback();
             // Free CV poly slots that have fully decayed (sentinel 129 = releasing).
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < 6; i++) {
                 if (_polySlots[i].midiNote == 129 &&
                     _engine.polyEnvs[i] &&
                     _engine.polyEnvs[i]->level() < 0.001f)

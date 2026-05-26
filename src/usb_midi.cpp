@@ -150,7 +150,7 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
     if (velocity == 0) {
         // NoteOn with velocity 0 is a NoteOff (running-status MIDI convention).
         if (gVoiceMode == VoiceMode::POLY) {
-            for (uint8_t i = 0; i < 4; i++) {
+            for (uint8_t i = 0; i < 6; i++) {
                 if (sPolySlots[i].midiNote == note) {
                     sPolyEnvs[i]->setGate(false);
                     sPolySlots[i].midiNote = 255;
@@ -165,20 +165,22 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
     }
 
     if (gVoiceMode == VoiceMode::POLY) {
-        // POLY voice allocation: find a free slot ('free' = midiNote 255).
-        // If all busy, steal the round-robin next slot (oldest by sPolyRR).
+        // POLY voice allocation: search for a free slot starting at sPolyRR so
+        // voices are assigned in rotation (same as CV/gate path).  If all busy,
+        // steal the round-robin next slot.
         uint8_t slot = 255;
-        for (uint8_t i = 0; i < 4; i++) {
-            if (sPolySlots[i].midiNote == 255) {
-                slot = i;
+        for (uint8_t i = 0; i < 6; i++) {
+            uint8_t idx = (sPolyRR + i) % 6;
+            if (sPolySlots[idx].midiNote == 255) {
+                slot = idx;
                 break;
             }
         }
         if (slot == 255) {
             // All slots occupied — steal round-robin
-            slot = sPolyRR % 4;
+            slot = sPolyRR % 6;
         }
-        sPolyRR = (sPolyRR + 1) % 4;
+        sPolyRR = (sPolyRR + 1) % 6;
         sPolySlots[slot].freq = constrain(midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)), 20.0f, 8000.0f);
         sPolySlots[slot].velocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
         sPolySlots[slot].midiNote = note;
@@ -198,7 +200,7 @@ static void onNoteOff(byte channel, byte note, byte /*velocity*/) {
     if (!channelMatches(channel))
         return;
     if (gVoiceMode == VoiceMode::POLY) {
-        for (uint8_t i = 0; i < 4; i++) {
+        for (uint8_t i = 0; i < 6; i++) {
             if (sPolySlots[i].midiNote == note) {
                 sPolyEnvs[i]->setGate(false);
                 sPolySlots[i].midiNote = 255;
@@ -313,6 +315,14 @@ static void onControlChange(byte channel, byte cc, byte value) {
     case 123: // All Notes Off / panic
         gGateHigh = false;
         sActiveNote = 255;
+        for (uint8_t i = 0; i < 6; i++) {
+            if (sPolyEnvs[i]) {
+                sPolyEnvs[i]->setGate(false);
+                sPolyEnvs[i]->reset();
+            }
+            sPolySlots[i].midiNote = 255;
+        }
+        sPolyRR = 0;
         break;
     default:
         break;
