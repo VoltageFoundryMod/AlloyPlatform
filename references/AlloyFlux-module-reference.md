@@ -2207,7 +2207,7 @@ The VCV Rack plugin guide is at <https://vcvrack.com/manual/PluginGuide> and the
 - [ ] 57. **Define the new expander module** - Define how to have an expander module with additional CV inputs and/or potentiometers. Expand via another 74HC4067? Need to add an external ADC?
 - [ ] 58. **Add freeze mode to delay** - Similar to the reverb freeze mode, add a freeze function to the delay effect that holds the current delay buffer indefinitely, allowing for infinite repeats and drone textures. Define combo for controlling this feature. How to enable it? Like fgong to the end of scale of some parameter?
 - [ ] 59. **Improve envelope visualization** — add real-time envelope display in Web Configurator
-
+- [ ] 60. **Load a different set of wavetables from the Web Configurator** — allow users to upload custom wavetables for the SHAPE morph engine via USB; define a simple file format for wavetable data; implement parsing and storage in flash; add UI for managing custom wavetables
 
 
 ---
