@@ -78,7 +78,7 @@ const CCParam kCCParams[] = {
     {  87,  0.0f,   0.95f,    &gDelayFeedback,            "delayfb",     false },  // Delay feedback
     {  88,  0.25f,   4.0f,    &gCurveTime,                "curvetime",   false },  // Envelope time scale
     {  89,  0.001f,  0.1f,    &gDriftSpeed,               "dspeed",      false },  // Drift speed
-    {  91,  0.0f,    1.0f,    &gRevMix,                    "revmix",    false },  // Effect 1 = Reverb ✓
+    {  91,  0.0f,    1.0f,    const_cast<float*>(&gRevMix), "revmix",    false },  // Effect 1 = Reverb ✓
     {  92,  0.0f,    1.0f,    &gColor,                    "color",       false },  // Effect 2 → COLOR
     {  94,  0.0f,   24.0f,    &gRelation,                 "rel",         false },  // Effect 4 = Detune ✓
     {  95,  0.0f,    1.0f,    &gDelayMix,                 "delaymix",    false },  // Effect 5 depth
