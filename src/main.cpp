@@ -148,6 +148,15 @@ volatile int32_t gRevOutBuf_R[kRevOutBufDepth] = {};
 // Pre-seeded to kRevReadDelay so slots [0..kRevReadDelay-1] are valid silence
 // when Core 0's read cursor starts at 0 on first reverb enable.
 volatile uint32_t gRevOutWriteIdx = kRevReadDelay;
+
+// Reverb transport state — file-scope so revGetWet/revFeedDry helpers can share them.
+#if REVERB_FORCE_CORE0
+static int32_t  sRevPrevDryL = 0; // Core 0 inline: previous dry frame fed back to reverb
+static int32_t  sRevPrevDryR = 0;
+#else
+static uint32_t sRevReadIdx = 0;  // Core 1: ISR read cursor, advances +1 per ISR tick
+#endif
+
 volatile float gRevMix = 0.35f;
 volatile bool gRevEnabled = false;
 volatile float gRevSize = 0.5f;
@@ -216,6 +225,11 @@ void setup() {
     gAudioOverruns = 0;
 #endif
 }
+
+// Forward declarations for reverb helpers defined before updateAudio().
+static void revApplyParams();
+static void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive);
+static void revFeedDry(int32_t dryL, int32_t dryR);
 
 void updateControl() {
     serialConsole_update();
@@ -356,29 +370,7 @@ void updateControl() {
         SynthControlOutput co;
         gSynthEngine.control(p, sPolySlots, co);
 
-#if REVERB_FORCE_CORE0
-        // In Core0-inline mode, apply reverb params here (control rate, same core
-        // that calls reverb->process in updateAudio).
-        static float sPrevRevSize = -1.0f;
-        static float sPrevRevDamp = -1.0f;
-        static float sPrevRevModSpeed = -1.0f;
-        static float sPrevRevModDepth = -1.0f;
-        static bool sPrevRevFrozen = !false;
-        if (gRevSize != sPrevRevSize || gRevDamping != sPrevRevDamp) {
-            gSynthEngine.reverb->setParams(gRevSize, gRevDamping);
-            sPrevRevSize = gRevSize;
-            sPrevRevDamp = gRevDamping;
-        }
-        if (gRevModSpeed != sPrevRevModSpeed || gRevModDepth != sPrevRevModDepth) {
-            gSynthEngine.reverb->setModulation(gRevModSpeed, gRevModDepth);
-            sPrevRevModSpeed = gRevModSpeed;
-            sPrevRevModDepth = gRevModDepth;
-        }
-        if (gRevFrozen != sPrevRevFrozen) {
-            gSynthEngine.reverb->freeze(gRevFrozen);
-            sPrevRevFrozen = gRevFrozen;
-        }
-#endif
+        revApplyParams();
 
         // Publish smoothed params for Core 1 DSP engines.
         mutex_enter_blocking(&gDspMutex);
@@ -440,44 +432,108 @@ void updateControl() {
 #endif
 }
 
-// M37b — thin audio ISR: delegate all DSP to SynthEngine, handle Core 1 protocol.
+// ---------------------------------------------------------------------------
+// Reverb transport helpers — hide the Core0-inline vs Core1-offload divergence
+// so updateAudio() has a single unified control flow regardless of the flag.
+// Both helpers are hot-path: placed in SRAM alongside updateAudio.
+// ---------------------------------------------------------------------------
+
+// revApplyParams() — called at control rate (updateControl, 128 Hz).
+// Core 0:  applies reverb params directly (same core that calls process()).
+// Core 1:  no-op — loop1() applies params there with the same deadbands.
+static void revApplyParams() {
+#if REVERB_FORCE_CORE0
+    static float sPrevSize = -1.0f, sPrevDamp = -1.0f;
+    static float sPrevModSpeed = -1.0f, sPrevModDepth = -1.0f;
+    static bool  sPrevFrozen = !false;
+    if (fabsf(gRevSize - sPrevSize) > 0.0025f || fabsf(gRevDamping - sPrevDamp) > 0.0025f) {
+        gSynthEngine.reverb->setParams(gRevSize, gRevDamping);
+        sPrevSize = gRevSize;  sPrevDamp = gRevDamping;
+    }
+    if (fabsf(gRevModSpeed - sPrevModSpeed) > 0.01f || fabsf(gRevModDepth - sPrevModDepth) > 0.01f) {
+        gSynthEngine.reverb->setModulation(gRevModSpeed, gRevModDepth);
+        sPrevModSpeed = gRevModSpeed;  sPrevModDepth = gRevModDepth;
+    }
+    if (gRevFrozen != sPrevFrozen) {
+        gSynthEngine.reverb->freeze(gRevFrozen);
+        sPrevFrozen = gRevFrozen;
+    }
+#endif
+    // Core 1 path: loop1() handles param updates — nothing to do here.
+}
+
+// revGetWet() — ISR hot path, called only when gRevEnabled.
+// wasActive: true if reverb was also enabled on the previous ISR tick.
+// Core 0: run reverb inline on the previous dry frame (1-sample constant latency).
+// Core 1: read from the fixed-delay ring buffer (constant kRevReadDelay latency).
+static __attribute__((section(".time_critical.revGetWet")))
+void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive) {
+#if REVERB_FORCE_CORE0
+    constexpr float kNorm = 1.0f / 32512.0f;
+    float wL, wR;
+    gSynthEngine.reverb->process((float)sRevPrevDryL * kNorm,
+                                 (float)sRevPrevDryR * kNorm, &wL, &wR);
+    if (wL >  1.0f) wL =  1.0f;  if (wL < -1.0f) wL = -1.0f;
+    if (wR >  1.0f) wR =  1.0f;  if (wR < -1.0f) wR = -1.0f;
+    *wetL = (int32_t)(wL * 32512.0f);
+    *wetR = (int32_t)(wR * 32512.0f);
+#else
+    // Re-anchor read cursor when reverb transitions from disabled→enabled so we
+    // don't replay stale slots from a previous session (Core 1 kept writing while
+    // reverb was off; sRevReadIdx was frozen at its last value).
+    if (!wasActive)
+        sRevReadIdx = gRevOutWriteIdx - kRevReadDelay;
+    __asm volatile("dmb" ::: "memory");
+    *wetL = gRevOutBuf_L[sRevReadIdx & (kRevOutBufDepth - 1u)];
+    *wetR = gRevOutBuf_R[sRevReadIdx & (kRevOutBufDepth - 1u)];
+    ++sRevReadIdx;
+#endif
+}
+
+// revFeedDry() — ISR hot path, called only when gRevEnabled.
+// Core 0: stash dry frame for next tick's inline reverb call.
+// Core 1: push dry frame into the SPSC input queue for loop1().
+static __attribute__((section(".time_critical.revFeedDry")))
+void revFeedDry(int32_t dryL, int32_t dryR) {
+#if REVERB_FORCE_CORE0
+    sRevPrevDryL = dryL;
+    sRevPrevDryR = dryR;
+#else
+    const uint32_t writeIdx     = gRevInWriteIdx;
+    const bool     wasEmpty     = (writeIdx == gRevInReadIdx);
+    const uint32_t nextWriteIdx = (writeIdx + 1u) & kRevInQueueMask;
+    // Queue full: drop oldest so newest dry frame always reaches the reverb.
+    if (nextWriteIdx == gRevInReadIdx) {
+        gRevInReadIdx = (gRevInReadIdx + 1u) & kRevInQueueMask;
+        gRevInDrops++;
+    }
+    gRevInQueue[writeIdx].l = dryL;
+    gRevInQueue[writeIdx].r = dryR;
+    __asm volatile("dmb" ::: "memory");
+    gRevInWriteIdx = nextWriteIdx;
+    if (wasEmpty)
+        __asm volatile("sev"); // wake Core 1 on empty→non-empty transition
+#endif
+}
+
+// M37b — thin audio ISR: delegate all DSP to SynthEngine, handle reverb transport.
 AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio() {
 #ifdef CPU_PROFILE
     const uint32_t _t0 = time_us_32();
 #endif
 
-#if REVERB_FORCE_CORE0
-    // Core0-inline reverb path (single-core isolation).
-    // Matches VCV's one-sample wet latency: process previous dry frame, then
-    // feed that wet frame into SynthEngine::audio for the current sample.
-    static int32_t sPrevDryL = 0;
-    static int32_t sPrevDryR = 0;
-
-    int32_t revWetL = 0;
-    int32_t revWetR = 0;
-    if (gRevEnabled) {
-        constexpr float kNorm = 1.0f / 32512.0f;
-        float wetL, wetR;
-        gSynthEngine.reverb->process((float)sPrevDryL * kNorm,
-                                     (float)sPrevDryR * kNorm,
-                                     &wetL, &wetR);
-        if (wetL > 1.0f)
-            wetL = 1.0f;
-        if (wetL < -1.0f)
-            wetL = -1.0f;
-        if (wetR > 1.0f)
-            wetR = 1.0f;
-        if (wetR < -1.0f)
-            wetR = -1.0f;
-        revWetL = (int32_t)(wetL * 32512.0f);
-        revWetR = (int32_t)(wetR * 32512.0f);
-    }
+    static bool sPrevRevActive = false;
+    int32_t revWetL = 0, revWetR = 0;
+    if (gRevEnabled)
+        revGetWet(&revWetL, &revWetR, sPrevRevActive);
+    sPrevRevActive = (bool)gRevEnabled;
 
     int32_t outL, outR, dryL, dryR;
     gSynthEngine.audio(revWetL, revWetR, gRevMix, gRevEnabled,
                        &outL, &outR, &dryL, &dryR);
-    sPrevDryL = dryL;
-    sPrevDryR = dryR;
+
+    if (gRevEnabled)
+        revFeedDry(dryL, dryR);
 
 #ifdef CPU_PROFILE
     const uint32_t elapsed = time_us_32() - _t0;
@@ -487,63 +543,6 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
 #endif
 
     return StereoOutput::from16Bit(outL, outR);
-#else
-
-    // Independent read cursor: advances exactly 1 per ISR tick — never derived from
-    // Core 1's write index at read-time.  This is the critical fix for shimmer:
-    // the old '(writeIdx - delay)' expression let Core 1's jittery write counter
-    // change the read slot mid-evaluation, giving variable wet-latency (= swept comb).
-    // With sRevReadIdx the read position is purely a function of ISR time, not Core 1.
-    // On (re-)enable we re-align to kRevReadDelay frames behind Core 1's current position.
-    static uint32_t sRevReadIdx = 0;
-    static bool sPrevRevEnabled = false;
-    int32_t revWetL = 0;
-    int32_t revWetR = 0;
-    if (gRevEnabled) {
-        if (!sPrevRevEnabled) {
-            // Reverb just enabled: anchor read cursor kRevReadDelay behind write cursor.
-            sRevReadIdx = gRevOutWriteIdx - kRevReadDelay;
-        }
-        __asm volatile("dmb" ::: "memory");
-        revWetL = gRevOutBuf_L[sRevReadIdx & (kRevOutBufDepth - 1u)];
-        revWetR = gRevOutBuf_R[sRevReadIdx & (kRevOutBufDepth - 1u)];
-        sRevReadIdx++;
-    }
-    sPrevRevEnabled = gRevEnabled;
-
-    int32_t outL, outR, dryL, dryR;
-    gSynthEngine.audio(revWetL, revWetR, gRevMix, gRevEnabled,
-                       &outL, &outR, &dryL, &dryR);
-
-    // Queue the pre-reverb signal for Core 1 processing.
-    if (gRevEnabled) {
-        const uint32_t writeIdx = gRevInWriteIdx;
-        const bool wasEmpty = (writeIdx == gRevInReadIdx);
-        const uint32_t nextWriteIdx = (writeIdx + 1u) & kRevInQueueMask;
-        // Queue full: drop oldest (advance read index) so newest input reaches
-        // the reverb. This keeps latency bounded and avoids stale-tail buildup.
-        if (nextWriteIdx == gRevInReadIdx) {
-            gRevInReadIdx = (gRevInReadIdx + 1u) & kRevInQueueMask;
-            gRevInDrops++;
-        }
-        gRevInQueue[writeIdx].l = dryL;
-        gRevInQueue[writeIdx].r = dryR;
-        __asm volatile("dmb" ::: "memory");
-        gRevInWriteIdx = nextWriteIdx;
-        if (wasEmpty) {
-            __asm volatile("sev"); // wake Core 1 only on empty->non-empty transition
-        }
-    }
-
-#ifdef CPU_PROFILE
-    const uint32_t elapsed = time_us_32() - _t0;
-    gAudioElapsedUs = elapsed;
-    if (elapsed > 30)
-        gAudioOverruns++;
-#endif
-
-    return StereoOutput::from16Bit(outL, outR);
-#endif
 }
 
 void loop() {

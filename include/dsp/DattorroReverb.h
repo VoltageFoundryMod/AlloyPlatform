@@ -177,17 +177,20 @@ static constexpr uint32_t kAP8 = 2924; // right — modulated (nominal)
 static constexpr uint32_t kD8 = 3483;  // right — medium delay
 
 // Modulated APF buffers: nominal + LFO depth (8) + guard (4)
-// Only APF5 and APF7 are modulated (original Dattorro: only the two "entry" APFs).
-// APF6 and APF8 use exact-size buffers (static, no LFO headroom needed).
+// All 4 tank APFs are modulated for richer tail diffusion.
 static constexpr uint32_t kAP5_BUF = kAP5 + 12; //  752
+static constexpr uint32_t kAP6_BUF = kAP6 + 12; // 1994
 static constexpr uint32_t kAP7_BUF = kAP7 + 12; // 1012
+static constexpr uint32_t kAP8_BUF = kAP8 + 12; // 2936
 
-// LFO parameters — 2 bipolar triangle oscillators for APF5/APF7 only.
-// Bipolar (±halfDepth centred on nominal) eliminates net pitch drift caused
-// by the original unipolar 0→depth sweep.
-static constexpr float kLfoDepth = 8.0f;              // total peak-to-peak excursion
+// LFO parameters — 4 independent triangle oscillators, Plateau/Valley frequencies.
+// ~10× slower than the original 1 Hz; longer sweep period produces richer diffusion
+// without audible pitch wobble.  90° phase offsets cover the full cycle immediately.
+static constexpr float kLfoDepth = 8.0f;              // ±8 samples nominal excursion
 static constexpr float kLfoRate1 = 0.100f / 32768.0f; // 0.10 Hz — ~10 s period
+static constexpr float kLfoRate2 = 0.150f / 32768.0f; // 0.15 Hz — ~6.7 s period
 static constexpr float kLfoRate3 = 0.120f / 32768.0f; // 0.12 Hz — ~8.3 s period
+static constexpr float kLfoRate4 = 0.180f / 32768.0f; // 0.18 Hz — ~5.6 s period
 
 class DattorroReverb final : public ReverbEngine {
   public:
@@ -195,7 +198,8 @@ class DattorroReverb final : public ReverbEngine {
         : _decay(0.75f), _bandwidth(0.9995f), _damping(0.0005f),
           _modSpeed(1.0f), _modDepth(1.0f), _frozen(false),
           _preDelayPos(0),
-          _lfoPhase1(0.0f), _lfoPhase3(0.5f),
+          _lfoPhase1(0.0f), _lfoPhase2(0.25f),
+          _lfoPhase3(0.5f), _lfoPhase4(0.75f),
           _lastProcessUs(0) {
         memset(_preDelay, 0, sizeof(_preDelay));
         // Tank HP: ~30 Hz removes bass accumulation in long tails.
@@ -287,45 +291,42 @@ class DattorroReverb final : public ReverbEngine {
         const float activeInput = _frozen ? 0.0f : diff;
         const float activeDecay = _frozen ? 1.0f : _decay;
 
-        // --- 2 bipolar triangle LFOs for APF5/APF7 only ---
-        // Bipolar: each LFO swings -(halfDepth)..(+halfDepth) around zero, giving
-        // zero net pitch drift over one full period.
-        //
-        // Phase advances by wall-clock elapsed time rather than a fixed per-call
-        // increment. When Core 1 has irregular call spacing (e.g. due to WFE wake
-        // latency), a fixed-per-call increment runs the LFO at the wrong rate and
-        // produces FM sidebands (shimmer). Using actual elapsed µs gives the LFO
-        // a consistent tempo regardless of how often process() is called.
-        const float halfDepth = _modDepth * kLfoDepth * 0.5f;
+        // --- 4 independent triangle LFOs (Plateau frequencies, 90° apart) ---
+        // Rates scaled by _modSpeed; amplitude scaled by _modDepth.
+        // Phase advances by wall-clock elapsed time so LFO rate stays accurate
+        // regardless of irregular Core 1 call spacing.
+        const float depth = _modDepth * kLfoDepth;
         {
 #ifdef ARDUINO
             const uint32_t nowUs = time_us_32();
             const uint32_t elapsedUs = nowUs - _lastProcessUs;
             _lastProcessUs = nowUs;
-            // Cap elapsed to 1 ms to avoid a large jump on first call or after reset.
+            // Cap elapsed to 1 ms to avoid a jump on first call or after reset.
             const float dtSec = (elapsedUs > 1000u ? 1000u : elapsedUs) * 1e-6f;
 #else
             // VCV / non-Arduino: constant rate at nominal sample period.
             constexpr float dtSec = 1.0f / 32768.0f;
 #endif
-            _lfoPhase1 += kLfoRate1 * _modSpeed * 32768.0f * dtSec;
+            const float tick = _modSpeed * 32768.0f * dtSec;
+            _lfoPhase1 += kLfoRate1 * tick;
             if (_lfoPhase1 >= 1.0f)
                 _lfoPhase1 -= 1.0f;
-            _lfoPhase3 += kLfoRate3 * _modSpeed * 32768.0f * dtSec;
+            _lfoPhase2 += kLfoRate2 * tick;
+            if (_lfoPhase2 >= 1.0f)
+                _lfoPhase2 -= 1.0f;
+            _lfoPhase3 += kLfoRate3 * tick;
             if (_lfoPhase3 >= 1.0f)
                 _lfoPhase3 -= 1.0f;
+            _lfoPhase4 += kLfoRate4 * tick;
+            if (_lfoPhase4 >= 1.0f)
+                _lfoPhase4 -= 1.0f;
         }
 
-        // Triangle wave for LFO modulation.
-        // kLfoDepth is peak-to-peak; halfDepth = kLfoDepth×modDepth/2.
-        // factor 4 → tri ∈ [0, 2×halfDepth] → lfo = tri − halfDepth ∈ [−halfDepth, +halfDepth].
-        // (True bipolar: APF delay swings equally sharp and flat, net zero pitch drift.)
-        const float tri1 = _lfoPhase1 < 0.5f ? _lfoPhase1 * 4.0f * halfDepth
-                                             : (1.0f - _lfoPhase1) * 4.0f * halfDepth;
-        const float tri3 = _lfoPhase3 < 0.5f ? _lfoPhase3 * 4.0f * halfDepth
-                                             : (1.0f - _lfoPhase3) * 4.0f * halfDepth;
-        const float lfo1 = tri1 - halfDepth; // bipolar: -(halfDepth)..+(halfDepth)
-        const float lfo3 = tri3 - halfDepth;
+        // Triangle: ramp 0→depth for phase 0..0.5, depth→0 for 0.5..1.0
+        const float lfo1 = _lfoPhase1 < 0.5f ? _lfoPhase1 * 2.0f * depth : (1.0f - _lfoPhase1) * 2.0f * depth;
+        const float lfo2 = _lfoPhase2 < 0.5f ? _lfoPhase2 * 2.0f * depth : (1.0f - _lfoPhase2) * 2.0f * depth;
+        const float lfo3 = _lfoPhase3 < 0.5f ? _lfoPhase3 * 2.0f * depth : (1.0f - _lfoPhase3) * 2.0f * depth;
+        const float lfo4 = _lfoPhase4 < 0.5f ? _lfoPhase4 * 2.0f * depth : (1.0f - _lfoPhase4) * 2.0f * depth;
 
         // --- Cross-inject: read previous-sample feeds before touching either tank ---
         // One-sample latency is inaudible in a reverb tail of 0.5–5 s.
@@ -338,7 +339,7 @@ class DattorroReverb final : public ReverbEngine {
         _tankDelayL.write(ap5out);
         const float dampL = _dampL.process(_tankDelayL.read(kD5 - 1), _damping);
         const float hp6in = _tankHPL.process(dampL); // bass-cut before APF6
-        const float ap6out = _apf6.process(hp6in);   // APF6 static (no modulation)
+        const float ap6out = _apf6.processModRead(hp6in, (kAP6 - 1) + lfo2);
         _tankDelayML.write(ap6out);
 
         // --- Right tank ---
@@ -347,7 +348,7 @@ class DattorroReverb final : public ReverbEngine {
         _tankDelayR.write(ap7out);
         const float dampR = _dampR.process(_tankDelayR.read(kD7 - 1), _damping);
         const float hp8in = _tankHPR.process(dampR); // bass-cut before APF8
-        const float ap8out = _apf8.process(hp8in);   // APF8 static (no modulation)
+        const float ap8out = _apf8.processModRead(hp8in, (kAP8 - 1) + lfo4);
         _tankDelayMR.write(ap8out);
 
         // --- Output taps (Dattorro Table 1, 7 taps per channel) ---
@@ -392,7 +393,9 @@ class DattorroReverb final : public ReverbEngine {
         _preDelayPos = 0;
         memset(_preDelay, 0, sizeof(_preDelay));
         _lfoPhase1 = 0.0f;
+        _lfoPhase2 = 0.25f;
         _lfoPhase3 = 0.5f;
+        _lfoPhase4 = 0.75f;
         _frozen = false;
         _lastProcessUs = 0;
     }
@@ -404,17 +407,17 @@ class DattorroReverb final : public ReverbEngine {
     APF<kAP3> _apf3;
     APF<kAP4> _apf4;
 
-    // Tank left — APF5 modulated (needs BUF headroom); APF6 static (exact size)
+    // Tank left — all APFs modulated; _BUF variants add LFO headroom
     APF<kAP5_BUF> _apf5;
     DLine<kD5> _tankDelayL;
     DLine<kD6> _tankDelayML;
-    APF<kAP6> _apf6;
+    APF<kAP6_BUF> _apf6;
 
-    // Tank right — APF7 modulated (needs BUF headroom); APF8 static (exact size)
+    // Tank right
     APF<kAP7_BUF> _apf7;
     DLine<kD7> _tankDelayR;
     DLine<kD8> _tankDelayMR;
-    APF<kAP8> _apf8;
+    APF<kAP8_BUF> _apf8;
 
     // Pre-delay (fixed 1024 samples; 30ms at 32768 Hz)
     float _preDelay[1024];
@@ -443,8 +446,8 @@ class DattorroReverb final : public ReverbEngine {
     // Freeze (M41)
     bool _frozen; // true = decay→1.0 + new input gated
 
-    // 2 LFO phases for APF5/APF7 — 180° apart (bipolar)
-    float _lfoPhase1, _lfoPhase3;
+    // 4 LFO phases — initialised 90° apart to immediately span the full cycle
+    float _lfoPhase1, _lfoPhase2, _lfoPhase3, _lfoPhase4;
     // Wall-clock timestamp of the last process() call (µs). Used to advance LFO
     // phases by actual elapsed time rather than a fixed per-call increment, so
     // the LFO rate is stable regardless of irregular Core 1 call spacing.
