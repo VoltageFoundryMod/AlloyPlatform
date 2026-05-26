@@ -66,14 +66,14 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
         buf[n++] = sFloatToCC(*p.target, p.valMin, p.valMax, p.logScale);
     }
     // Special / select params not in kCCParams
-    // CC 77 — filter mode: OFF=0, LP=26, HP=51, BP=77, NOTCH=102
-    buf[n++] = 77;
+    // CC 76 — filter mode: OFF=0, LP=26, HP=51, BP=77, NOTCH=102
+    buf[n++] = 76;
     buf[n++] = (gFilterMode == FilterMode::OFF) ? 0 : (gFilterMode == FilterMode::LP) ? 26
                                                   : (gFilterMode == FilterMode::HP)   ? 51
                                                   : (gFilterMode == FilterMode::BP)   ? 77
                                                                                       : 102;
-    // CC 78 — filter type: SVF=0, LADDER=96
-    buf[n++] = 78;
+    // CC 77 — filter type: SVF=0, LADDER=96
+    buf[n++] = 77;
     buf[n++] = (gFilterType == FilterType::SVF) ? 0 : 96;
     // CC 79 — fxorder filter pos: pre-chorus=0, post-chorus=96
     buf[n++] = 79;
@@ -84,8 +84,8 @@ static uint8_t sBuildPatchPairs(uint8_t *buf) {
     // CC 81 — envelope type: AR=0, ADSR=96
     buf[n++] = 81;
     buf[n++] = (gEnvelopeType == EnvelopeType::ADSR) ? 96 : 0;
-    // CC 89 — chorus mode: OFF=0, I=48, II=80, I+II=112
-    buf[n++] = 89;
+    // CC 93 — chorus mode: OFF=0, I=48, II=80, I+II=112
+    buf[n++] = 93;
     buf[n++] = (gChorusMode == ChorusMode::OFF) ? 0 : (gChorusMode == ChorusMode::I) ? 48
                                                   : (gChorusMode == ChorusMode::II)  ? 80
                                                                                      : 112;

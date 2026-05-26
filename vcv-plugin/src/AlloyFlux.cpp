@@ -42,6 +42,7 @@ struct AlloyFlux : Module {
         FATNESS_PARAM,    // [0, 1], default 0.4
         DRIFTSPEED_PARAM, // [0, 1], default 0.36  (~0.04 coeff normalised)
         VOL_PARAM,        // [0, 1], default 1.0
+        CURVETIME_PARAM,  // [0.25, 4.0], default 1.0  (CC 88 — envelope time scale)
         // Panel buttons
         MODE_PARAM,  // momentary — cycles voice mode on release
         SHIFT_PARAM, // momentary — toggles drone mode (VCV only)
@@ -50,7 +51,7 @@ struct AlloyFlux : Module {
         ADSR_ATTACK_PARAM,  // [0.001, 4.0] s, default 0.05
         ADSR_DECAY_PARAM,   // [0.001, 4.0] s, default 0.10
         ADSR_SUSTAIN_PARAM, // [0.0, 1.0], default 0.8
-        ADSR_RELEASE_PARAM, // [0.001, 4.0] s, default 0.30
+        ADSR_RELEASE_PARAM, // [0.001, 8.0] s, default 0.30
         ADSR_LOOP_PARAM,    // 0=off, 1=loop
         // ---- M37h: Effects (hidden, saved in patch) ----
         CHORUS_MODE_PARAM,   // 0=OFF,1=I,2=II,3=I_II
@@ -169,6 +170,7 @@ struct AlloyFlux : Module {
         configParam(FATNESS_PARAM, 0.0f, 1.0f, 0.4f, "Fatness");
         configParam(DRIFTSPEED_PARAM, 0.0f, 1.0f, 0.36f, "Drift speed");
         configParam(VOL_PARAM, 0.0f, 1.0f, 1.0f, "Volume");
+        configParam(CURVETIME_PARAM, 0.25f, 4.0f, 1.0f, "Curve time", "\u00d7");
 
         // CV inputs
         configInput(VOCT_INPUT, "V/Oct");
@@ -217,7 +219,7 @@ struct AlloyFlux : Module {
         configParam(ADSR_ATTACK_PARAM, 0.001f, 4.0f, 0.05f, "Attack", " s");
         configParam(ADSR_DECAY_PARAM, 0.001f, 4.0f, 0.10f, "Decay", " s");
         configParam(ADSR_SUSTAIN_PARAM, 0.0f, 1.0f, 0.8f, "Sustain");
-        configParam(ADSR_RELEASE_PARAM, 0.001f, 4.0f, 0.30f, "Release", " s");
+        configParam(ADSR_RELEASE_PARAM, 0.001f, 8.0f, 0.30f, "Release", " s");
         configSwitch(ADSR_LOOP_PARAM, 0.f, 1.f, 0.f, "Envelope loop", {"Off", "On"});
 
         // M37h — Effects (hidden)
@@ -313,11 +315,12 @@ struct AlloyFlux : Module {
             {92, cc7(0.f, 1.f, params[COLOR_PARAM].getValue())},
             {94, cc7(0.f, 1.f, params[RELATION_PARAM].getValue())},
             {71, cc7(0.f, 1.f, params[CURVE_PARAM].getValue())},
+            {88, cc7(0.25f, 4.f, params[CURVETIME_PARAM].getValue())},
             {81, (uint8_t)(params[ENV_TYPE_PARAM].getValue() >= 0.5f ? 96 : 0)},
             {73, cc7(0.001f, 4.f, params[ADSR_ATTACK_PARAM].getValue())},
             {82, cc7(0.001f, 4.f, params[ADSR_DECAY_PARAM].getValue())},
             {83, cc7(0.f, 1.f, params[ADSR_SUSTAIN_PARAM].getValue())},
-            {72, cc7(0.001f, 4.f, params[ADSR_RELEASE_PARAM].getValue())},
+            {72, cc7(0.001f, 8.f, params[ADSR_RELEASE_PARAM].getValue())},
             {75, cc7(0.f, 1.f, params[FILTER_RES_PARAM].getValue())},
             {77, (uint8_t)(params[FILTER_TYPE_PARAM].getValue() >= 0.5f ? 96 : 0)},
             {91, cc7(0.f, 1.f, params[REV_MIX_PARAM].getValue())},
@@ -421,11 +424,12 @@ struct AlloyFlux : Module {
         cc7(92, 0.f, 1.f, params[COLOR_PARAM].getValue());
         cc7(94, 0.f, 1.f, params[RELATION_PARAM].getValue());
         cc7(71, 0.f, 1.f, params[CURVE_PARAM].getValue());
+        cc7(88, 0.25f, 4.0f, params[CURVETIME_PARAM].getValue());
         out.push_back({81, params[ENV_TYPE_PARAM].getValue() >= 0.5f ? (uint8_t)96 : (uint8_t)0});
         cc7(73, 0.001f, 4.0f, params[ADSR_ATTACK_PARAM].getValue());
         cc7(82, 0.001f, 4.0f, params[ADSR_DECAY_PARAM].getValue());
         cc7(83, 0.f, 1.f, params[ADSR_SUSTAIN_PARAM].getValue());
-        cc7(72, 0.001f, 4.0f, params[ADSR_RELEASE_PARAM].getValue());
+        cc7(72, 0.001f, 8.0f, params[ADSR_RELEASE_PARAM].getValue());
         {
             float hz = std::max(20.f, std::min(16000.f, params[FILTER_CUTOFF_PARAM].getValue()));
             int v = (int)std::round(std::log(hz / 20.f) / std::log(800.f) * 127.f);
@@ -541,6 +545,9 @@ struct AlloyFlux : Module {
         case 71:
             params[CURVE_PARAM].setValue(norm);
             break;
+        case 88:
+            params[CURVETIME_PARAM].setValue(0.25f + norm * 3.75f);
+            break;
         case 81:
             params[ENV_TYPE_PARAM].setValue(value < 64 ? 0.f : 1.f);
             break;
@@ -554,7 +561,7 @@ struct AlloyFlux : Module {
             params[ADSR_SUSTAIN_PARAM].setValue(norm);
             break;
         case 72:
-            params[ADSR_RELEASE_PARAM].setValue(0.001f + norm * 3.999f);
+            params[ADSR_RELEASE_PARAM].setValue(0.001f + norm * 7.999f);
             break;
         case 74:
             params[FILTER_CUTOFF_PARAM].setValue(20.0f * powf(800.0f, norm));
@@ -948,6 +955,7 @@ struct AlloyFlux : Module {
         // M37m — portamento/glide, sub-octave, reverb freeze, velocity sensitivity
         _params.glideEnabled = params[GLIDE_ENABLE_PARAM].getValue() >= 0.5f;
         _params.glideTime = params[GLIDE_TIME_PARAM].getValue();
+        _params.curveTime = params[CURVETIME_PARAM].getValue();
         _params.subOctave = params[SUB_OCTAVE_PARAM].getValue() >= 0.5f ? 2 : 1;
         _params.revFrozen = params[REV_FROZEN_PARAM].getValue() >= 0.5f;
         _params.midiVelocity = params[VEL_SENS_PARAM].getValue() >= 0.5f ? _midiVelocity : 1.0f;
@@ -1161,6 +1169,11 @@ struct AlloyFluxWidget : ModuleWidget {
         volSlider->text = "Volume";
         volSlider->quantity = m->getParamQuantity(AlloyFlux::VOL_PARAM);
         menu->addChild(volSlider);
+
+        auto *ctSlider = new SubMenuSlider;
+        ctSlider->text = "Curve time";
+        ctSlider->quantity = m->getParamQuantity(AlloyFlux::CURVETIME_PARAM);
+        menu->addChild(ctSlider);
         menu->addChild(rack::createMenuLabel("Additional Controls"));
         // --- Envelope submenu ---
         bool isAdsr = m->params[AlloyFlux::ENV_TYPE_PARAM].getValue() >= 0.5f;

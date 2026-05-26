@@ -20,7 +20,7 @@
 //    8  Balance                          space   (stereo width 0.0–2.0)
 //   65  Portamento On/Off                glideon  (≥64=on / <64=off) — special
 //   71  Resonance / Timbre               curve   (envelope shape: pluck → swell)
-//   72  Release Time                     adsrrelease  (ADSR release time 0.001–4.0 s)
+//   72  Release Time                     adsrrelease  (ADSR release time 0.001–8.0 s)
 //   73  Attack Time                      adsrattack   (ADSR attack time 0.001–4.0 s)
 //   74  Brightness / VCF Cutoff          filtercutoff (20–16000 Hz, log)
 //   75  Sound Controller 6               filterres  (0.0–1.0)
@@ -66,7 +66,7 @@ const CCParam kCCParams[] = {
     {   7,  0.0f,    1.0f,    &gVolume,                   "vol",         false },  // Channel Volume
     {   8,  0.0f,    2.0f,    &gSpace,                    "space",       false },  // Balance → stereo width
     {  71,  0.0f,    1.0f,    &gCurve,                    "curve",       false },  // Timbre/Resonance
-    {  72,  0.001f,  4.0f,    &gAdsrRelease,              "adsrrelease", false },  // Release Time ✓
+    {  72,  0.001f,  8.0f,    &gAdsrRelease,              "adsrrelease", false },  // Release Time ✓
     {  73,  0.001f,  4.0f,    &gAdsrAttack,               "adsrattack",  false },  // Attack Time ✓
     {  74,  20.0f, 16000.0f,  &gFilterCutoff,             "filtercutoff", true },  // VCF Cutff ✓
     {  75,  0.0f,    1.0f,    &gFilterRes,                "filterres",   false },  // SC6
@@ -78,7 +78,7 @@ const CCParam kCCParams[] = {
     {  87,  0.0f,   0.95f,    &gDelayFeedback,            "delayfb",     false },  // Delay feedback
     {  88,  0.25f,   4.0f,    &gCurveTime,                "curvetime",   false },  // Envelope time scale
     {  89,  0.001f,  0.1f,    &gDriftSpeed,               "dspeed",      false },  // Drift speed
-    {  91,  0.0f,    1.0f,    const_cast<float*>(&gRevMix), "revmix",    false },  // Effect 1 = Reverb ✓
+    {  91,  0.0f,    1.0f,    &gRevMix,                    "revmix",    false },  // Effect 1 = Reverb ✓
     {  92,  0.0f,    1.0f,    &gColor,                    "color",       false },  // Effect 2 → COLOR
     {  94,  0.0f,   24.0f,    &gRelation,                 "rel",         false },  // Effect 4 = Detune ✓
     {  95,  0.0f,    1.0f,    &gDelayMix,                 "delaymix",    false },  // Effect 5 depth

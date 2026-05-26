@@ -57,7 +57,7 @@ class AREnvelope : public EnvelopeEngine {
         const float c2 = curve * curve;
         const float ts = (timeScale < 0.01f) ? 0.01f : timeScale;
         const float attTime = (0.001f + c2 * 0.799f) * ts;
-        const float relTime = (0.080f + c2 * 0.920f) * ts;
+        const float relTime = (0.080f + c2 * 1.920f) * ts;
         _attCoeff = 1.0f - expf(-1.0f / (attTime * (float)_sampleRate));
         _relDecay = expf(-1.0f / (relTime * (float)_sampleRate));
     }
