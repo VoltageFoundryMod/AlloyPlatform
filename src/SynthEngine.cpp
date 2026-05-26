@@ -489,8 +489,12 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     _delay.setParams(p.delayTime, p.delayFeedback, p.delayMix);
 
     // ------------------------------------------------------------------
-    // Reverb params (setParams calls tanf — safe at 128 Hz)
+    // Reverb params
     // ------------------------------------------------------------------
+    // Firmware (ARDUINO): reverb runs on Core 1, so parameter updates are
+    // applied in main.cpp::loop1() to avoid Core 0/Core 1 races inside the
+    // reverb object. VCV: single-threaded path keeps updates here.
+#if !defined(ARDUINO)
     if (p.revSize != _prevRevSize || p.revDamping != _prevRevDamping) {
         reverb->setParams(p.revSize, p.revDamping);
         _prevRevSize = p.revSize;
@@ -505,6 +509,7 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
         reverb->freeze(p.revFrozen);
         _prevRevFrozen = p.revFrozen;
     }
+#endif
 
     // ------------------------------------------------------------------
     // Fill output snapshot for Core 1 bookkeeping
@@ -559,7 +564,7 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
             if (hasSub) {
                 const int32_t sub = _subVoices[i].next();
                 m = (int32_t)(((float)s + (float)sub * _sSubWf) * env);
-    } else {
+            } else {
                 m = (int32_t)((float)s * env);
             }
             left += (m * _panL[i]) >> 8;

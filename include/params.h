@@ -103,11 +103,11 @@ extern float gAdsrRelease; // seconds, 0.001–10.0
 extern bool gAdsrLoop;     // loop mode: envelope restarts automatically after release
 
 // Reverb (M26b — active when gRevEnabled; NullReverb stub until DattorroReverb)
-extern float gRevSize;     // 0.0 (small room) – 1.0 (long plate), default 0.5
-extern float gRevDamping;  // 0.0 (bright) – 1.0 (dark HF loss), default 0.5
-extern float gRevModSpeed; // 0.1 (glacial) – 4.0 (fast shimmer), default 1.0 (M40)
-extern float gRevModDepth; // 0.0 (static) – 1.0 (full ±8 sample swing), default 1.0 (M40)
-extern bool gRevFrozen;    // false = normal; true = infinite sustain (M41)
+extern volatile float gRevSize;     // 0.0 (small room) – 1.0 (long plate), default 0.5
+extern volatile float gRevDamping;  // 0.0 (bright) – 1.0 (dark HF loss), default 0.5
+extern volatile float gRevModSpeed; // 0.1 (glacial) – 4.0 (fast shimmer), default 1.0 (M40)
+extern volatile float gRevModDepth; // 0.0 (static) – 1.0 (full ±8 sample swing), default 1.0 (M40)
+extern volatile bool gRevFrozen;    // false = normal; true = infinite sustain (M41)
 // gRevMix / gRevEnabled are volatile — declared in ReverbEngine.h
 
 // Delay (M26c — pass-through stub; parameters stored ready for implementation)
