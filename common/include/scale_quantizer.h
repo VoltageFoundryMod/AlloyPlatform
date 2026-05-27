@@ -29,7 +29,8 @@
 // ScaleId enum
 // ---------------------------------------------------------------------------
 
-enum class ScaleId : uint8_t {
+enum class ScaleId : uint8_t
+{
     CHROMATIC = 0,  // off — all 12 semitones pass through (identity)
     MAJOR,          // Ionian      W W H W W W H
     NATURAL_MINOR,  // Aeolian     W H W W H W W
@@ -81,13 +82,17 @@ static const uint16_t kScaleMasks[(uint8_t)ScaleId::COUNT] = {
     // CHROMATIC:       all 12 semitones
     0x0FFF,
     // MAJOR:           0  2  4  5  7  9  11   → 0xAB5
-    (1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 9) | (1u << 11),
+    (1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 9)
+        | (1u << 11),
     // NATURAL_MINOR:   0  2  3  5  7  8  10   → 0x5AD
-    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 8) | (1u << 10),
+    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 8)
+        | (1u << 10),
     // HARMONIC_MINOR:  0  2  3  5  7  8  11   → 0x9AD
-    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 8) | (1u << 11),
+    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 8)
+        | (1u << 11),
     // MELODIC_MINOR:   0  2  3  5  7  9  11   → 0xAAD
-    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 9) | (1u << 11),
+    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 9)
+        | (1u << 11),
     // PENTATONIC_MAJ:  0  2  4  7  9          → 0x295
     (1u << 0) | (1u << 2) | (1u << 4) | (1u << 7) | (1u << 9),
     // PENTATONIC_MIN:  0  3  5  7  10         → 0x4A9
@@ -95,19 +100,25 @@ static const uint16_t kScaleMasks[(uint8_t)ScaleId::COUNT] = {
     // BLUES:           0  3  5  6  7  10      → 0x4E9
     (1u << 0) | (1u << 3) | (1u << 5) | (1u << 6) | (1u << 7) | (1u << 10),
     // DORIAN:          0  2  3  5  7  9  10   → 0x6AD
-    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 9) | (1u << 10),
+    (1u << 0) | (1u << 2) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 9)
+        | (1u << 10),
     // PHRYGIAN:        0  1  3  5  7  8  10   → 0x5AB
-    (1u << 0) | (1u << 1) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 8) | (1u << 10),
+    (1u << 0) | (1u << 1) | (1u << 3) | (1u << 5) | (1u << 7) | (1u << 8)
+        | (1u << 10),
     // LYDIAN:          0  2  4  6  7  9  11   → 0xAD5
-    (1u << 0) | (1u << 2) | (1u << 4) | (1u << 6) | (1u << 7) | (1u << 9) | (1u << 11),
+    (1u << 0) | (1u << 2) | (1u << 4) | (1u << 6) | (1u << 7) | (1u << 9)
+        | (1u << 11),
     // MIXOLYDIAN:      0  2  4  5  7  9  10   → 0x6B5
-    (1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 9) | (1u << 10),
+    (1u << 0) | (1u << 2) | (1u << 4) | (1u << 5) | (1u << 7) | (1u << 9)
+        | (1u << 10),
     // LOCRIAN:         0  1  3  5  6  8  10   → 0x56B
-    (1u << 0) | (1u << 1) | (1u << 3) | (1u << 5) | (1u << 6) | (1u << 8) | (1u << 10),
+    (1u << 0) | (1u << 1) | (1u << 3) | (1u << 5) | (1u << 6) | (1u << 8)
+        | (1u << 10),
     // WHOLE_TONE:      0  2  4  6  8  10      → 0x555
     (1u << 0) | (1u << 2) | (1u << 4) | (1u << 6) | (1u << 8) | (1u << 10),
     // DIMINISHED (H-W):0  1  3  4  6  7  9  10 → 0x6DB
-    (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) | (1u << 6) | (1u << 7) | (1u << 9) | (1u << 10),
+    (1u << 0) | (1u << 1) | (1u << 3) | (1u << 4) | (1u << 6) | (1u << 7)
+        | (1u << 9) | (1u << 10),
 };
 
 // ---------------------------------------------------------------------------
@@ -122,37 +133,42 @@ static const uint16_t kScaleMasks[(uint8_t)ScaleId::COUNT] = {
 //   transpose — signed semitone offset applied after quantization (−24…+24)
 // ---------------------------------------------------------------------------
 
-static inline uint8_t quantizeNote(uint8_t note, ScaleId scale, int8_t transpose) {
+static inline uint8_t
+quantizeNote(uint8_t note, ScaleId scale, int8_t transpose)
+{
     // 1. Apply transpose (clamp to 0–127).
     int16_t t = (int16_t)note + (int16_t)transpose;
-    if (t < 0)
+    if(t < 0)
         t = 0;
-    if (t > 127)
+    if(t > 127)
         t = 127;
     uint8_t q = (uint8_t)t;
 
     // 2. Chromatic = identity.
-    if (scale == ScaleId::CHROMATIC || scale >= ScaleId::COUNT)
+    if(scale == ScaleId::CHROMATIC || scale >= ScaleId::COUNT)
         return q;
 
     // 3. Look up the scale mask.
     const uint16_t mask = kScaleMasks[(uint8_t)scale];
-    const uint8_t semi = q % 12;
+    const uint8_t  semi = q % 12;
 
     // 4. Short-circuit: already in scale.
-    if (mask & (1u << semi))
+    if(mask & (1u << semi))
         return q;
 
     // 5. Search outward: check up then down at each distance (1–6).
     //    Ties (dist == 6 and both ± exist) resolve upward.
-    for (uint8_t dist = 1; dist <= 6; ++dist) {
+    for(uint8_t dist = 1; dist <= 6; ++dist)
+    {
         uint8_t up = (semi + dist) % 12;
-        if (mask & (1u << up)) {
+        if(mask & (1u << up))
+        {
             int16_t n = (int16_t)q + (int16_t)dist;
             return (n > 127) ? 127u : (uint8_t)n;
         }
         uint8_t down = (semi + 12u - dist) % 12;
-        if (mask & (1u << down)) {
+        if(mask & (1u << down))
+        {
             int16_t n = (int16_t)q - (int16_t)dist;
             return (n < 0) ? 0u : (uint8_t)n;
         }

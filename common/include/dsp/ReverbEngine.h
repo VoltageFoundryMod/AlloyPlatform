@@ -43,14 +43,16 @@ extern volatile int32_t gRevIn_R;
 extern volatile int32_t gRevOut_L; // Core 1 writes, Core 0 reads
 extern volatile int32_t gRevOut_R;
 
-extern volatile float gRevMix;    // 0.0=dry, 1.0=full wet — written by Core 0 updateControl()
+extern volatile float
+    gRevMix; // 0.0=dry, 1.0=full wet — written by Core 0 updateControl()
 extern volatile bool gRevEnabled; // false = Core 1 passes through zeros
 
 // ---------------------------------------------------------------------------
 // Abstract algorithm interface
 // ---------------------------------------------------------------------------
 
-class ReverbEngine {
+class ReverbEngine
+{
   public:
     virtual ~ReverbEngine() {}
 
@@ -70,8 +72,7 @@ class ReverbEngine {
      * inL/inR   : normalised float ±1.0 input
      * outL/outR : normalised float ±1.0 wet output (dry NOT added here)
      */
-    virtual void process(float inL, float inR,
-                         float *outL, float *outR) = 0;
+    virtual void process(float inL, float inR, float *outL, float *outR) = 0;
 
     /** reset() — clear all delay lines and state (mode switch, mute). */
     virtual void reset() = 0;
@@ -87,11 +88,13 @@ class ReverbEngine {
 // Null / pass-through implementation — M26 stub until DattorroReverb lands
 // ---------------------------------------------------------------------------
 
-class NullReverb final : public ReverbEngine {
+class NullReverb final : public ReverbEngine
+{
   public:
     void setParams(float /*size*/, float /*damping*/) override {}
-    void process(float /*inL*/, float /*inR*/,
-                 float *outL, float *outR) override {
+    void
+    process(float /*inL*/, float /*inR*/, float *outL, float *outR) override
+    {
         *outL = 0.0f;
         *outR = 0.0f;
     }

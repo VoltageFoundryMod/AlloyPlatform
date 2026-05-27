@@ -34,15 +34,18 @@
  */
 
 template <uint8_t N_VOICES>
-class DriftEngine {
+class DriftEngine
+{
   public:
-    DriftEngine() {
-        for (uint8_t i = 0; i < N_VOICES; i++) {
+    DriftEngine()
+    {
+        for(uint8_t i = 0; i < N_VOICES; i++)
+        {
             // Different seed and staggered initial wake per voice
-            _seed[i] = 0x12345678u ^ ((uint32_t)i * 0xDEADBEEFu);
+            _seed[i]       = 0x12345678u ^ ((uint32_t)i * 0xDEADBEEFu);
             _freqOffset[i] = 0.0f;
             _freqTarget[i] = 0.0f;
-            _timer[i] = (uint8_t)((i * 43u) % 64u) + 1u;
+            _timer[i]      = (uint8_t)((i * 43u) % 64u) + 1u;
         }
     }
 
@@ -51,39 +54,43 @@ class DriftEngine {
      * Range: 0.001 (very slow, τ ≈ 12 s) … 0.10 (fast, τ ≈ 0.08 s)
      * Default: kDefaultDriftSpeed (τ ≈ 0.31 s)
      */
-    void setSpeed(float speed) {
-        _driftSpeed = speed;
-    }
+    void setSpeed(float speed) { _driftSpeed = speed; }
 
     /**
      * Advance the drift engine by one control tick.
      * @param motion  MOTION parameter 0.0–1.0 — scales maximum drift amplitude.
      */
-    void update(float motion) {
+    void update(float motion)
+    {
         const float maxHz = motion * kMaxDriftHz;
-        for (uint8_t i = 0; i < N_VOICES; i++) {
+        for(uint8_t i = 0; i < N_VOICES; i++)
+        {
             // Glide toward target (one-pole LP, time constant set by _driftSpeed)
             _freqOffset[i] += (_freqTarget[i] - _freqOffset[i]) * _driftSpeed;
 
             // Count down to picking a new random target
-            if (_timer[i] == 0) {
+            if(_timer[i] == 0)
+            {
                 // New target: random in ±maxHz, new wait 16..63 ticks (0.12–0.5 s @ 128 Hz)
-                _timer[i] = (uint8_t)(_rand(_seed[i]) % 48u) + 16u;
+                _timer[i]      = (uint8_t)(_rand(_seed[i]) % 48u) + 16u;
                 _freqTarget[i] = _randf(_seed[i]) * maxHz;
-            } else {
+            }
+            else
+            {
                 --_timer[i];
             }
         }
     }
 
     /** Hz offset to add to voice i's nominal frequency. 0 when motion=0. */
-    float offset(uint8_t voice) const {
-        return (voice < N_VOICES) ? _freqOffset[voice] : 0.0f;
-    }
+    float offset(uint8_t voice) const
+    { return (voice < N_VOICES) ? _freqOffset[voice] : 0.0f; }
 
     /** Reset all voices to zero offset (e.g. on note retrigger). */
-    void reset() {
-        for (uint8_t i = 0; i < N_VOICES; i++) {
+    void reset()
+    {
+        for(uint8_t i = 0; i < N_VOICES; i++)
+        {
             _freqOffset[i] = 0.0f;
             _freqTarget[i] = 0.0f;
         }
@@ -100,18 +107,18 @@ class DriftEngine {
     float _driftSpeed = kDefaultDriftSpeed;
 
     // Numerical Recipes LCG — cheap, no stdlib dependency
-    static uint32_t _rand(uint32_t &s) {
+    static uint32_t _rand(uint32_t &s)
+    {
         s = s * 1664525u + 1013904223u;
         return s;
     }
 
     // Returns uniform float in −1.0 … +1.0
-    static float _randf(uint32_t &s) {
-        return (float)(int32_t)_rand(s) * (1.0f / 2147483648.0f);
-    }
+    static float _randf(uint32_t &s)
+    { return (float)(int32_t)_rand(s) * (1.0f / 2147483648.0f); }
 
-    float _freqOffset[N_VOICES]; // current Hz offset applied to voice
-    float _freqTarget[N_VOICES]; // Hz target the voice is gliding toward
-    uint8_t _timer[N_VOICES];    // ticks until next target selection
-    uint32_t _seed[N_VOICES];    // per-voice LCG state
+    float    _freqOffset[N_VOICES]; // current Hz offset applied to voice
+    float    _freqTarget[N_VOICES]; // Hz target the voice is gliding toward
+    uint8_t  _timer[N_VOICES];      // ticks until next target selection
+    uint32_t _seed[N_VOICES];       // per-voice LCG state
 };

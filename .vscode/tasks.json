@@ -1,14 +1,24 @@
 {
-	"version": "2.0.0",
-	"tasks": [
-		{
-			"label": "PlatformIO Build",
-			"type": "shell",
-			"command": "platformio run",
-			"problemMatcher": [
-				"$gcc"
-			],
-			"group": "build"
-		}
-	]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "PlatformIO Build",
+      "type": "shell",
+      "command": "platformio run",
+      "problemMatcher": ["$gcc"],
+      "group": "build"
+    },
+    {
+      "label": "Format C/C++ (all tracked)",
+      "type": "shell",
+      "command": "git ls-files \"*.h\" \"*.hpp\" \"*.c\" \"*.cc\" \"*.cpp\" | xargs -r /c/Users/carlosedp/.vscode/extensions/ms-vscode.cpptools-1.32.2-win32-x64/LLVM/bin/clang-format.exe -i -style=file",
+      "problemMatcher": []
+    },
+    {
+      "label": "Check C/C++ format (dry-run)",
+      "type": "shell",
+      "command": "git ls-files \"*.h\" \"*.hpp\" \"*.c\" \"*.cc\" \"*.cpp\" | xargs -r /c/Users/carlosedp/.vscode/extensions/ms-vscode.cpptools-1.32.2-win32-x64/LLVM/bin/clang-format.exe --dry-run --Werror -style=file",
+      "problemMatcher": []
+    }
+  ]
 }

@@ -91,15 +91,21 @@ const CCParam kCCParams[] = {
 
 const uint8_t kCCParamCount = sizeof(kCCParams) / sizeof(kCCParams[0]);
 
-bool paramMap_dispatchCC(uint8_t cc, uint8_t value) {
-    for (uint8_t i = 0; i < kCCParamCount; i++) {
-        if (kCCParams[i].cc == cc) {
+bool paramMap_dispatchCC(uint8_t cc, uint8_t value)
+{
+    for(uint8_t i = 0; i < kCCParamCount; i++)
+    {
+        if(kCCParams[i].cc == cc)
+        {
             const CCParam &p = kCCParams[i];
-            const float t = value / 127.0f;
-            if (p.logScale) {
+            const float    t = value / 127.0f;
+            if(p.logScale)
+            {
                 // Log interpolation: valMin * (valMax/valMin)^t
                 *p.target = p.valMin * powf(p.valMax / p.valMin, t);
-            } else {
+            }
+            else
+            {
                 *p.target = p.valMin + t * (p.valMax - p.valMin);
             }
             return true;

@@ -20,13 +20,16 @@
  *   2. Add one row to kCCParams[] in src/param_map.cpp — nothing else needed.
  */
 
-struct CCParam {
-    uint8_t cc;             // MIDI CC number
-    float valMin;           // parameter value when CC = 0
-    float valMax;           // parameter value when CC = 127
+struct CCParam
+{
+    uint8_t         cc;     // MIDI CC number
+    float           valMin; // parameter value when CC = 0
+    float           valMax; // parameter value when CC = 127
     volatile float *target; // pointer to the gXxx global to write
-    const char *name;       // matches the serial command name — for Web UI labels, I2C NRPN, etc.
-    bool logScale;          // true = log interpolation (e.g. filter cutoff); false = linear
+    const char *
+        name; // matches the serial command name — for Web UI labels, I2C NRPN, etc.
+    bool
+        logScale; // true = log interpolation (e.g. filter cutoff); false = linear
 };
 
 // Defined in src/param_map.cpp — iterable by any transport.

@@ -19,9 +19,8 @@
 // SynthEngine constructor — pre-wires the reverb pointer so Core 1's setup1()
 // can safely call reverb->reset() before init() runs on Core 0.
 // ---------------------------------------------------------------------------
-SynthEngine::SynthEngine() {
-    reverb = &_dattorroReverb;
-}
+SynthEngine::SynthEngine()
+{ reverb = &_dattorroReverb; }
 
 // ---------------------------------------------------------------------------
 // Global instance
@@ -32,8 +31,8 @@ SynthEngine gSynthEngine;
 // Global pointer/array definitions that params.h declares extern.
 // These point into gSynthEngine's concrete member objects; set in init().
 // ---------------------------------------------------------------------------
-FilterEngine *gFilterInst = nullptr;
-EnvelopeEngine *gCurveEng = nullptr;
+FilterEngine   *gFilterInst = nullptr;
+EnvelopeEngine *gCurveEng   = nullptr;
 
 // POLY voice allocator — written by usb_midi.cpp, read by SynthEngine::control().
 PolySlot sPolySlots[6] = {
@@ -53,8 +52,9 @@ EnvelopeEngine *sPolyEnvs[6] = {};
 // ---------------------------------------------------------------------------
 // SynthEngine::init()
 // ---------------------------------------------------------------------------
-void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
-    _audioRate = audioRate;
+void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
+{
+    _audioRate   = audioRate;
     _controlRate = controlRate;
 
     // Generate wavetables first — oscillators must be pointing at valid data
@@ -62,11 +62,12 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
     _generateWavetables();
 
     // Assign table pointers to all oscillators.
-    for (int i = 0; i < 6; i++) {
-        _voices[i].setTables(_sineTable, _triTable, _sawTable,
-                             _squareTable, _narrowPulseTable);
-        _subVoices[i].setTables(_sineTable, _triTable, _sawTable,
-                                _squareTable, _narrowPulseTable);
+    for(int i = 0; i < 6; i++)
+    {
+        _voices[i].setTables(
+            _sineTable, _triTable, _sawTable, _squareTable, _narrowPulseTable);
+        _subVoices[i].setTables(
+            _sineTable, _triTable, _sawTable, _squareTable, _narrowPulseTable);
         // Update sample rate (harmless at default 32768, required for VCV).
         _voices[i].setSampleRate(audioRate);
         _subVoices[i].setSampleRate(audioRate);
@@ -75,30 +76,31 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
 
         // Poly envelopes
         _polyEnvArr[i].setSampleRate(audioRate);
-        polyEnvs[i] = &_polyEnvArr[i];
+        polyEnvs[i]  = &_polyEnvArr[i];
         sPolyEnvs[i] = &_polyEnvArr[i];
     }
 
     // Envelope engines
     _arEnv.setSampleRate(audioRate);
     _adsrEnv.setSampleRate(audioRate);
-    curveEng = &_arEnv;
+    curveEng  = &_arEnv;
     gCurveEng = &_arEnv;
 
     // Chorus — must run before the audio ISR starts.
     _chorus.init(audioRate);
 
     // Filter
-    _filterType = FilterType::SVF;
+    _filterType     = FilterType::SVF;
     _prevFilterType = FilterType::SVF;
-    filterInst = &_svfFilter;
-    gFilterInst = &_svfFilter;
+    filterInst      = &_svfFilter;
+    gFilterInst     = &_svfFilter;
 
     // Reverb / delay
     reverb = &_dattorroReverb;
 
     // Initial voice frequencies
-    for (int i = 0; i < 6; i++) {
+    for(int i = 0; i < 6; i++)
+    {
         _voices[i].setFreq(440.0f);
         _subVoices[i].setFreq(440.0f * 0.5f);
     }
@@ -112,9 +114,11 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate) {
 // ---------------------------------------------------------------------------
 // SynthEngine::setSampleRate()  — M37c: called on VCV sampleRate change.
 // ---------------------------------------------------------------------------
-void SynthEngine::setSampleRate(uint32_t audioRate) {
+void SynthEngine::setSampleRate(uint32_t audioRate)
+{
     _audioRate = audioRate;
-    for (int i = 0; i < 6; i++) {
+    for(int i = 0; i < 6; i++)
+    {
         _voices[i].setSampleRate(audioRate);
         _subVoices[i].setSampleRate(audioRate);
         _polyEnvArr[i].setSampleRate(audioRate);
@@ -129,8 +133,10 @@ void SynthEngine::setSampleRate(uint32_t audioRate) {
 // ---------------------------------------------------------------------------
 // SynthEngine::control()
 // ---------------------------------------------------------------------------
-void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
-                          SynthControlOutput &out) {
+void SynthEngine::control(const SynthParams  &p,
+                          PolySlot            polySlots[6],
+                          SynthControlOutput &out)
+{
     // ------------------------------------------------------------------
     // One-pole smoothing — eliminates zipper noise on parameter changes
     // ------------------------------------------------------------------
@@ -148,9 +154,13 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // ------------------------------------------------------------------
     // Envelope update — AR or ADSR
     // ------------------------------------------------------------------
-    if (p.envelopeType == EnvelopeType::AR) {
-        static_cast<AREnvelope<32768u> *>(curveEng)->setCurve(_sCurve, _sCurveTime);
-    } else {
+    if(p.envelopeType == EnvelopeType::AR)
+    {
+        static_cast<AREnvelope<32768u> *>(curveEng)->setCurve(_sCurve,
+                                                              _sCurveTime);
+    }
+    else
+    {
         // In ADSR mode, CURVE is a global time scale for A, D, R (sustain is
         // amplitude, not time, so it is unaffected).
         //   curve 0.0 → ×0.25  (tight / percussive)
@@ -158,8 +168,11 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
         //   curve 1.0 → ×4.0   (slow / pad-like)
         const float tScale = powf(4.0f, 2.0f * _sCurve - 1.0f);
         static_cast<ADSREnvelope<32768u> *>(curveEng)->setADSR(
-            p.adsrAttack * tScale, p.adsrDecay * tScale, p.adsrSustain,
-            p.adsrRelease * tScale, p.adsrLoop);
+            p.adsrAttack * tScale,
+            p.adsrDecay * tScale,
+            p.adsrSustain,
+            p.adsrRelease * tScale,
+            p.adsrLoop);
     }
 
     // ------------------------------------------------------------------
@@ -167,10 +180,13 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // ------------------------------------------------------------------
     {
         const bool curGate = p.gateHigh;
-        if (p.voiceMode != VoiceMode::POLY && curGate != _prevGate) {
+        if(p.voiceMode != VoiceMode::POLY && curGate != _prevGate)
+        {
             curveEng->setGate(curGate);
-            if (curGate && curveEng->level() < 0.01f) {
-                for (int i = 0; i < 4; i++) {
+            if(curGate && curveEng->level() < 0.01f)
+            {
+                for(int i = 0; i < 4; i++)
+                {
                     _voices[i].resetPhase();
                     _subVoices[i].resetPhase();
                 }
@@ -183,9 +199,12 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // FM depth pre-computation (PAIR + CASCADE)
     // COLOR drives depth; tanhf soft-clips; volatile write for ISR
     // ------------------------------------------------------------------
-    if (p.voiceMode == VoiceMode::PAIR || p.voiceMode == VoiceMode::CASCADE) {
+    if(p.voiceMode == VoiceMode::PAIR || p.voiceMode == VoiceMode::CASCADE)
+    {
         _sFmDepth = tanhf(_sColor * 3.0f * 0.7f) * kFmMaxScale;
-    } else {
+    }
+    else
+    {
         _sFmDepth = 0.0f;
     }
 
@@ -198,239 +217,279 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // ------------------------------------------------------------------
     // Portamento / glide
     // ------------------------------------------------------------------
-    if (p.glideEnabled && p.glideTime > 0.001f) {
-        const float alpha = 1.0f - expf(-1.0f / (p.glideTime * (float)_controlRate));
+    if(p.glideEnabled && p.glideTime > 0.001f)
+    {
+        const float alpha
+            = 1.0f - expf(-1.0f / (p.glideTime * (float)_controlRate));
         _sGlidedFreq += (p.baseFreq - _sGlidedFreq) * alpha;
-    } else {
+    }
+    else
+    {
         _sGlidedFreq = p.baseFreq;
     }
-    float voiceFreqs[4] = {_sGlidedFreq, _sGlidedFreq, _sGlidedFreq, _sGlidedFreq};
+    float voiceFreqs[4]
+        = {_sGlidedFreq, _sGlidedFreq, _sGlidedFreq, _sGlidedFreq};
 
     // ------------------------------------------------------------------
     // Voice mode — frequency assignment + pan
     // ------------------------------------------------------------------
-    _voiceMode = p.voiceMode;
+    _voiceMode             = p.voiceMode;
     const bool modeChanged = (_voiceMode != _prevVoiceMode);
-    _prevVoiceMode = _voiceMode;
+    _prevVoiceMode         = _voiceMode;
 
-    switch (p.voiceMode) {
-    case VoiceMode::PAIR:
-    default: {
-        const float semitones = roundf(_sRelation);
-        if (semitones != _cachedRelPair || modeChanged) {
-            _cachedRatioPair = powf(2.0f, semitones / 12.0f);
-            _cachedRelPair = semitones;
-        }
-        voiceFreqs[0] = _sGlidedFreq + _drift.offset(0);
-        if (voiceFreqs[0] < 20.0f)
-            voiceFreqs[0] = 20.0f;
-        voiceFreqs[1] = _sGlidedFreq * _cachedRatioPair + _drift.offset(1);
-        if (voiceFreqs[1] < 20.0f)
-            voiceFreqs[1] = 20.0f;
-        _voices[0].setFreq(voiceFreqs[0]);
-        _voices[1].setFreq(voiceFreqs[1]);
-        _voices[0].setShape(_sShape);
-        _voices[1].setShape(_sShape);
+    switch(p.voiceMode)
+    {
+        case VoiceMode::PAIR:
+        default:
         {
-            const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-            _subVoices[0].setFreq(voiceFreqs[0] * sm);
-            _subVoices[1].setFreq(voiceFreqs[1] * sm);
+            const float semitones = roundf(_sRelation);
+            if(semitones != _cachedRelPair || modeChanged)
+            {
+                _cachedRatioPair = powf(2.0f, semitones / 12.0f);
+                _cachedRelPair   = semitones;
+            }
+            voiceFreqs[0] = _sGlidedFreq + _drift.offset(0);
+            if(voiceFreqs[0] < 20.0f)
+                voiceFreqs[0] = 20.0f;
+            voiceFreqs[1] = _sGlidedFreq * _cachedRatioPair + _drift.offset(1);
+            if(voiceFreqs[1] < 20.0f)
+                voiceFreqs[1] = 20.0f;
+            _voices[0].setFreq(voiceFreqs[0]);
+            _voices[1].setFreq(voiceFreqs[1]);
+            _voices[0].setShape(_sShape);
+            _voices[1].setShape(_sShape);
+            {
+                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
+                _subVoices[0].setFreq(voiceFreqs[0] * sm);
+                _subVoices[1].setFreq(voiceFreqs[1] * sm);
+            }
+            _activeVoices = 2;
+            _panL[0]      = 256;
+            _panL[1]      = 0;
+            _panL[2]      = 0;
+            _panL[3]      = 0;
+            _panR[0]      = 0;
+            _panR[1]      = 256;
+            _panR[2]      = 0;
+            _panR[3]      = 0;
+            break;
         }
-        _activeVoices = 2;
-        _panL[0] = 256;
-        _panL[1] = 0;
-        _panL[2] = 0;
-        _panL[3] = 0;
-        _panR[0] = 0;
-        _panR[1] = 256;
-        _panR[2] = 0;
-        _panR[3] = 0;
-        break;
-    }
-    case VoiceMode::CHORD: {
-        static const int8_t kChordTable[11][4] = {
-            {0, 0, 0, 0},    //  0  Unison
-            {0, 7, 12, 19},  //  1  Power
-            {0, 3, 7, 12},   //  2  Minor
-            {0, 4, 7, 12},   //  3  Major
-            {0, 2, 7, 12},   //  4  Sus2
-            {0, 5, 7, 12},   //  5  Sus4
-            {0, 4, 7, 11},   //  6  Major 7
-            {0, 3, 7, 10},   //  7  Minor 7
-            {0, 4, 7, 10},   //  8  Dominant 7
-            {0, 3, 6, 9},    //  9  Diminished
-            {0, 12, 24, 36}, // 10  Octaves
-        };
-        const int chordIdx = (_sRelation / 24.0f * 10.0f + 0.5f < 10.5f)
-                                 ? (int)(_sRelation / 24.0f * 10.0f + 0.5f)
-                                 : 10;
-        if (chordIdx != _cachedChordIdx ||
-            fabsf(_sGlidedFreq - _cachedChordBase) > 0.01f || modeChanged) {
-            for (int i = 0; i < 4; i++)
-                _cachedFreqsChord[i] = _sGlidedFreq *
-                                       powf(2.0f, kChordTable[chordIdx][i] / 12.0f);
-            _cachedChordIdx = chordIdx;
-            _cachedChordBase = _sGlidedFreq;
+        case VoiceMode::CHORD:
+        {
+            static const int8_t kChordTable[11][4] = {
+                {0, 0, 0, 0},    //  0  Unison
+                {0, 7, 12, 19},  //  1  Power
+                {0, 3, 7, 12},   //  2  Minor
+                {0, 4, 7, 12},   //  3  Major
+                {0, 2, 7, 12},   //  4  Sus2
+                {0, 5, 7, 12},   //  5  Sus4
+                {0, 4, 7, 11},   //  6  Major 7
+                {0, 3, 7, 10},   //  7  Minor 7
+                {0, 4, 7, 10},   //  8  Dominant 7
+                {0, 3, 6, 9},    //  9  Diminished
+                {0, 12, 24, 36}, // 10  Octaves
+            };
+            const int chordIdx = (_sRelation / 24.0f * 10.0f + 0.5f < 10.5f)
+                                     ? (int)(_sRelation / 24.0f * 10.0f + 0.5f)
+                                     : 10;
+            if(chordIdx != _cachedChordIdx
+               || fabsf(_sGlidedFreq - _cachedChordBase) > 0.01f || modeChanged)
+            {
+                for(int i = 0; i < 4; i++)
+                    _cachedFreqsChord[i]
+                        = _sGlidedFreq
+                          * powf(2.0f, kChordTable[chordIdx][i] / 12.0f);
+                _cachedChordIdx  = chordIdx;
+                _cachedChordBase = _sGlidedFreq;
+            }
+            for(int i = 0; i < 4; i++)
+            {
+                voiceFreqs[i] = _cachedFreqsChord[i] + _drift.offset(i);
+                if(voiceFreqs[i] < 20.0f)
+                    voiceFreqs[i] = 20.0f;
+                _voices[i].setFreq(voiceFreqs[i]);
+                _voices[i].setShape(_sShape);
+                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
+                _subVoices[i].setFreq(voiceFreqs[i] * sm);
+            }
+            if(_sColor > 0.001f)
+            {
+                static constexpr float kColorOff[4]
+                    = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+                const float colorHz = _sColor * 50.0f;
+                for(int i = 0; i < 4; i++)
+                {
+                    float f = voiceFreqs[i] + colorHz * kColorOff[i];
+                    if(f < 20.0f)
+                        f = 20.0f;
+                    _voices[i].setFreq(f);
+                    const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
+                    _subVoices[i].setFreq(f * sm);
+                }
+            }
+            _activeVoices = 4;
+            _panL[0]      = 128;
+            _panL[1]      = 90;
+            _panL[2]      = 38;
+            _panL[3]      = 0;
+            _panR[0]      = 0;
+            _panR[1]      = 38;
+            _panR[2]      = 90;
+            _panR[3]      = 128;
+            break;
         }
-        for (int i = 0; i < 4; i++) {
-            voiceFreqs[i] = _cachedFreqsChord[i] + _drift.offset(i);
-            if (voiceFreqs[i] < 20.0f)
-                voiceFreqs[i] = 20.0f;
-            _voices[i].setFreq(voiceFreqs[i]);
-            _voices[i].setShape(_sShape);
-            const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-            _subVoices[i].setFreq(voiceFreqs[i] * sm);
+        case VoiceMode::CLOUD:
+        {
+            if(fabsf(_sRelation - _cachedRelCloud) > 0.05f
+               || fabsf(_sGlidedFreq - _cachedBaseCloud) > 0.01f || modeChanged)
+            {
+                const float spreadCents = (_sRelation / 24.0f) * 50.0f;
+                const float offCents[4] = {-spreadCents * 0.5f,
+                                           -spreadCents * (1.0f / 6.0f),
+                                           spreadCents * (1.0f / 6.0f),
+                                           spreadCents * 0.5f};
+                for(int i = 0; i < 4; i++)
+                    _cachedFreqsCloud[i]
+                        = _sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
+                _cachedRelCloud  = _sRelation;
+                _cachedBaseCloud = _sGlidedFreq;
+            }
+            static constexpr float kColorOff[4]
+                = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+            for(int i = 0; i < 4; i++)
+            {
+                voiceFreqs[i] = _cachedFreqsCloud[i] + _drift.offset(i) * 1.5f
+                                + _sColor * 50.0f * kColorOff[i];
+                if(voiceFreqs[i] < 20.0f)
+                    voiceFreqs[i] = 20.0f;
+                _voices[i].setFreq(voiceFreqs[i]);
+                _voices[i].setShape(_sShape);
+                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
+                _subVoices[i].setFreq(voiceFreqs[i] * sm);
+            }
+            _activeVoices = 4;
+            _panL[0]      = 128;
+            _panL[1]      = 90;
+            _panL[2]      = 38;
+            _panL[3]      = 0;
+            _panR[0]      = 0;
+            _panR[1]      = 38;
+            _panR[2]      = 90;
+            _panR[3]      = 128;
+            break;
         }
-        if (_sColor > 0.001f) {
-            static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
-            const float colorHz = _sColor * 50.0f;
-            for (int i = 0; i < 4; i++) {
-                float f = voiceFreqs[i] + colorHz * kColorOff[i];
-                if (f < 20.0f)
+        case VoiceMode::CASCADE:
+        {
+            static constexpr float kCascadeRatios[]
+                = {1.0f, 1.333f, 1.5f, 2.0f, 2.5f, 3.0f};
+            const int zoneIdx
+                = (_sRelation / 4.0f < 5.0f) ? (int)(_sRelation / 4.0f) : 5;
+            voiceFreqs[0] = _sGlidedFreq + _drift.offset(0);
+            if(voiceFreqs[0] < 20.0f)
+                voiceFreqs[0] = 20.0f;
+            voiceFreqs[1]
+                = _sGlidedFreq * kCascadeRatios[zoneIdx] + _drift.offset(1);
+            if(voiceFreqs[1] < 20.0f)
+                voiceFreqs[1] = 20.0f;
+            _voices[0].setFreq(voiceFreqs[0]);
+            _voices[1].setFreq(voiceFreqs[1]);
+            _voices[0].setShape(_sShape);
+            _voices[1].setShape(_sShape);
+            {
+                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
+                _subVoices[0].setFreq(voiceFreqs[0] * sm);
+                _subVoices[1].setFreq(voiceFreqs[1] * sm);
+            }
+            _activeVoices = 2;
+            _panL[0]      = 256;
+            _panL[1]      = 0;
+            _panL[2]      = 0;
+            _panL[3]      = 0;
+            _panR[0]      = 256;
+            _panR[1]      = 0;
+            _panR[2]      = 0;
+            _panR[3]      = 0;
+            break;
+        }
+        case VoiceMode::STRING:
+        {
+            if(fabsf(_sRelation - _cachedRelStr) > 0.05f
+               || fabsf(_sGlidedFreq - _cachedBaseStr) > 0.01f || modeChanged)
+            {
+                const float spreadCents = (_sRelation / 24.0f) * 30.0f;
+                const float offCents[4] = {-spreadCents * 0.5f,
+                                           -spreadCents * (1.0f / 6.0f),
+                                           spreadCents * (1.0f / 6.0f),
+                                           spreadCents * 0.5f};
+                for(int i = 0; i < 4; i++)
+                    _cachedFreqsStr[i]
+                        = _sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
+                _cachedRelStr  = _sRelation;
+                _cachedBaseStr = _sGlidedFreq;
+            }
+            static constexpr float kColorOff[4]
+                = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+            for(int i = 0; i < 4; i++)
+            {
+                voiceFreqs[i] = _cachedFreqsStr[i] + _drift.offset(i) * 3.0f
+                                + _sColor * 50.0f * kColorOff[i];
+                if(voiceFreqs[i] < 20.0f)
+                    voiceFreqs[i] = 20.0f;
+                _voices[i].setFreq(voiceFreqs[i]);
+                _voices[i].setShape(_sShape);
+                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
+                _subVoices[i].setFreq(voiceFreqs[i] * sm);
+            }
+            _activeVoices = 4;
+            _panL[0]      = 128;
+            _panL[1]      = 90;
+            _panL[2]      = 38;
+            _panL[3]      = 0;
+            _panR[0]      = 0;
+            _panR[1]      = 38;
+            _panR[2]      = 90;
+            _panR[3]      = 128;
+            break;
+        }
+        case VoiceMode::POLY:
+        {
+            const float            subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
+            static constexpr float kColorOff[6]
+                = {-0.5f, -0.3f, -0.1f, 0.1f, 0.3f, 0.5f};
+            const float polyColorHz = _sColor * 50.0f;
+            _activeVoices           = 6;
+            // Fixed normalisation: scale by 1/sqrt(6) — equal-power headroom for
+            // the maximum voice count.  A DYNAMIC sounding-based scale is tempting
+            // for loudness stability but causes retroactive gain changes on existing
+            // notes every time a new note starts, which sounds like notes "dying".
+            // Fixed scale means each voice always contributes the same amount;
+            // the user's master volume knob compensates for the −7.8 dB headroom.
+            static constexpr float wScale = 256.0f / 2.449f; // 2.449 ≈ sqrt(6)
+            for(int i = 0; i < 6; i++)
+            {
+                float f = polySlots[i].freq + _drift.offset(i) * 0.3f
+                          + polyColorHz * kColorOff[i];
+                if(f < 20.0f)
                     f = 20.0f;
                 _voices[i].setFreq(f);
-                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-                _subVoices[i].setFreq(f * sm);
+                _voices[i].setShape(_sShape);
+                _polyEnvArr[i].setCurve(_sCurve, p.curveTime);
+                _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f
+                                                            : f * subMult);
+                _subVoices[i].setShape(0.75f);
+                const int16_t w = (int16_t)(wScale * polySlots[i].velocity);
+                _panL[i]        = w;
+                _panR[i]        = w;
             }
+            break;
         }
-        _activeVoices = 4;
-        _panL[0] = 128;
-        _panL[1] = 90;
-        _panL[2] = 38;
-        _panL[3] = 0;
-        _panR[0] = 0;
-        _panR[1] = 38;
-        _panR[2] = 90;
-        _panR[3] = 128;
-        break;
-    }
-    case VoiceMode::CLOUD: {
-        if (fabsf(_sRelation - _cachedRelCloud) > 0.05f ||
-            fabsf(_sGlidedFreq - _cachedBaseCloud) > 0.01f || modeChanged) {
-            const float spreadCents = (_sRelation / 24.0f) * 50.0f;
-            const float offCents[4] = {
-                -spreadCents * 0.5f, -spreadCents * (1.0f / 6.0f),
-                spreadCents * (1.0f / 6.0f), spreadCents * 0.5f};
-            for (int i = 0; i < 4; i++)
-                _cachedFreqsCloud[i] = _sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
-            _cachedRelCloud = _sRelation;
-            _cachedBaseCloud = _sGlidedFreq;
-        }
-        static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
-        for (int i = 0; i < 4; i++) {
-            voiceFreqs[i] = _cachedFreqsCloud[i] + _drift.offset(i) * 1.5f + _sColor * 50.0f * kColorOff[i];
-            if (voiceFreqs[i] < 20.0f)
-                voiceFreqs[i] = 20.0f;
-            _voices[i].setFreq(voiceFreqs[i]);
-            _voices[i].setShape(_sShape);
-            const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-            _subVoices[i].setFreq(voiceFreqs[i] * sm);
-        }
-        _activeVoices = 4;
-        _panL[0] = 128;
-        _panL[1] = 90;
-        _panL[2] = 38;
-        _panL[3] = 0;
-        _panR[0] = 0;
-        _panR[1] = 38;
-        _panR[2] = 90;
-        _panR[3] = 128;
-        break;
-    }
-    case VoiceMode::CASCADE: {
-        static constexpr float kCascadeRatios[] = {1.0f, 1.333f, 1.5f, 2.0f, 2.5f, 3.0f};
-        const int zoneIdx = (_sRelation / 4.0f < 5.0f) ? (int)(_sRelation / 4.0f) : 5;
-        voiceFreqs[0] = _sGlidedFreq + _drift.offset(0);
-        if (voiceFreqs[0] < 20.0f)
-            voiceFreqs[0] = 20.0f;
-        voiceFreqs[1] = _sGlidedFreq * kCascadeRatios[zoneIdx] + _drift.offset(1);
-        if (voiceFreqs[1] < 20.0f)
-            voiceFreqs[1] = 20.0f;
-        _voices[0].setFreq(voiceFreqs[0]);
-        _voices[1].setFreq(voiceFreqs[1]);
-        _voices[0].setShape(_sShape);
-        _voices[1].setShape(_sShape);
-        {
-            const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-            _subVoices[0].setFreq(voiceFreqs[0] * sm);
-            _subVoices[1].setFreq(voiceFreqs[1] * sm);
-        }
-        _activeVoices = 2;
-        _panL[0] = 256;
-        _panL[1] = 0;
-        _panL[2] = 0;
-        _panL[3] = 0;
-        _panR[0] = 256;
-        _panR[1] = 0;
-        _panR[2] = 0;
-        _panR[3] = 0;
-        break;
-    }
-    case VoiceMode::STRING: {
-        if (fabsf(_sRelation - _cachedRelStr) > 0.05f ||
-            fabsf(_sGlidedFreq - _cachedBaseStr) > 0.01f || modeChanged) {
-            const float spreadCents = (_sRelation / 24.0f) * 30.0f;
-            const float offCents[4] = {
-                -spreadCents * 0.5f, -spreadCents * (1.0f / 6.0f),
-                spreadCents * (1.0f / 6.0f), spreadCents * 0.5f};
-            for (int i = 0; i < 4; i++)
-                _cachedFreqsStr[i] = _sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
-            _cachedRelStr = _sRelation;
-            _cachedBaseStr = _sGlidedFreq;
-        }
-        static constexpr float kColorOff[4] = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
-        for (int i = 0; i < 4; i++) {
-            voiceFreqs[i] = _cachedFreqsStr[i] + _drift.offset(i) * 3.0f + _sColor * 50.0f * kColorOff[i];
-            if (voiceFreqs[i] < 20.0f)
-                voiceFreqs[i] = 20.0f;
-            _voices[i].setFreq(voiceFreqs[i]);
-            _voices[i].setShape(_sShape);
-            const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-            _subVoices[i].setFreq(voiceFreqs[i] * sm);
-        }
-        _activeVoices = 4;
-        _panL[0] = 128;
-        _panL[1] = 90;
-        _panL[2] = 38;
-        _panL[3] = 0;
-        _panR[0] = 0;
-        _panR[1] = 38;
-        _panR[2] = 90;
-        _panR[3] = 128;
-        break;
-    }
-    case VoiceMode::POLY: {
-        const float subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
-        static constexpr float kColorOff[6] = {-0.5f, -0.3f, -0.1f, 0.1f, 0.3f, 0.5f};
-        const float polyColorHz = _sColor * 50.0f;
-        _activeVoices = 6;
-        // Fixed normalisation: scale by 1/sqrt(6) — equal-power headroom for
-        // the maximum voice count.  A DYNAMIC sounding-based scale is tempting
-        // for loudness stability but causes retroactive gain changes on existing
-        // notes every time a new note starts, which sounds like notes "dying".
-        // Fixed scale means each voice always contributes the same amount;
-        // the user's master volume knob compensates for the −7.8 dB headroom.
-        static constexpr float wScale = 256.0f / 2.449f; // 2.449 ≈ sqrt(6)
-        for (int i = 0; i < 6; i++) {
-            float f = polySlots[i].freq + _drift.offset(i) * 0.3f + polyColorHz * kColorOff[i];
-            if (f < 20.0f)
-                f = 20.0f;
-            _voices[i].setFreq(f);
-            _voices[i].setShape(_sShape);
-            _polyEnvArr[i].setCurve(_sCurve, p.curveTime);
-            _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f : f * subMult);
-            _subVoices[i].setShape(0.75f);
-            const int16_t w = (int16_t)(wScale * polySlots[i].velocity);
-            _panL[i] = w;
-            _panR[i] = w;
-        }
-        break;
-    }
     } // end switch
 
     // Mode transition cleanup
-    if (modeChanged) {
-        for (int i = 0; i < 6; i++) {
+    if(modeChanged)
+    {
+        for(int i = 0; i < 6; i++)
+        {
             _polyEnvArr[i].reset();
             sPolySlots[i].midiNote = 255;
         }
@@ -449,13 +508,14 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // ------------------------------------------------------------------
     // Filter type switch
     // ------------------------------------------------------------------
-    if (p.filterType != _prevFilterType) {
+    if(p.filterType != _prevFilterType)
+    {
         filterInst->reset();
-        filterInst = (p.filterType == FilterType::SVF)
-                         ? static_cast<FilterEngine *>(&_svfFilter)
-                         : static_cast<FilterEngine *>(&_otaLadder);
-        gFilterInst = filterInst;
-        _filterType = p.filterType;
+        filterInst      = (p.filterType == FilterType::SVF)
+                              ? static_cast<FilterEngine *>(&_svfFilter)
+                              : static_cast<FilterEngine *>(&_otaLadder);
+        gFilterInst     = filterInst;
+        _filterType     = p.filterType;
         _prevFilterType = p.filterType;
     }
     {
@@ -467,13 +527,14 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // ------------------------------------------------------------------
     // Envelope type switch
     // ------------------------------------------------------------------
-    if (p.envelopeType != _prevEnvType) {
+    if(p.envelopeType != _prevEnvType)
+    {
         curveEng->reset();
-        curveEng = (p.envelopeType == EnvelopeType::AR)
-                       ? static_cast<EnvelopeEngine *>(&_arEnv)
-                       : static_cast<EnvelopeEngine *>(&_adsrEnv);
-        gCurveEng = curveEng;
-        _envType = p.envelopeType;
+        curveEng     = (p.envelopeType == EnvelopeType::AR)
+                           ? static_cast<EnvelopeEngine *>(&_arEnv)
+                           : static_cast<EnvelopeEngine *>(&_adsrEnv);
+        gCurveEng    = curveEng;
+        _envType     = p.envelopeType;
         _prevEnvType = p.envelopeType;
     }
 
@@ -494,17 +555,20 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // applied in main.cpp::loop1() to avoid Core 0/Core 1 races inside the
     // reverb object. VCV: single-threaded path keeps updates here.
 #if !defined(ARDUINO)
-    if (p.revSize != _prevRevSize || p.revDamping != _prevRevDamping) {
+    if(p.revSize != _prevRevSize || p.revDamping != _prevRevDamping)
+    {
         reverb->setParams(p.revSize, p.revDamping);
-        _prevRevSize = p.revSize;
+        _prevRevSize    = p.revSize;
         _prevRevDamping = p.revDamping;
     }
-    if (p.revModSpeed != _prevRevModSpeed || p.revModDepth != _prevRevModDepth) {
+    if(p.revModSpeed != _prevRevModSpeed || p.revModDepth != _prevRevModDepth)
+    {
         reverb->setModulation(p.revModSpeed, p.revModDepth);
         _prevRevModSpeed = p.revModSpeed;
         _prevRevModDepth = p.revModDepth;
     }
-    if (p.revFrozen != _prevRevFrozen) {
+    if(p.revFrozen != _prevRevFrozen)
+    {
         reverb->freeze(p.revFrozen);
         _prevRevFrozen = p.revFrozen;
     }
@@ -513,20 +577,21 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     // ------------------------------------------------------------------
     // Fill output snapshot for Core 1 bookkeeping
     // ------------------------------------------------------------------
-    out.freq1 = voiceFreqs[0];
-    out.freq2 = voiceFreqs[1];
-    out.shape = _sShape;
+    out.freq1   = voiceFreqs[0];
+    out.freq2   = voiceFreqs[1];
+    out.shape   = _sShape;
     out.fatness = _sFatness;
-    out.motion = _sMotion;
-    out.curve = _sCurve;
-    out.volume = _sVolume;
+    out.motion  = _sMotion;
+    out.curve   = _sCurve;
+    out.volume  = _sVolume;
 }
 
 // ---------------------------------------------------------------------------
 // SynthEngine::polyRetrigger()
 // ---------------------------------------------------------------------------
-void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult) {
-    if (slot >= 6)
+void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
+{
+    if(slot >= 6)
         return;
     // 1. Hard-silence the envelope so the attack always starts from 0.
     _polyEnvArr[slot].reset();
@@ -545,12 +610,18 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult) {
 // ---------------------------------------------------------------------------
 // SynthEngine::audio()
 // ---------------------------------------------------------------------------
-void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool revEnabled,
-                        int32_t *finalL, int32_t *finalR,
-                        int32_t *dryForRevL, int32_t *dryForRevR) {
+void SynthEngine::audio(int32_t  revWetL,
+                        int32_t  revWetR,
+                        float    revMix,
+                        bool     revEnabled,
+                        int32_t *finalL,
+                        int32_t *finalR,
+                        int32_t *dryForRevL,
+                        int32_t *dryForRevR)
+{
     const bool isPolyMode = (_voiceMode == VoiceMode::POLY);
-    const bool isFmMode = (_voiceMode == VoiceMode::CASCADE ||
-                           _voiceMode == VoiceMode::PAIR);
+    const bool isFmMode
+        = (_voiceMode == VoiceMode::CASCADE || _voiceMode == VoiceMode::PAIR);
 
     // ------------------------------------------------------------------
     // Oscillator mix — sum sActiveVoices into L/R via pan weights.
@@ -558,49 +629,64 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
     // POLY mode: per-voice envelopes applied inside the loop.
     // ------------------------------------------------------------------
     int32_t left = 0, right = 0;
-    if (isFmMode) {
+    if(isFmMode)
+    {
         const int16_t modSample = _voices[1].next();
-        const int32_t sub1 = _subVoices[1].next();
-        const int32_t pmOffset = (int32_t)((float)modSample * _sFmDepth);
-        const int32_t carrier = _voices[0].nextPM(pmOffset);
-        const int32_t sub0 = _subVoices[0].next();
+        const int32_t sub1      = _subVoices[1].next();
+        const int32_t pmOffset  = (int32_t)((float)modSample * _sFmDepth);
+        const int32_t carrier   = _voices[0].nextPM(pmOffset);
+        const int32_t sub0      = _subVoices[0].next();
         const int32_t m0 = (int32_t)((float)carrier + (float)sub0 * _sSubWf);
         const int32_t m1 = (int32_t)((float)modSample + (float)sub1 * _sSubWf);
-        left = ((m0 * _panL[0]) + (m1 * _panL[1])) >> 8;
-        right = ((m0 * _panR[0]) + (m1 * _panR[1])) >> 8;
-    } else if (isPolyMode) {
+        left             = ((m0 * _panL[0]) + (m1 * _panL[1])) >> 8;
+        right            = ((m0 * _panR[0]) + (m1 * _panR[1])) >> 8;
+    }
+    else if(isPolyMode)
+    {
         // Main oscillator is ALWAYS advanced to keep its phase accumulator live —
         // skipping next() freezes the phase at DC and causes silent/corrupt output
         // when a new note starts.  Sub-voice, multiply, and pan accumulation are
         // still skipped for silent voices (env < threshold) to save CPU.
         const bool hasSub = _sSubWf > 0.001f;
-        for (uint8_t i = 0; i < 6; i++) {
-            const float env = _polyEnvArr[i].next(); // direct call, no virtual dispatch
-            const int32_t s = _voices[i].next();     // always advance phase
-            if (env < 0.001f)
+        for(uint8_t i = 0; i < 6; i++)
+        {
+            const float env
+                = _polyEnvArr[i].next(); // direct call, no virtual dispatch
+            const int32_t s = _voices[i].next(); // always advance phase
+            if(env < 0.001f)
                 continue; // skip expensive work only
             int32_t m;
-            if (hasSub) {
+            if(hasSub)
+            {
                 const int32_t sub = _subVoices[i].next();
                 m = (int32_t)(((float)s + (float)sub * _sSubWf) * env);
-            } else {
+            }
+            else
+            {
                 m = (int32_t)((float)s * env);
             }
             left += (m * _panL[i]) >> 8;
             right += (m * _panR[i]) >> 8;
         }
-    } else {
+    }
+    else
+    {
         // Non-FM non-POLY: pull sub-voice work out of the inner loop.
-        if (_sSubWf > 0.001f) {
-            for (uint8_t i = 0; i < _activeVoices; i++) {
-                const int32_t s = _voices[i].next();
+        if(_sSubWf > 0.001f)
+        {
+            for(uint8_t i = 0; i < _activeVoices; i++)
+            {
+                const int32_t s   = _voices[i].next();
                 const int32_t sub = _subVoices[i].next();
-                const int32_t m = (int32_t)((float)s + (float)sub * _sSubWf);
+                const int32_t m   = (int32_t)((float)s + (float)sub * _sSubWf);
                 left += (m * _panL[i]) >> 8;
                 right += (m * _panR[i]) >> 8;
             }
-        } else {
-            for (uint8_t i = 0; i < _activeVoices; i++) {
+        }
+        else
+        {
+            for(uint8_t i = 0; i < _activeVoices; i++)
+            {
                 const int32_t s = _voices[i].next();
                 left += (s * _panL[i]) >> 8;
                 right += (s * _panR[i]) >> 8;
@@ -612,25 +698,26 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
     // The previous always-on Padé soft clip distorted even nominal single-voice
     // sine output, injecting harmonics into otherwise clean tones. Limit only on
     // true overflow so sub-clipping signals remain fully linear.
-    if (left > 32767)
+    if(left > 32767)
         left = 32767;
-    else if (left < -32767)
+    else if(left < -32767)
         left = -32767;
-    if (right > 32767)
+    if(right > 32767)
         right = 32767;
-    else if (right < -32767)
+    else if(right < -32767)
         right = -32767;
 
     // ------------------------------------------------------------------
     // VCA — envelope × volume × velocity, with de-click on downward moves
     // ------------------------------------------------------------------
-    const float envLevel = (!isPolyMode && gGatePatched) ? curveEng->next() : 1.0f;
+    const float envLevel
+        = (!isPolyMode && gGatePatched) ? curveEng->next() : 1.0f;
     const float gainTarget = _sVolume * _sMidiVel * envLevel;
-    if (gainTarget < _sGainSmooth)
+    if(gainTarget < _sGainSmooth)
         _sGainSmooth += (gainTarget - _sGainSmooth) * 0.2f;
     else
         _sGainSmooth = gainTarget;
-    left = (int32_t)((float)left * _sGainSmooth);
+    left  = (int32_t)((float)left * _sGainSmooth);
     right = (int32_t)((float)right * _sGainSmooth);
 
     // ------------------------------------------------------------------
@@ -638,23 +725,23 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
     // ------------------------------------------------------------------
 
     // [FILTER — PRE-CHORUS]
-    if (!_fxOrder.filterPostChorus)
+    if(!_fxOrder.filterPostChorus)
         filterInst->process(left, right, &left, &right);
 
     // Chorus
     {
         int32_t outL, outR;
         _chorus.process(left, right, chorusDepth, _chorusMode, &outL, &outR);
-        left = outL;
+        left  = outL;
         right = outR;
     }
 
     // [FILTER — POST-CHORUS]
-    if (_fxOrder.filterPostChorus)
+    if(_fxOrder.filterPostChorus)
         filterInst->process(left, right, &left, &right);
 
     // [DELAY — PRE-REVERB]
-    if (!_fxOrder.delayPostReverb)
+    if(!_fxOrder.delayPostReverb)
         _delay.process(left, right, &left, &right);
 
     // Export pre-reverb signal for Core 1
@@ -662,7 +749,8 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
     *dryForRevR = right;
 
     // Mix reverb wet return
-    if (revEnabled) {
+    if(revEnabled)
+    {
         left += (int32_t)((float)revWetL * revMix);
         right += (int32_t)((float)revWetR * revMix);
         // Hard-limit to prevent int16 wrapping crackle when passed to from16Bit.
@@ -670,25 +758,26 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
         // at typical reverb tail levels (s≈0.4-0.6), adding harmonics to the tail
         // and producing audible shimmer. A hard-limit is fully transparent at all
         // levels up to ±32767 and only activates at simultaneous dry+wet peaks.
-        if (left > 32767)
+        if(left > 32767)
             left = 32767;
-        else if (left < -32767)
+        else if(left < -32767)
             left = -32767;
-        if (right > 32767)
+        if(right > 32767)
             right = 32767;
-        else if (right < -32767)
+        else if(right < -32767)
             right = -32767;
     }
 
     // [DELAY — POST-REVERB]
-    if (_fxOrder.delayPostReverb)
+    if(_fxOrder.delayPostReverb)
         _delay.process(left, right, &left, &right);
 
     // SPACE — stereo width
-    if (_sSpace < 0.995f || _sSpace > 1.005f) {
+    if(_sSpace < 0.995f || _sSpace > 1.005f)
+    {
         int32_t spL, spR;
         SpaceEngine::process(left, right, _sSpace, &spL, &spR);
-        left = spL;
+        left  = spL;
         right = spR;
     }
 
@@ -699,38 +788,43 @@ void SynthEngine::audio(int32_t revWetL, int32_t revWetR, float revMix, bool rev
 // ---------------------------------------------------------------------------
 // Wavetable generation (extracted verbatim from main.cpp)
 // ---------------------------------------------------------------------------
-void SynthEngine::_normaliseTable(const float *buf, int16_t *dst, int n) {
+void SynthEngine::_normaliseTable(const float *buf, int16_t *dst, int n)
+{
     float peak = 0.0f;
-    for (int i = 0; i < n; i++)
-        if (fabsf(buf[i]) > peak)
+    for(int i = 0; i < n; i++)
+        if(fabsf(buf[i]) > peak)
             peak = fabsf(buf[i]);
-    if (peak < 1e-6f)
+    if(peak < 1e-6f)
         peak = 1.0f;
     const float scale = 32767.0f / peak;
-    for (int i = 0; i < n; i++)
+    for(int i = 0; i < n; i++)
         dst[i] = (int16_t)(buf[i] * scale);
 }
 
-void SynthEngine::_generateWavetables() {
+void SynthEngine::_generateWavetables()
+{
     static float buf[TABLE_CELLS]; // static: avoids 4 KB stack frame
-    const int N = (int)TABLE_CELLS;
-    const int maxH = ((int)_audioRate / 2) / 440; // 37 @ 32768 Hz
+    const int    N    = (int)TABLE_CELLS;
+    const int    maxH = ((int)_audioRate / 2) / 440; // 37 @ 32768 Hz
 
     // Sine
-    for (int i = 0; i < N; i++) {
+    for(int i = 0; i < N; i++)
+    {
         const float phase = 2.0f * 3.14159265f * i / N;
-        buf[i] = sinf(phase);
+        buf[i]            = sinf(phase);
     }
     _normaliseTable(buf, _sineTable, N);
 
     // Triangle
-    for (int i = 0; i < N; i++) {
+    for(int i = 0; i < N; i++)
+    {
         const float phase = 2.0f * 3.14159265f * i / N;
-        float val = 0.0f;
-        for (int h = 1; h <= maxH; h += 2) {
-            const float x = (float)h * 3.14159265f / (maxH + 1);
+        float       val   = 0.0f;
+        for(int h = 1; h <= maxH; h += 2)
+        {
+            const float x     = (float)h * 3.14159265f / (maxH + 1);
             const float sigma = sinf(x) / x;
-            const float sign = (((h - 1) / 2) & 1) ? -1.0f : 1.0f;
+            const float sign  = (((h - 1) / 2) & 1) ? -1.0f : 1.0f;
             val += sigma * sign * sinf((float)h * phase) / ((float)h * h);
         }
         buf[i] = val;
@@ -738,11 +832,13 @@ void SynthEngine::_generateWavetables() {
     _normaliseTable(buf, _triTable, N);
 
     // Sawtooth
-    for (int i = 0; i < N; i++) {
+    for(int i = 0; i < N; i++)
+    {
         const float phase = 2.0f * 3.14159265f * i / N;
-        float val = 0.0f;
-        for (int h = 1; h <= maxH; h++) {
-            const float x = (float)h * 3.14159265f / (maxH + 1);
+        float       val   = 0.0f;
+        for(int h = 1; h <= maxH; h++)
+        {
+            const float x     = (float)h * 3.14159265f / (maxH + 1);
             const float sigma = sinf(x) / x;
             val += sigma * sinf((float)h * phase) / (float)h;
         }
@@ -751,11 +847,13 @@ void SynthEngine::_generateWavetables() {
     _normaliseTable(buf, _sawTable, N);
 
     // Square / 50% pulse
-    for (int i = 0; i < N; i++) {
+    for(int i = 0; i < N; i++)
+    {
         const float phase = 2.0f * 3.14159265f * i / N;
-        float val = 0.0f;
-        for (int h = 1; h <= maxH; h += 2) {
-            const float x = (float)h * 3.14159265f / (maxH + 1);
+        float       val   = 0.0f;
+        for(int h = 1; h <= maxH; h += 2)
+        {
+            const float x     = (float)h * 3.14159265f / (maxH + 1);
             const float sigma = sinf(x) / x;
             val += sigma * sinf((float)h * phase) / (float)h;
         }
@@ -764,13 +862,15 @@ void SynthEngine::_generateWavetables() {
     _normaliseTable(buf, _squareTable, N);
 
     // Hollow / 25% duty-cycle pulse
-    for (int i = 0; i < N; i++) {
+    for(int i = 0; i < N; i++)
+    {
         const float phase = 2.0f * 3.14159265f * i / N;
-        float val = 0.0f;
-        for (int h = 1; h <= maxH; h++) {
-            const float x = (float)h * 3.14159265f / (maxH + 1);
+        float       val   = 0.0f;
+        for(int h = 1; h <= maxH; h++)
+        {
+            const float x     = (float)h * 3.14159265f / (maxH + 1);
             const float sigma = sinf(x) / x;
-            const float duty = sinf((float)h * 3.14159265f * 0.25f);
+            const float duty  = sinf((float)h * 3.14159265f * 0.25f);
             val += sigma * duty * sinf((float)h * phase) / (float)h;
         }
         buf[i] = val;

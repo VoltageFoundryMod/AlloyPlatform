@@ -58,37 +58,42 @@
  * Milestone 5x (runtime-selectable filter type).
  */
 
-class OTALadder : public FilterEngine {
+class OTALadder : public FilterEngine
+{
   public:
-    OTALadder() : _G(0.5f), _k(0.0f), _mode(FilterMode::LP4) {
-        _reset();
-    }
+    OTALadder() : _G(0.5f), _k(0.0f), _mode(FilterMode::LP4) { _reset(); }
 
-    void setParams(float cutoff_hz, float resonance, FilterMode mode,
-                   float sampleRate = 32768.0f) override {
+    void setParams(float      cutoff_hz,
+                   float      resonance,
+                   FilterMode mode,
+                   float      sampleRate = 32768.0f) override
+    {
         // OTA ladder is LP4 only — anything non-OFF is treated as LP4
         _mode = (mode == FilterMode::OFF) ? FilterMode::OFF : FilterMode::LP4;
-        if (_mode == FilterMode::OFF)
+        if(_mode == FilterMode::OFF)
             return;
 
-        if (cutoff_hz < 20.0f)
+        if(cutoff_hz < 20.0f)
             cutoff_hz = 20.0f;
-        if (cutoff_hz > 8000.0f)
+        if(cutoff_hz > 8000.0f)
             cutoff_hz = 8000.0f; // ladder aliases above sr/4
-        if (resonance < 0.0f)
+        if(resonance < 0.0f)
             resonance = 0.0f;
-        if (resonance > 1.0f)
+        if(resonance > 1.0f)
             resonance = 1.0f;
 
         // Pre-warped integrator gain g (same ZDF formula as SVF)
         const float g = tanf(3.14159265f * cutoff_hz / sampleRate);
-        _G = g / (1.0f + g);   // one-pole stage gain (trapezoidal)
-        _k = resonance * 4.0f; // Moog ladder resonance scale: 0=flat, 4=self-osc
+        _G            = g / (1.0f + g); // one-pole stage gain (trapezoidal)
+        _k = resonance
+             * 4.0f; // Moog ladder resonance scale: 0=flat, 4=self-osc
     }
 
-    inline void process(int32_t inL, int32_t inR,
-                        int32_t *outL, int32_t *outR) override {
-        if (_mode == FilterMode::OFF) {
+    inline void
+    process(int32_t inL, int32_t inR, int32_t *outL, int32_t *outR) override
+    {
+        if(_mode == FilterMode::OFF)
+        {
             *outL = inL;
             *outR = inR;
             return;
@@ -103,14 +108,15 @@ class OTALadder : public FilterEngine {
 
   private:
     // Fast piecewise tanh approximation (Valley NonLinear.hpp, BSD-style)
-    static inline float _tanh(float x) {
-        if (x < -1.25f)
+    static inline float _tanh(float x)
+    {
+        if(x < -1.25f)
             return -1.0f;
-        else if (x < -0.75f)
+        else if(x < -0.75f)
             return 1.0f - (x * (-2.5f - x) - 0.5625f) - 1.0f;
-        else if (x > 1.25f)
+        else if(x > 1.25f)
             return 1.0f;
-        else if (x > 0.75f)
+        else if(x > 0.75f)
             return x * (2.5f - x) - 0.5625f;
         return x;
     }
@@ -124,47 +130,53 @@ class OTALadder : public FilterEngine {
     //   …repeat for y2, y3, y4
     //
     // sigma = G^3*z[0] + G^2*z[1] + G*z[2] + z[3]  (feedback predictor)
-    inline int32_t _chan(float in, float *z) {
+    inline int32_t _chan(float in, float *z)
+    {
         // Feedback predictor
-        const float G2 = _G * _G;
-        const float G3 = G2 * _G;
+        const float G2    = _G * _G;
+        const float G3    = G2 * _G;
         const float sigma = G3 * z[0] + G2 * z[1] + _G * z[2] + z[3];
-        const float gamma = G3 * _G; // G^4 — overall 4-pole gain in feedback path
+        const float gamma
+            = G3 * _G; // G^4 — overall 4-pole gain in feedback path
 
         // Input with feedback subtracted (normalise 0.5 input headroom)
         const float u = (_tanh(in * 0.5f - _k * sigma)) / (1.0f + _k * gamma);
 
         // Four cascaded one-pole stages
         float x = u;
-        float y = 0.0f; // last stage output; declared outside loop so it survives
-        for (int s = 0; s < 4; s++) {
+        float y
+            = 0.0f; // last stage output; declared outside loop so it survives
+        for(int s = 0; s < 4; s++)
+        {
             const float v = _G * (_tanh(x) - z[s]);
-            y = v + z[s]; // stage output (LP tap)
-            z[s] = y + v; // state update: z[s] := 2v + z[s]_old
-            x = _tanh(y);
+            y             = v + z[s]; // stage output (LP tap)
+            z[s]          = y + v;    // state update: z[s] := 2v + z[s]_old
+            x             = _tanh(y);
         }
 
         // Output is the 4th-stage output y (not state z[3]).
         // z[3] = y + v = 2v + z_old which is TWICE the correct level.
         // Clamp to rail (self-oscillation can reach ~0.9, well within int32).
         float out = y;
-        if (out > 1.0f)
+        if(out > 1.0f)
             out = 1.0f;
-        if (out < -1.0f)
+        if(out < -1.0f)
             out = -1.0f;
         return (int32_t)(out * 32512.0f);
     }
 
-    void _reset() {
-        for (int i = 0; i < 4; i++) {
+    void _reset()
+    {
+        for(int i = 0; i < 4; i++)
+        {
             _zL[i] = 0.0f;
             _zR[i] = 0.0f;
         }
     }
 
-    float _G;     // per-stage integrator gain (from cutoff)
-    float _k;     // resonance feedback gain (0–4)
-    float _zL[4]; // left channel integrator states
-    float _zR[4]; // right channel integrator states
+    float      _G;     // per-stage integrator gain (from cutoff)
+    float      _k;     // resonance feedback gain (0–4)
+    float      _zL[4]; // left channel integrator states
+    float      _zR[4]; // right channel integrator states
     FilterMode _mode;
 };

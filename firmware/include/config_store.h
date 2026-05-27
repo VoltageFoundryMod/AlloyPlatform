@@ -31,9 +31,10 @@
  *   3. Add pack/apply lines in config_store.cpp.
  */
 
-static constexpr uint32_t kConfigMagic = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t kConfigVersion = 5;
-static constexpr uint8_t kMaxPresets = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
+static constexpr uint32_t kConfigMagic   = 0xAF10CF01; // "AlloyFlux Config v1"
+static constexpr uint8_t  kConfigVersion = 5;
+static constexpr uint8_t  kMaxPresets
+    = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
 // on the log 20–16000 Hz scale.  CC 74 → 20 × (16000/20)^(74/127) ≈ 983.2 Hz.
@@ -41,17 +42,18 @@ static constexpr uint8_t kMaxPresets = 10; // slot 0 = auto-save live state, slo
 // the in-RAM value always matches what the web configurator reads back over MIDI.
 static constexpr float kDefaultFilterCutoff = 983.2f;
 
-struct AlloyConfig {
+struct AlloyConfig
+{
     uint32_t magic;
-    uint8_t version;
+    uint8_t  version;
     // Pitch / voice
-    float baseFreq;
-    float color; // COLOR knob 0–1
-    float relation;
+    float   baseFreq;
+    float   color; // COLOR knob 0–1
+    float   relation;
     uint8_t voiceMode; // cast of VoiceMode enum
     // Timbre
-    float shape;
-    float fatness;
+    float   shape;
+    float   fatness;
     uint8_t subOctave; // 1 or 2
     // Animation
     float motion;
@@ -67,25 +69,25 @@ struct AlloyConfig {
     // MIDI
     uint8_t midiChannel; // 0 = omni, 1–16 = specific channel
     // Filter (M26a / M5x)
-    float filterCutoff;
-    float filterRes;
+    float   filterCutoff;
+    float   filterRes;
     uint8_t filterMode; // cast of FilterMode enum
     uint8_t filterType; // cast of FilterType enum
     // Envelope (M5x)
     uint8_t envelopeType; // cast of EnvelopeType enum
-    float adsrAttack;
-    float adsrDecay;
-    float adsrSustain;
-    float adsrRelease;
-    bool adsrLoop;
+    float   adsrAttack;
+    float   adsrDecay;
+    float   adsrSustain;
+    float   adsrRelease;
+    bool    adsrLoop;
     // Reverb (M26b)
-    bool revEnabled;
+    bool  revEnabled;
     float revMix;
     float revSize;
     float revDamping;
     float revModSpeed;
     float revModDepth;
-    bool revFrozen;
+    bool  revFrozen;
     // Delay (M26c)
     float delayTime;
     float delayFeedback;
@@ -96,14 +98,15 @@ struct AlloyConfig {
     // MIDI behaviour
     bool velocitySensitive; // true = velocity scales output, false = always 1.0
     // Portamento / glide
-    float glideTime;   // 0.0 = instant, 0.001–2.0 s
-    bool glideEnabled; // portamento on/off
+    float glideTime;    // 0.0 = instant, 0.001–2.0 s
+    bool  glideEnabled; // portamento on/off
     // Scale quantizer (M49)
     uint8_t quantizeScale; // cast of ScaleId enum; 0 = CHROMATIC (bypass)
-    int8_t transpose;      // semitone offset −24…+24; 0 = no transpose
+    int8_t  transpose;     // semitone offset −24…+24; 0 = no transpose
 };
 
-enum class ConfigSaveResult : uint8_t {
+enum class ConfigSaveResult : uint8_t
+{
     SAVED,     // parameters written + committed to flash
     UNCHANGED, // stored data matched — no write performed (flash protected)
     THROTTLED, // too soon since last save — rate limit enforced

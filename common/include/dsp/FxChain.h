@@ -33,7 +33,8 @@
  * Milestone 26a.
  */
 
-struct FxOrder {
+struct FxOrder
+{
     bool filterPostChorus; // false = PRE_CHORUS (default), true = POST_CHORUS
     bool delayPostReverb;  // false = PRE_REVERB (default), true = POST_REVERB
 };

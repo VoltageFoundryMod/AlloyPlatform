@@ -29,7 +29,8 @@
  * width=2.0 maximally exaggerates the detune and chorus LFO independence
  * into a dramatically wide stereo image.
  */
-class SpaceEngine {
+class SpaceEngine
+{
   public:
     /**
      * Process one stereo sample pair.
@@ -40,24 +41,25 @@ class SpaceEngine {
      * @param outL  processed left  sample (clamped to ±32512)
      * @param outR  processed right sample (clamped to ±32512)
      */
-    static void __attribute__((always_inline)) process(int32_t inL, int32_t inR, float width,
-                                                       int32_t *outL, int32_t *outR) {
-        const int32_t mid = (inL + inR) >> 1;
+    static void __attribute__((always_inline))
+    process(int32_t inL, int32_t inR, float width, int32_t *outL, int32_t *outR)
+    {
+        const int32_t mid  = (inL + inR) >> 1;
         const int32_t side = (inL - inR) >> 1;
         // Float multiply — eliminates the 256-step integer quantization that
         // produces zipper artifacts when sSpace changes (same pattern as VCA fix).
         // M33 FPU: two float muls cost the same as the previous integer path.
         const float fSide = (float)side;
-        int32_t L = (int32_t)((float)mid + fSide * width);
-        int32_t R = (int32_t)((float)mid - fSide * width);
+        int32_t     L     = (int32_t)((float)mid + fSide * width);
+        int32_t     R     = (int32_t)((float)mid - fSide * width);
         // Clamp: widths > 1.0 can push output beyond ±32512
-        if (L > 32512)
+        if(L > 32512)
             L = 32512;
-        else if (L < -32512)
+        else if(L < -32512)
             L = -32512;
-        if (R > 32512)
+        if(R > 32512)
             R = 32512;
-        else if (R < -32512)
+        else if(R < -32512)
             R = -32512;
         *outL = L;
         *outR = R;

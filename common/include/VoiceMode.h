@@ -20,32 +20,28 @@
  * Modes share the same synthesis backbone (SHAPE, CURVE, MOTION, SPACE, FATNESS)
  * and differ only in how voices are pitched and panned.
  */
-enum class VoiceMode : uint8_t {
-    PAIR = 0,    // ROOT + RELATION dual voice — default
-    CLOUD = 1,   // multi-voice detuned ensemble (M22)
-    CHORD = 2,   // interval stack from chord table (M23)
+enum class VoiceMode : uint8_t
+{
+    PAIR    = 0, // ROOT + RELATION dual voice — default
+    CLOUD   = 1, // multi-voice detuned ensemble (M22)
+    CHORD   = 2, // interval stack from chord table (M23)
     CASCADE = 3, // restrained FM oscillator interaction (M24)
-    STRING = 4,  // vintage string machine ensemble (M25)
-    POLY = 5,    // 4-voice polyphonic — independent per-voice envelopes (M2x)
+    STRING  = 4, // vintage string machine ensemble (M25)
+    POLY    = 5, // 4-voice polyphonic — independent per-voice envelopes (M2x)
 };
 
 static constexpr uint8_t kVoiceModeCount = 6;
 
-inline const char *voiceModeName(VoiceMode m) {
-    switch (m) {
-    case VoiceMode::PAIR:
-        return "PAIR";
-    case VoiceMode::CLOUD:
-        return "CLOUD";
-    case VoiceMode::CHORD:
-        return "CHORD";
-    case VoiceMode::CASCADE:
-        return "CASCADE";
-    case VoiceMode::STRING:
-        return "STRING";
-    case VoiceMode::POLY:
-        return "POLY";
-    default:
-        return "PAIR";
+inline const char *voiceModeName(VoiceMode m)
+{
+    switch(m)
+    {
+        case VoiceMode::PAIR: return "PAIR";
+        case VoiceMode::CLOUD: return "CLOUD";
+        case VoiceMode::CHORD: return "CHORD";
+        case VoiceMode::CASCADE: return "CASCADE";
+        case VoiceMode::STRING: return "STRING";
+        case VoiceMode::POLY: return "POLY";
+        default: return "PAIR";
     }
 }

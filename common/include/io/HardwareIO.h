@@ -11,7 +11,8 @@
 // ---------------------------------------------------------------------------
 
 /** Panel knobs (pots).  Order reflects physical left→right / top→bottom layout. */
-enum class PotId : uint8_t {
+enum class PotId : uint8_t
+{
     // ---- 7 physical panel knobs (same on hardware and VCV) ----
     ROOT = 0, ///< Root pitch (V/Oct centre)
     RELATION, ///< RELATION — semitone offset for voice 2 (0–24 st)
@@ -29,7 +30,8 @@ enum class PotId : uint8_t {
 };
 
 /** CV input jacks. */
-enum class CVId : uint8_t {
+enum class CVId : uint8_t
+{
     VOCT = 0, ///< V/Oct pitch — readCV() returns volts (bipolar, ±5 V typical)
     GATE,     ///< Gate / trigger — readCV() returns 0.0 or ≥1.0 (high = gate)
     REL_CV,   ///< RELATION CV — bipolar, normalised to ±1.0
@@ -41,14 +43,16 @@ enum class CVId : uint8_t {
 };
 
 /** Panel buttons / momentary switches. */
-enum class ButtonId : uint8_t {
+enum class ButtonId : uint8_t
+{
     MODE = 0, ///< Mode cycle button (GP10 on hardware)
     SHIFT,    ///< Shift / trig button (GP11 on hardware)
     BUTTON_COUNT
 };
 
 /** RGB LED identifiers (APA102/SK9822 on hardware; light widget in VCV). */
-enum class LightId : uint8_t {
+enum class LightId : uint8_t
+{
     LED0 = 0,
     LED1,
     LED2,
@@ -67,7 +71,8 @@ enum class LightId : uint8_t {
 // Shared logic that reads from this interface lives in io/IOBridge.h and is
 // #include'd by both main.cpp and AlloyFlux.cpp.
 // ---------------------------------------------------------------------------
-struct IHardwareIO {
+struct IHardwareIO
+{
     /**
      * Returns a 0.0–1.0 normalised knob position for the given pot.
      * Unregistered pots return 0.5 (mid position).

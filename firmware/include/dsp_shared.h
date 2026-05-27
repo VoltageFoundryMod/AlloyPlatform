@@ -35,7 +35,8 @@
 // (all values smoothed before write — safe to copy as a plain struct)
 // ---------------------------------------------------------------------------
 
-struct DspParams {
+struct DspParams
+{
     float freq1;   // voice 1 Hz, post-detune, post-drift
     float freq2;   // voice 2 Hz, post-detune, post-drift
     float shape;   // 0.0 = sine … 0.5 = saw … 1.0 = hollow pulse
@@ -47,7 +48,7 @@ struct DspParams {
 
 // Defined in src/main.cpp
 extern DspParams gDsp;
-extern mutex_t gDspMutex;
+extern mutex_t   gDspMutex;
 
 // ---------------------------------------------------------------------------
 // Chorus depth — written by Core 0 updateControl() at 128 Hz, read by ISR.
@@ -60,7 +61,8 @@ extern volatile float gChorusDepth;
 // Read helper — any core, always safe
 // ---------------------------------------------------------------------------
 
-inline DspParams dsp_params_read() {
+inline DspParams dsp_params_read()
+{
     mutex_enter_blocking(&gDspMutex);
     const DspParams p = gDsp;
     mutex_exit(&gDspMutex);

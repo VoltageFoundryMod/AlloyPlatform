@@ -7,7 +7,8 @@
 #include "stm32h7xx_hal.h"
 #endif
 
-namespace fourseas {
+namespace fourseas
+{
 
 // Default I2C address (0x58, avoids collision with Orca at 0x48)
 static constexpr uint8_t kIIDefaultAddress = 0x58;
@@ -20,58 +21,62 @@ static constexpr uint8_t kIIQueryFlag = 0x80;
 
 // Sentinel values indicating "use hardware"
 static constexpr int16_t kI2CUnset16 = INT16_MIN;
-static constexpr int8_t kI2CUnset8 = -1;
+static constexpr int8_t  kI2CUnset8  = -1;
 
 // Command IDs for the ii protocol
-enum IICommand : uint8_t {
+enum IICommand : uint8_t
+{
     // Global parameters (cmd + 16-bit value MSB-first)
-    II_X = 0x00,
-    II_Y = 0x01,
-    II_Z = 0x02,
-    II_X_SPREAD = 0x03,
-    II_Y_SPREAD = 0x04,
-    II_Z_SPREAD = 0x05,
-    II_TUNE = 0x06,
+    II_X           = 0x00,
+    II_Y           = 0x01,
+    II_Z           = 0x02,
+    II_X_SPREAD    = 0x03,
+    II_Y_SPREAD    = 0x04,
+    II_Z_SPREAD    = 0x05,
+    II_TUNE        = 0x06,
     II_MOD_DEPTH_1 = 0x09,
     II_MOD_DEPTH_2 = 0x0A,
-    II_BANK = 0x0B,
-    II_SYNC_1 = 0x0C,
-    II_SYNC_2 = 0x0D,
-    II_MOD_1 = 0x0E,
-    II_MOD_2 = 0x0F,
-    II_LFO_1 = 0x10,
-    II_LFO_2 = 0x11,
-    II_INTERP = 0x12,
+    II_BANK        = 0x0B,
+    II_SYNC_1      = 0x0C,
+    II_SYNC_2      = 0x0D,
+    II_MOD_1       = 0x0E,
+    II_MOD_2       = 0x0F,
+    II_LFO_1       = 0x10,
+    II_LFO_2       = 0x11,
+    II_INTERP      = 0x12,
     II_SPREAD_TYPE = 0x13,
     II_FREQ_SPREAD = 0x14,
 
     // Per-oscillator (cmd + 8-bit osc index + 16-bit value)
     II_OSC_NOTE = 0x20,
-    II_OSC_X = 0x21,
-    II_OSC_Y = 0x22,
-    II_OSC_Z = 0x23,
+    II_OSC_X    = 0x21,
+    II_OSC_Y    = 0x22,
+    II_OSC_Z    = 0x23,
 
     // Control
     II_RELEASE = 0x30,
 };
 
 // Per-oscillator override state
-struct I2COscState {
+struct I2COscState
+{
     volatile int16_t note; // MIDI note * 128, or kI2CUnset16
     volatile int16_t x;    // 14-bit position, or kI2CUnset16
     volatile int16_t y;    // 14-bit position, or kI2CUnset16
     volatile int16_t z;    // 14-bit position, or kI2CUnset16
 
-    void Reset() {
+    void Reset()
+    {
         note = kI2CUnset16;
-        x = kI2CUnset16;
-        y = kI2CUnset16;
-        z = kI2CUnset16;
+        x    = kI2CUnset16;
+        y    = kI2CUnset16;
+        z    = kI2CUnset16;
     }
 };
 
 // Shared state between ISR and main thread
-struct I2CParamState {
+struct I2CParamState
+{
     // Set when any I2C command has been received
     volatile bool active;
 
@@ -119,26 +124,27 @@ struct I2CParamState {
     // Per-oscillator overrides
     I2COscState osc[4];
 
-    void Reset() {
-        active = false;
-        x = kI2CUnset16;
-        y = kI2CUnset16;
-        z = kI2CUnset16;
-        x_spread = kI2CUnset16;
-        y_spread = kI2CUnset16;
-        z_spread = kI2CUnset16;
-        tune = kI2CUnset16;
+    void Reset()
+    {
+        active      = false;
+        x           = kI2CUnset16;
+        y           = kI2CUnset16;
+        z           = kI2CUnset16;
+        x_spread    = kI2CUnset16;
+        y_spread    = kI2CUnset16;
+        z_spread    = kI2CUnset16;
+        tune        = kI2CUnset16;
         mod_depth_1 = kI2CUnset16;
         mod_depth_2 = kI2CUnset16;
         freq_spread = kI2CUnset16;
-        bank = kI2CUnset8;
-        sync_1 = kI2CUnset8;
-        sync_2 = kI2CUnset8;
-        mod_1 = kI2CUnset8;
-        mod_2 = kI2CUnset8;
-        lfo_1 = kI2CUnset8;
-        lfo_2 = kI2CUnset8;
-        interp = kI2CUnset8;
+        bank        = kI2CUnset8;
+        sync_1      = kI2CUnset8;
+        sync_2      = kI2CUnset8;
+        mod_1       = kI2CUnset8;
+        mod_2       = kI2CUnset8;
+        lfo_1       = kI2CUnset8;
+        lfo_2       = kI2CUnset8;
+        interp      = kI2CUnset8;
         spread_type = kI2CUnset8;
 
         // Zero the live mirror so queries before the first UpdateParams
@@ -146,23 +152,25 @@ struct I2CParamState {
         // with the real state within ~0.5ms. After FS.REL, this means a
         // query in the brief window before the next tick reads "0"
         // instead of the actual mode — self-corrects on next tick.
-        bank_live = 0;
-        sync_1_live = 0;
-        sync_2_live = 0;
-        mod_1_live = 0;
-        mod_2_live = 0;
-        lfo_1_live = 0;
-        lfo_2_live = 0;
-        interp_live = 0;
+        bank_live        = 0;
+        sync_1_live      = 0;
+        sync_2_live      = 0;
+        mod_1_live       = 0;
+        mod_2_live       = 0;
+        lfo_1_live       = 0;
+        lfo_2_live       = 0;
+        interp_live      = 0;
         spread_type_live = 0;
 
-        for (auto &o : osc) {
+        for(auto &o : osc)
+        {
             o.Reset();
         }
     }
 };
 
-class IIFollower {
+class IIFollower
+{
   public:
     IIFollower() {}
     ~IIFollower() {}
@@ -185,20 +193,22 @@ class IIFollower {
     void EnableListen();
 
     // Read a 16-bit value MSB-first from rx buffer at offset
-    int16_t ReadInt16(uint8_t offset) const {
+    int16_t ReadInt16(uint8_t offset) const
+    {
         return static_cast<int16_t>(
-            (static_cast<uint16_t>(rx_buf_[offset]) << 8) | static_cast<uint16_t>(rx_buf_[offset + 1]));
+            (static_cast<uint16_t>(rx_buf_[offset]) << 8)
+            | static_cast<uint16_t>(rx_buf_[offset + 1]));
     }
 
     I2CParamState state_;
 
     uint8_t rx_buf_[kIIMaxMessageSize];
     uint8_t tx_buf_[2];
-    uint8_t rx_idx_;  // current write position in rx_buf_
-    uint8_t rx_size_; // total bytes received in completed transaction
-    uint8_t tx_idx_;  // current read position in tx_buf_
-    uint8_t tx_size_; // total bytes to transmit
-    bool listening_;  // true when address match interrupt is armed
+    uint8_t rx_idx_;    // current write position in rx_buf_
+    uint8_t rx_size_;   // total bytes received in completed transaction
+    uint8_t tx_idx_;    // current read position in tx_buf_
+    uint8_t tx_size_;   // total bytes to transmit
+    bool    listening_; // true when address match interrupt is armed
 };
 
 } // namespace fourseas

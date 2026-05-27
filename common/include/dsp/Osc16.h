@@ -19,16 +19,22 @@
  * Drop-in for  : Oscil<NUM_TABLE_CELLS, AUDIO_RATE> — same setFreq() API
  */
 template <uint16_t NUM_TABLE_CELLS, uint16_t UPDATE_RATE>
-class Osc16 {
+class Osc16
+{
   public:
-    explicit Osc16(const int8_t *table) : _table(table), _phase(0), _phase_inc(0) {}
+    explicit Osc16(const int8_t *table)
+    : _table(table), _phase(0), _phase_inc(0)
+    {
+    }
     Osc16() : _table(nullptr), _phase(0), _phase_inc(0) {}
 
     inline void setTable(const int8_t *table) { _table = table; }
 
     /** Set oscillator frequency in Hz.  Same formula as Mozzi Oscil::setFreq(float). */
-    inline void setFreq(float freq) {
-        _phase_inc = (uint32_t)(((float)NUM_TABLE_CELLS * freq / UPDATE_RATE) * 65536.0f);
+    inline void setFreq(float freq)
+    {
+        _phase_inc = (uint32_t)(((float)NUM_TABLE_CELLS * freq / UPDATE_RATE)
+                                * 65536.0f);
     }
 
     /**
@@ -48,19 +54,21 @@ class Osc16 {
      * Max intermediate: (127<<8) + (255*65535>>8) = 32512 + 65278 = 97790 fits int32_t.
      * Final result always within [-32768, 32511] — fits int16_t.
      */
-    inline int16_t next() {
+    inline int16_t next()
+    {
         _phase += _phase_inc;
-        const uint16_t idx = (uint16_t)(_phase >> 16);
-        const int32_t frac = (int32_t)(_phase & 0xFFFFu);
+        const uint16_t idx  = (uint16_t)(_phase >> 16);
+        const int32_t  frac = (int32_t)(_phase & 0xFFFFu);
 
         const int32_t a = (int32_t)(int8_t)_table[idx & (NUM_TABLE_CELLS - 1u)];
-        const int32_t b = (int32_t)(int8_t)_table[(idx + 1u) & (NUM_TABLE_CELLS - 1u)];
+        const int32_t b
+            = (int32_t)(int8_t)_table[(idx + 1u) & (NUM_TABLE_CELLS - 1u)];
 
         return (int16_t)((a << 8) + (((b - a) * frac) >> 8));
     }
 
   private:
     const int8_t *_table;
-    uint32_t _phase;
-    uint32_t _phase_inc;
+    uint32_t      _phase;
+    uint32_t      _phase_inc;
 };

@@ -20,7 +20,8 @@
  * A command without arguments is invoked as: name
  */
 
-struct CommandEntry {
+struct CommandEntry
+{
     const char *name;
     const char *help; // shown as "  name help" in the help listing
     void (*handler)(const char *args, Print &out);
@@ -28,7 +29,7 @@ struct CommandEntry {
 
 // Defined in src/commands.cpp — iterable by any transport layer.
 extern const CommandEntry kCommands[];
-extern const uint8_t kCommandCount;
+extern const uint8_t      kCommandCount;
 
 /**
  * Fire a gate pulse of the given duration on the current voice mode.
@@ -37,7 +38,7 @@ extern const uint8_t kCommandCount;
  * same duration.  Call from the SHIFT button handler and from I2C triggers
  * as well as the serial cmd_trig handler.
  */
-void doTrig(uint32_t durMs);
+void                 doTrig(uint32_t durMs);
 extern const uint8_t kCommandCount;
 
 /**

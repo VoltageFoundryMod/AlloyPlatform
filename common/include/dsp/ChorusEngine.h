@@ -4,10 +4,11 @@
 #include <stdint.h>
 
 // Chorus mode selector — stored as uint8_t in gChorusMode.
-enum class ChorusMode : uint8_t {
-    OFF = 0,  // pass-through (phasors keep running)
-    I = 1,    // both channels: slow LFO (0.513 Hz) — subtle width
-    II = 2,   // both channels: fast LFO (0.618 Hz) — deeper warble
+enum class ChorusMode : uint8_t
+{
+    OFF  = 0, // pass-through (phasors keep running)
+    I    = 1, // both channels: slow LFO (0.513 Hz) — subtle width
+    II   = 2, // both channels: fast LFO (0.618 Hz) — deeper warble
     I_II = 3, // L=slow, R=fast — maximum stereo spread (Juno I+II)
 };
 
@@ -53,23 +54,26 @@ enum class ChorusMode : uint8_t {
  *   Total             : ~50 cycles  (<2 % of 4587-cycle ISR budget)
  */
 template <uint32_t SAMPLE_RATE>
-class ChorusEngine {
+class ChorusEngine
+{
   public:
     static constexpr uint32_t BUFFER_SAMPLES = 1024;
-    static constexpr uint32_t BUFFER_MASK = BUFFER_SAMPLES - 1u;
+    static constexpr uint32_t BUFFER_MASK    = BUFFER_SAMPLES - 1u;
 
     static constexpr float CENTER_DELAY_S = 0.007f; // 7 ms
-    static constexpr float MAX_MOD_S = 0.003f;      // ±3 ms
+    static constexpr float MAX_MOD_S      = 0.003f; // ±3 ms
 
     // LFO rates and default compile-time delay lengths (informational; actual
     // values are computed at runtime in init() from the effective sample rate).
     static constexpr float LFO_RATE_L = 0.513f; // Hz
     static constexpr float LFO_RATE_R = 0.618f; // Hz
 
-    void init(uint32_t sampleRate = SAMPLE_RATE) {
+    void init(uint32_t sampleRate = SAMPLE_RATE)
+    {
         _centerSamples = CENTER_DELAY_S * (float)sampleRate;
         _maxModSamples = MAX_MOD_S * (float)sampleRate;
-        for (uint32_t i = 0; i < BUFFER_SAMPLES; i++) {
+        for(uint32_t i = 0; i < BUFFER_SAMPLES; i++)
+        {
             _bufL[i] = 0;
             _bufR[i] = 0;
         }
@@ -78,10 +82,10 @@ class ChorusEngine {
         // Pre-compute phasor increments — only trig calls ever made.
         const float incL = LFO_RATE_L / (float)sampleRate * 6.28318f;
         const float incR = LFO_RATE_R / (float)sampleRate * 6.28318f;
-        _cosIncL = cosf(incL);
-        _sinIncL = sinf(incL);
-        _cosIncR = cosf(incR);
-        _sinIncR = sinf(incR);
+        _cosIncL         = cosf(incL);
+        _sinIncL         = sinf(incL);
+        _cosIncR         = cosf(incR);
+        _sinIncR         = sinf(incR);
 
         // Seed phasors: L at 0°, R at 90° (sin=1, cos=0)
         _sinL = 0.0f;
@@ -104,16 +108,24 @@ class ChorusEngine {
      * No trig, no division, no branches (other than buffer wrap — masked).
      * Both phasors always advance regardless of mode so re-enabling is glitch-free.
      */
-    void __attribute__((always_inline)) process(int32_t inL, int32_t inR, float depth, ChorusMode mode,
-                                                int32_t *outL, int32_t *outR) {
+    void __attribute__((always_inline)) process(int32_t    inL,
+                                                int32_t    inR,
+                                                float      depth,
+                                                ChorusMode mode,
+                                                int32_t   *outL,
+                                                int32_t   *outR)
+    {
         // Write new samples into delay buffers.
         _bufL[_writePos] = inL;
         _bufR[_writePos] = inR;
 
-        if (mode == ChorusMode::OFF) {
+        if(mode == ChorusMode::OFF)
+        {
             *outL = inL;
             *outR = inR;
-        } else {
+        }
+        else
+        {
             // Select which phasor drives each channel.
             const float sinL = (mode == ChorusMode::II) ? _sinR : _sinL;
             const float sinR = (mode == ChorusMode::I) ? _sinL : _sinR;
@@ -129,8 +141,8 @@ class ChorusEngine {
             // Wet/dry mix — wet capped at 60% so the fundamental always stays.
             const float wet = depth * 0.6f;
             const float dry = 1.0f - wet;
-            *outL = (int32_t)(dry * (float)inL + wet * (float)wetL);
-            *outR = (int32_t)(dry * (float)inR + wet * (float)wetR);
+            *outL           = (int32_t)(dry * (float)inL + wet * (float)wetL);
+            *outR           = (int32_t)(dry * (float)inR + wet * (float)wetR);
         }
 
         // Advance write pointer.
@@ -141,20 +153,21 @@ class ChorusEngine {
         //   cos(θ+Δ) = cos θ · cos Δ − sin θ · sin Δ
         const float newSinL = _sinL * _cosIncL + _cosL * _sinIncL;
         const float newCosL = _cosL * _cosIncL - _sinL * _sinIncL;
-        _sinL = newSinL;
-        _cosL = newCosL;
+        _sinL               = newSinL;
+        _cosL               = newCosL;
 
         const float newSinR = _sinR * _cosIncR + _cosR * _sinIncR;
         const float newCosR = _cosR * _cosIncR - _sinR * _sinIncR;
-        _sinR = newSinR;
-        _cosR = newCosR;
+        _sinR               = newSinR;
+        _cosR               = newCosR;
 
         // Phasor renormalization — the quadrature recurrence accumulates float
         // rounding error: sin²+cos² drifts from 1.0 at ~1e-7 per sample, reaching
         // ~0.2 magnitude error after a minute.  Every 512 samples (~16 ms) apply
         // fast inverse-sqrt approximation: r = 1.5 - 0.5*(sin²+cos²) ≈ 1/|v|.
         // 8 FPU ops, negligible cost; keeps error bounded at < 5e-5.
-        if ((_writePos & 511u) == 0u) {
+        if((_writePos & 511u) == 0u)
+        {
             float rL = 1.5f - 0.5f * (_sinL * _sinL + _cosL * _cosL);
             _sinL *= rL;
             _cosL *= rL;
@@ -165,8 +178,8 @@ class ChorusEngine {
     }
 
   private:
-    int32_t _bufL[BUFFER_SAMPLES];
-    int32_t _bufR[BUFFER_SAMPLES];
+    int32_t  _bufL[BUFFER_SAMPLES];
+    int32_t  _bufR[BUFFER_SAMPLES];
     uint32_t _writePos = 0;
 
     // Runtime-computed delay lengths (set in init()).
@@ -185,11 +198,12 @@ class ChorusEngine {
      * Linear-interpolated circular-buffer read.
      * delaySamples — fractional samples behind the current write position.
      */
-    inline int32_t _readInterp(const int32_t *buf, float delaySamples) const {
-        const uint32_t d = (uint32_t)delaySamples;
-        const float frac = delaySamples - (float)d;
-        const uint32_t i0 = (_writePos - d) & BUFFER_MASK;
-        const uint32_t i1 = (_writePos - d - 1u) & BUFFER_MASK;
+    inline int32_t _readInterp(const int32_t *buf, float delaySamples) const
+    {
+        const uint32_t d    = (uint32_t)delaySamples;
+        const float    frac = delaySamples - (float)d;
+        const uint32_t i0   = (_writePos - d) & BUFFER_MASK;
+        const uint32_t i1   = (_writePos - d - 1u) & BUFFER_MASK;
         return buf[i0] + (int32_t)(frac * (float)(buf[i1] - buf[i0]));
     }
 };
