@@ -1,5 +1,13 @@
 # Development Milestones
 
+The reference document is at [AlloyFlux-module-reference.md](./AlloyFlux-module-reference.md). The other reference documents are:
+
+- [Desktop Version](./AlloyFlux-Desktop.md)
+- [MIDI Reference](./AlloyFlux-MIDI-reference.md)
+- [Serial Console Reference](./AlloyFlux-Serial-Reference.md)
+
+## Project Milestones
+
 - [x] 1. **Sine wave out via PCM5102** — implemented via serial; board=adafruit_itsybitsy_m0
 - [x] 2. **Saw + shape oscillator** — saw done; continuous shape morph to be added
 - [x] 3. **Serial pitch control** — `pitch 440` works; gated by `#define SERIAL_CONTROL`
