@@ -91,7 +91,12 @@ function createPresets() {
     } else if (get(midi).deviceConnected) {
       const arg = slot === "all" ? 0x7f : (slot as number) & 0x7f;
       midi.sendSysEx(SysexCmd.PRESET_RESET, [arg]);
-      // MIDI path: firmware now auto-responds with PATCH_DUMP for slot 0 / all reset.
+      // Firmware may not auto-respond with PATCH_DUMP after a reset.
+      // Send an explicit REQUEST after a short delay so the UI always reflects
+      // the device state, regardless of firmware response behaviour.
+      if (slot === 0 || slot === "all") {
+        setTimeout(() => midi.sendSysEx(SysexCmd.REQUEST, []), 300);
+      }
     }
     if (slot === "all") {
       store.update((ps) => ps.map((p) => ({ ...p, savedAt: null })));

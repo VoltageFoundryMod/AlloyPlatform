@@ -180,7 +180,9 @@
     if (!$serial.connected) return;
     let dumpLines: string[] = [];
     let inDump = false;
-    serial.send("dump");
+    // Small delay mirrors the MIDI path (300 ms): hardware USB CDC needs a
+    // moment after port.open() before it reliably receives commands.
+    const dumpTimer = setTimeout(() => serial.send("dump"), 400);
     const unsubLine = serial.onLine((line: string) => {
       if (line === "dump_begin") {
         inDump = true;
@@ -196,7 +198,10 @@
       }
       if (inDump) dumpLines.push(line);
     });
-    return unsubLine;
+    return () => {
+      clearTimeout(dumpTimer);
+      unsubLine();
+    };
   });
 
   // ── Relation slider — mode-contextual display ──────────────────────────────

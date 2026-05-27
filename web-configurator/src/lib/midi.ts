@@ -113,12 +113,19 @@ function createMidi() {
     if (!access) return;
     const outputs: MidiPortInfo[] = [];
     const inputs: MidiPortInfo[] = [];
-    access.outputs.forEach((o) =>
-      outputs.push({ id: o.id, name: o.name ?? o.id }),
-    );
-    access.inputs.forEach((i) =>
-      inputs.push({ id: i.id, name: i.name ?? i.id }),
-    );
+    // Only include ports that are currently connected.
+    // After a USB re-enumeration, Chrome keeps disconnected ports in the map
+    // with state='disconnected'. If we include them the selected ID still
+    // matches, deviceConnected never goes false→true, and the $effect in
+    // App.svelte never re-fires to request a fresh dump from the device.
+    access.outputs.forEach((o) => {
+      if (o.state !== "disconnected")
+        outputs.push({ id: o.id, name: o.name ?? o.id });
+    });
+    access.inputs.forEach((i) => {
+      if (i.state !== "disconnected")
+        inputs.push({ id: i.id, name: i.name ?? i.id });
+    });
     store.update((s) => {
       // Keep existing selection if port still present; auto-select otherwise.
       const selectedOutput =
@@ -133,11 +140,18 @@ function createMidi() {
           : (inputs.find((i) => /alloy/i.test(i.name))?.id ??
             inputs[0]?.id ??
             null);
-      // If already connected and the active port disappeared, mark disconnected.
-      const deviceConnected = s.connected ? selectedOutput !== null : false;
+      // Auto-connect: if a port is available, mark connected immediately.
+      // No manual "Connect" click required — mirrors VCV behaviour where
+      // selecting a port is sufficient.  Explicit disconnect (user clicks ✕)
+      // sets connected=false; it stays false until the next port-change event
+      // brings a port back, at which point we auto-reconnect.
+      const portAvailable = selectedOutput !== null;
+      const connected = portAvailable ? true : false;
+      const deviceConnected = connected;
       return {
         ...s,
         scanned: true,
+        connected,
         outputs,
         inputs,
         selectedOutput,
@@ -153,7 +167,28 @@ function createMidi() {
     try {
       store.update((s) => ({ ...s, error: null }));
       access = await navigator.requestMIDIAccess({ sysex: true });
-      access.onstatechange = refreshList;
+      access.onstatechange = (e: Event) => {
+        refreshList();
+        // Force a deviceConnected false→true edge whenever an output port
+        // becomes available.  Without this, if Chrome never fires a
+        // 'disconnected' event for the port (fast re-enumeration after a
+        // firmware flash), deviceConnected stays true→true and the $effect
+        // in App.svelte never re-fires to request a fresh config dump.
+        const portEvent = e as MIDIConnectionEvent;
+        if (
+          portEvent.port.type === "output" &&
+          portEvent.port.state === "connected"
+        ) {
+          store.update((s) => ({ ...s, deviceConnected: false }));
+          // Next microtask: restore true so the $effect sees the edge.
+          Promise.resolve().then(() =>
+            store.update((s) => ({
+              ...s,
+              deviceConnected: get(store).connected,
+            })),
+          );
+        }
+      };
       refreshList();
     } catch (e) {
       store.update((s) => ({ ...s, error: String(e) }));

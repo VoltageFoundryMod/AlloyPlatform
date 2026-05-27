@@ -2,15 +2,19 @@
   /**
    * ConnectionBar — shows MIDI + Serial connection status and port selectors.
    */
+  import { onMount } from "svelte";
   import { midi } from "../lib/midi";
   import { serial } from "../lib/serial";
 
+  // On page load: scan MIDI (uses cached permission — no prompt if already granted)
+  // and silently reconnect any previously-granted serial port.
+  onMount(async () => {
+    if ($midi.supported) await midi.scan();
+    if ($serial.supported) await serial.autoConnect();
+  });
+
   async function scanMidi() {
     await midi.scan();
-  }
-
-  function connectMidi() {
-    midi.connect();
   }
 
   async function connectSerial() {
@@ -27,13 +31,14 @@
     {#if !$midi.supported}
       <span class="badge error">Not supported</span>
     {:else if !$midi.scanned}
-      <!-- Step 1: not yet scanned — just a scan button -->
+      <!-- Not yet scanned — only shown briefly before onMount scan completes -->
       <button onclick={scanMidi}>Scan for MIDI Devices</button>
-    {:else if !$midi.connected}
-      <!-- Step 2: scanned, not connected — show dropdown + actions -->
+    {:else if !$midi.deviceConnected}
+      <!-- Scanned but no port available -->
       {#if $midi.outputs.length === 0}
         <span class="badge warn">No devices found</span>
       {:else}
+        <!-- Ports exist but none currently connected (e.g. device just unplugged) -->
         <select
           value={$midi.selectedOutput}
           onchange={(e) =>
@@ -45,13 +50,8 @@
         </select>
       {/if}
       <button onclick={scanMidi} title="Refresh device list">Rescan</button>
-      <button
-        onclick={connectMidi}
-        disabled={$midi.outputs.length === 0}
-        title="Connect to selected device">Connect</button
-      >
     {:else}
-      <!-- Step 3: connected — show status + device switcher -->
+      <!-- Connected — show status + port switcher -->
       <span class="badge ok">Connected</span>
       <select
         value={$midi.selectedOutput}
