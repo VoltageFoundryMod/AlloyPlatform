@@ -31,6 +31,16 @@ extern const CommandEntry kCommands[];
 extern const uint8_t kCommandCount;
 
 /**
+ * Fire a gate pulse of the given duration on the current voice mode.
+ * In POLY mode a free voice slot is allocated at gBaseFreq and released
+ * when the pulse expires.  In all other modes it drives gGateHigh for the
+ * same duration.  Call from the SHIFT button handler and from I2C triggers
+ * as well as the serial cmd_trig handler.
+ */
+void doTrig(uint32_t durMs);
+extern const uint8_t kCommandCount;
+
+/**
  * Dispatch a null-terminated command string to the matching handler.
  * Writes the response to `out`.
  * On no match: prints "unknown: <cmd>" then the full help listing.

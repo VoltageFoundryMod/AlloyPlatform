@@ -1,6 +1,7 @@
 #ifdef USE_TINYUSB
 
 #include "io/usb_midi.h"
+#include "SynthEngine.h"
 #include "config_store.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/ReverbEngine.h"
@@ -126,7 +127,7 @@ MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, sUsbMidiTransport, MidiUsb);
 // Internal state
 // ---------------------------------------------------------------------------
 
-static uint8_t sActiveNote = 255; // 255 = no note currently held
+uint8_t sActiveNote = 255; // 255 = no note currently held (exported via params.h)
 
 // Returns true if an incoming message on `ch` should be processed.
 // gMidiChannel == 0 means omni (accept all); otherwise match exactly.
@@ -181,10 +182,14 @@ static void onNoteOn(byte channel, byte note, byte velocity) {
             slot = sPolyRR % 6;
         }
         sPolyRR = (sPolyRR + 1) % 6;
-        sPolySlots[slot].freq = constrain(midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)), 20.0f, 8000.0f);
+        const float freq = constrain(midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)), 20.0f, 8000.0f);
+        sPolySlots[slot].freq = freq;
         sPolySlots[slot].velocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
         sPolySlots[slot].midiNote = note;
-        sPolyEnvs[slot]->setGate(true);
+        // subMult depends on voice sub-octave param — use 0.5 (default, -1 oct)
+        // as a safe approximation; control() will correct the sub freq next tick.
+        const float subMult = 0.5f;
+        gSynthEngine.polyRetrigger(slot, freq, subMult);
         return;
     }
 

@@ -136,6 +136,11 @@ extern PolySlot sPolySlots[6];
 // Round-robin slot counter — incremented on each Note On in POLY mode.
 extern uint8_t sPolyRR;
 
+// Active monophonic MIDI note (non-POLY modes). 255 = no note held.
+// Written by usb_midi.cpp Note On/Off; read by main.cpp to override
+// p.baseFreq so MIDI pitch wins over V/OCT CV when a note is held.
+extern uint8_t sActiveNote;
+
 // Per-voice AR envelopes for POLY mode — defined in main.cpp.
 // setCurve() called in updateControl(); next() called in updateAudio() ISR.
 // EnvelopeEngine forward-declared above; concrete type AREnvelope<MOZZI_AUDIO_RATE>.

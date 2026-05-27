@@ -1,4 +1,5 @@
 #include "io/commands.h"
+#include "SynthEngine.h"
 #include "config_store.h"
 #include "dsp/CurveEngine.h"
 #include "dsp/FilterEngine.h"
@@ -118,12 +119,41 @@ static void cmd_gate(const char *args, Print &out) {
 }
 
 extern uint32_t sTrigReleaseAt; // defined in main.cpp
+extern uint8_t sTrigPolySlot;   // defined in main.cpp — 255 = not set
+
+void doTrig(uint32_t durMs) {
+    if (gVoiceMode == VoiceMode::POLY) {
+        // Allocate a free voice slot (round-robin, same as MIDI note-on).
+        uint8_t slot = 255;
+        for (uint8_t i = 0; i < 6; i++) {
+            uint8_t idx = (sPolyRR + i) % 6;
+            if (sPolySlots[idx].midiNote == 255) {
+                slot = idx;
+                break;
+            }
+        }
+        if (slot == 255)
+            slot = sPolyRR % 6; // steal round-robin if all busy
+        sPolyRR = (sPolyRR + 1) % 6;
+
+        const float freq = constrain(gBaseFreq, 20.0f, 8000.0f);
+        const float subMult = (gSubOctave == 2) ? 0.25f : 0.5f;
+        sPolySlots[slot].freq = freq;
+        sPolySlots[slot].velocity = 1.0f; // trig is always full velocity
+        sPolySlots[slot].midiNote = 254;  // sentinel: owned by trig, not MIDI
+        gSynthEngine.polyRetrigger(slot, freq, subMult);
+        sTrigPolySlot = slot;
+    } else {
+        gGatePatched = true;
+        gGateHigh = true;
+        sTrigPolySlot = 255; // not poly
+    }
+    sTrigReleaseAt = millis() + durMs;
+}
 
 static void cmd_trig(const char *args, Print &out) {
     const uint32_t dur = (*args != '\0') ? (uint32_t)atoi(args) : 100u;
-    gGatePatched = true;
-    gGateHigh = true;
-    sTrigReleaseAt = millis() + dur;
+    doTrig(dur);
     out.print(F("trig -> "));
     out.print(dur);
     out.println(F("ms"));

@@ -62,6 +62,7 @@
 #include "dsp_shared.h"
 #include "io/HardwarePicoIO.h" // M37d — IHardwareIO implementation for Pico
 #include "io/IOBridge.h"       // M37d — fillSynthParams()
+#include "io/commands.h"       // doTrig()
 #include "io/serial_console.h"
 #include "params.h"
 // ---------------------------------------------------------------------------
@@ -90,9 +91,11 @@ float gSpace = 1.0f;                       // stereo width: 0.0 = mono, 1.0 = fu
 uint8_t gMidiChannel = 0;                  // 0 = omni, 1–16 = specific MIDI channel
 
 EnvelopeType gEnvelopeType = EnvelopeType::AR;
-// Trig pulse timer — set by cmd_trig, cleared in updateControl() when elapsed.
+// Trig pulse timer — set by cmd_trig / doTrig(), cleared in updateControl() when elapsed.
 // 0 means no trig pending.
 uint32_t sTrigReleaseAt = 0;
+// Poly voice slot claimed by a trig pulse; 255 = not set (non-poly or no active trig).
+uint8_t sTrigPolySlot = 255;
 
 // Button engines (Milestone 31) — polled at 128 Hz in updateControl().
 static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
@@ -151,10 +154,10 @@ volatile uint32_t gRevOutWriteIdx = kRevReadDelay;
 
 // Reverb transport state — file-scope so revGetWet/revFeedDry helpers can share them.
 #if REVERB_FORCE_CORE0
-static int32_t  sRevPrevDryL = 0; // Core 0 inline: previous dry frame fed back to reverb
-static int32_t  sRevPrevDryR = 0;
+static int32_t sRevPrevDryL = 0; // Core 0 inline: previous dry frame fed back to reverb
+static int32_t sRevPrevDryR = 0;
 #else
-static uint32_t sRevReadIdx = 0;  // Core 1: ISR read cursor, advances +1 per ISR tick
+static uint32_t sRevReadIdx = 0; // Core 1: ISR read cursor, advances +1 per ISR tick
 #endif
 
 volatile float gRevMix = 0.35f;
@@ -301,9 +304,7 @@ void updateControl() {
             // sShiftConsumed suppresses the trig if the press was used for a combo.
             if (gBtnShift.released()) {
                 if (!sShiftConsumed) {
-                    gGatePatched = true;
-                    gGateHigh = true;
-                    sTrigReleaseAt = millis() + 100u;
+                    doTrig(100u);
 #ifdef SERIAL_CONTROL
                     Serial.println(F("shift -> trig"));
 #endif
@@ -313,9 +314,15 @@ void updateControl() {
         }
     }
 
-    // Auto-release for cmd_trig: lower gate when the pulse duration has elapsed.
+    // Auto-release for doTrig: lower gate (or release poly voice) when pulse has elapsed.
     if (sTrigReleaseAt && millis() >= sTrigReleaseAt) {
-        gGateHigh = false;
+        if (sTrigPolySlot != 255) {
+            sPolyEnvs[sTrigPolySlot]->setGate(false);
+            sPolySlots[sTrigPolySlot].midiNote = 255; // free the slot
+            sTrigPolySlot = 255;
+        } else {
+            gGateHigh = false;
+        }
         sTrigReleaseAt = 0;
     }
 
@@ -327,6 +334,10 @@ void updateControl() {
     {
         SynthParams p;
         fillSynthParams(sHardwareIO, p); // M37d: baseFreq, gateHigh, gatePatched
+        // MIDI note-on overrides V/OCT CV pitch so the played note is heard
+        // rather than whatever voltage is on the V/OCT jack.
+        if (sActiveNote != 255)
+            p.baseFreq = gBaseFreq;
         p.shape = gShape;
         p.fatness = gFatness;
         p.subOctave = gSubOctave;
@@ -445,14 +456,16 @@ static void revApplyParams() {
 #if REVERB_FORCE_CORE0
     static float sPrevSize = -1.0f, sPrevDamp = -1.0f;
     static float sPrevModSpeed = -1.0f, sPrevModDepth = -1.0f;
-    static bool  sPrevFrozen = !false;
+    static bool sPrevFrozen = !false;
     if (fabsf(gRevSize - sPrevSize) > 0.0025f || fabsf(gRevDamping - sPrevDamp) > 0.0025f) {
         gSynthEngine.reverb->setParams(gRevSize, gRevDamping);
-        sPrevSize = gRevSize;  sPrevDamp = gRevDamping;
+        sPrevSize = gRevSize;
+        sPrevDamp = gRevDamping;
     }
     if (fabsf(gRevModSpeed - sPrevModSpeed) > 0.01f || fabsf(gRevModDepth - sPrevModDepth) > 0.01f) {
         gSynthEngine.reverb->setModulation(gRevModSpeed, gRevModDepth);
-        sPrevModSpeed = gRevModSpeed;  sPrevModDepth = gRevModDepth;
+        sPrevModSpeed = gRevModSpeed;
+        sPrevModDepth = gRevModDepth;
     }
     if (gRevFrozen != sPrevFrozen) {
         gSynthEngine.reverb->freeze(gRevFrozen);
@@ -466,15 +479,20 @@ static void revApplyParams() {
 // wasActive: true if reverb was also enabled on the previous ISR tick.
 // Core 0: run reverb inline on the previous dry frame (1-sample constant latency).
 // Core 1: read from the fixed-delay ring buffer (constant kRevReadDelay latency).
-static __attribute__((section(".time_critical.revGetWet")))
-void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive) {
+static __attribute__((section(".time_critical.revGetWet"))) void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive) {
 #if REVERB_FORCE_CORE0
     constexpr float kNorm = 1.0f / 32512.0f;
     float wL, wR;
     gSynthEngine.reverb->process((float)sRevPrevDryL * kNorm,
                                  (float)sRevPrevDryR * kNorm, &wL, &wR);
-    if (wL >  1.0f) wL =  1.0f;  if (wL < -1.0f) wL = -1.0f;
-    if (wR >  1.0f) wR =  1.0f;  if (wR < -1.0f) wR = -1.0f;
+    if (wL > 1.0f)
+        wL = 1.0f;
+    if (wL < -1.0f)
+        wL = -1.0f;
+    if (wR > 1.0f)
+        wR = 1.0f;
+    if (wR < -1.0f)
+        wR = -1.0f;
     *wetL = (int32_t)(wL * 32512.0f);
     *wetR = (int32_t)(wR * 32512.0f);
 #else
@@ -493,14 +511,13 @@ void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive) {
 // revFeedDry() — ISR hot path, called only when gRevEnabled.
 // Core 0: stash dry frame for next tick's inline reverb call.
 // Core 1: push dry frame into the SPSC input queue for loop1().
-static __attribute__((section(".time_critical.revFeedDry")))
-void revFeedDry(int32_t dryL, int32_t dryR) {
+static __attribute__((section(".time_critical.revFeedDry"))) void revFeedDry(int32_t dryL, int32_t dryR) {
 #if REVERB_FORCE_CORE0
     sRevPrevDryL = dryL;
     sRevPrevDryR = dryR;
 #else
-    const uint32_t writeIdx     = gRevInWriteIdx;
-    const bool     wasEmpty     = (writeIdx == gRevInReadIdx);
+    const uint32_t writeIdx = gRevInWriteIdx;
+    const bool wasEmpty = (writeIdx == gRevInReadIdx);
     const uint32_t nextWriteIdx = (writeIdx + 1u) & kRevInQueueMask;
     // Queue full: drop oldest so newest dry frame always reaches the reverb.
     if (nextWriteIdx == gRevInReadIdx) {

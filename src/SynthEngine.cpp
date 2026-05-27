@@ -404,14 +404,13 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
         static constexpr float kColorOff[6] = {-0.5f, -0.3f, -0.1f, 0.1f, 0.3f, 0.5f};
         const float polyColorHz = _sColor * 50.0f;
         _activeVoices = 6;
-        // Equal-power normalisation: scale by 1/sqrt(sounding) so adding voices
-        // keeps perceived loudness stable (uncorrelated oscillators sum at ~3 dB
-        // per doubling) while still preventing accumulator clipping.
-        int sounding = 0;
-        for (int i = 0; i < 6; i++)
-            if (_polyEnvArr[i].level() > 0.001f)
-                sounding++;
-        const float wScale = 256.0f / sqrtf((float)(sounding > 0 ? sounding : 1));
+        // Fixed normalisation: scale by 1/sqrt(6) — equal-power headroom for
+        // the maximum voice count.  A DYNAMIC sounding-based scale is tempting
+        // for loudness stability but causes retroactive gain changes on existing
+        // notes every time a new note starts, which sounds like notes "dying".
+        // Fixed scale means each voice always contributes the same amount;
+        // the user's master volume knob compensates for the −7.8 dB headroom.
+        static constexpr float wScale = 256.0f / 2.449f; // 2.449 ≈ sqrt(6)
         for (int i = 0; i < 6; i++) {
             float f = polySlots[i].freq + _drift.offset(i) * 0.3f + polyColorHz * kColorOff[i];
             if (f < 20.0f)
@@ -521,6 +520,26 @@ void SynthEngine::control(const SynthParams &p, PolySlot polySlots[6],
     out.motion = _sMotion;
     out.curve = _sCurve;
     out.volume = _sVolume;
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::polyRetrigger()
+// ---------------------------------------------------------------------------
+void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult) {
+    if (slot >= 6)
+        return;
+    // 1. Hard-silence the envelope so the attack always starts from 0.
+    _polyEnvArr[slot].reset();
+    // 2. Reset oscillator phase — new note starts at a known waveform position.
+    _voices[slot].resetPhase();
+    _subVoices[slot].resetPhase();
+    // 3. Apply the new frequency immediately (normally deferred to next control
+    //    tick), so the attack samples are at the correct pitch from the start.
+    _voices[slot].setFreq(freq);
+    const float subFreq = freq * subMult;
+    _subVoices[slot].setFreq(subFreq < 20.0f ? 20.0f : subFreq);
+    // 4. Arm the attack.
+    _polyEnvArr[slot].setGate(true);
 }
 
 // ---------------------------------------------------------------------------

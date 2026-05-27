@@ -145,6 +145,26 @@ class SynthEngine {
      */
     void setSampleRate(uint32_t audioRate);
 
+    /**
+     * Noise-free poly note retrigger — call from the MIDI note-on callback.
+     *
+     * Three separate click sources are eliminated in one atomic step:
+     *  1. Old envelope level: reset to 0 before arming attack — prevents the
+     *     abrupt step that occurs when a releasing voice is stolen.
+     *  2. Oscillator phase: reset to 0 so the new note starts from a known
+     *     waveform position instead of an arbitrary mid-cycle offset.
+     *  3. Sub-oscillator phase: same reset for the sub-voice.
+     *
+     * The new frequency is applied immediately (not deferred to the next
+     * control tick), so the first audible samples of the attack are at the
+     * correct pitch even when the voice was playing a different note.
+     *
+     * @param slot      0–5 poly voice slot index
+     * @param freq      new voice frequency in Hz
+     * @param subMult   sub-oscillator frequency multiplier (0.5 or 0.25)
+     */
+    void polyRetrigger(uint8_t slot, float freq, float subMult);
+
     // -----------------------------------------------------------------------
     // Public pointers — aliased by hardware-side globals so commands.cpp and
     // usb_midi.cpp continue to work without changes.  Set in init().
