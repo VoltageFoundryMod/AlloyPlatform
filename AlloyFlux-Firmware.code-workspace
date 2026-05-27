@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "path": ".",
+    },
+  ],
+  "settings": {
+    "C_Cpp.default.configurationProvider": "platformio.platformio-ide",
+    "[cpp]": {
+      "editor.defaultFormatter": "ms-vscode.cpptools",
+    },
+    "[c]": {
+      "editor.defaultFormatter": "ms-vscode.cpptools",
+    },
+    "C_Cpp.formatting": "clangFormat",
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.clang_format_fallbackStyle": "none",
+  },
+}

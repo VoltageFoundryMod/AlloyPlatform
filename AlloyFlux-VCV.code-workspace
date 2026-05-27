@@ -1,0 +1,37 @@
+{
+  "folders": [
+    {
+      "path": ".",
+    },
+  ],
+  "settings": {
+    "[cpp]": {
+      "editor.defaultFormatter": "ms-vscode.cpptools",
+    },
+    "[c]": {
+      "editor.defaultFormatter": "ms-vscode.cpptools",
+    },
+    "C_Cpp.formatting": "clangFormat",
+    "C_Cpp.clang_format_style": "file",
+    "C_Cpp.clang_format_fallbackStyle": "none",
+    "C_Cpp.default.compilerPath": "C:/msys64/mingw64/bin/g++.exe",
+    "C_Cpp.default.intelliSenseMode": "windows-gcc-x64",
+    "C_Cpp.default.cppStandard": "gnu++11",
+    "C_Cpp.default.cStandard": "gnu17",
+    "C_Cpp.default.includePath": [
+      "${workspaceFolder}/vcv-plugin/src",
+      "${workspaceFolder}/common/include",
+      "${workspaceFolder}/common/src",
+      "${env:RACK_DIR}/include",
+      "${env:RACK_DIR}/dep/include",
+    ],
+    "C_Cpp.default.browse.path": [
+      "${workspaceFolder}/vcv-plugin/src",
+      "${workspaceFolder}/common/include",
+      "${workspaceFolder}/common/src",
+      "${env:RACK_DIR}/include",
+      "${env:RACK_DIR}/dep/include",
+    ],
+    "C_Cpp.default.defines": ["_USE_MATH_DEFINES"],
+  },
+}
