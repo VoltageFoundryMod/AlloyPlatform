@@ -1,72 +1,66 @@
 ---
-# BasedOnStyle:  LLVM
-AccessModifierOffset: -2
-AlignAfterOpenBracket: AlwaysBreak
-AlignConsecutiveAssignments: false
-AlignConsecutiveDeclarations: false
-AlignEscapedNewlinesLeft: false
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignEscapedNewlinesLeft: "true"
 AlignOperands: true
 AlignTrailingComments: true
-AllowAllParametersOfDeclarationOnNextLine: true
-AllowShortBlocksOnASingleLine: true
-AllowShortCaseLabelsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: All
-AllowShortIfStatementsOnASingleLine: false
-AllowShortLoopsOnASingleLine: true
+AllowAllParametersOfDeclarationOnNextLine: "false"
+AllowShortBlocksOnASingleLine: "true"
+AllowShortCaseLabelsOnASingleLine: "true"
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: "false"
+AllowShortLoopsOnASingleLine: "false"
 AlwaysBreakAfterDefinitionReturnType: None
 AlwaysBreakAfterReturnType: None
-AlwaysBreakBeforeMultilineStrings: true
-BinPackArguments: false
-BinPackParameters: false
-BraceWrapping:
-    AfterClass: false
-    AfterControlStatement: false
-    AfterEnum: false
-    AfterFunction: false
-    AfterNamespace: false
-    AfterObjCDeclaration: false
-    AfterStruct: false
-    AfterUnion: false
-    BeforeCatch: false
-    BeforeElse: false
-    IndentBraces: false
-BreakBeforeBinaryOperators: None
-BreakBeforeBraces: Attach
-BreakBeforeTernaryOperators: true
-BreakConstructorInitializersBeforeComma: false
-ColumnLimit: 120
-ConstructorInitializerAllOnOneLineOrOnePerLine: false
-ConstructorInitializerIndentWidth: 4
-ContinuationIndentWidth: 4
-Cpp11BracedListStyle: true
-DerivePointerAlignment: false
-DisableFormat: false
-IndentCaseLabels: true
+AlwaysBreakBeforeMultilineStrings: "true"
+AlwaysBreakTemplateDeclarations: "true"
+BinPackArguments: "false"
+BinPackParameters: "false"
+BreakConstructorInitializersBeforeComma: "false"
+ColumnLimit: "80"
+ConstructorInitializerAllOnOneLineOrOnePerLine: "true"
+ConstructorInitializerIndentWidth: "0"
+Cpp11BracedListStyle: "true"
+DerivePointerAlignment: "true"
+DisableFormat: "false"
+IndentCaseLabels: "true"
 IndentWidth: 4
-IndentWrappedFunctionNames: false
-KeepEmptyLinesAtTheStartOfBlocks: true
-MaxEmptyLinesToKeep: 1
-NamespaceIndentation: None
-PenaltyBreakBeforeFirstCallParameter: 19
-PenaltyBreakComment: 300
-PenaltyBreakFirstLessLess: 120
-PenaltyBreakString: 1000
-PenaltyExcessCharacter: 1000000
-PenaltyReturnTypeOnItsOwnLine: 60
-PointerAlignment: Left
-ReflowComments: true
-SortIncludes: true
-SpaceAfterCStyleCast: false
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeParens: ControlStatements
-SpaceInEmptyParentheses: false
-SpacesBeforeTrailingComments: 2
-SpacesInAngles: false
-SpacesInContainerLiterals: true
-SpacesInCStyleCastParentheses: false
-SpacesInParentheses: false
-SpacesInSquareBrackets: false
-TabWidth: 4
+IndentWrappedFunctionNames: "false"
+KeepEmptyLinesAtTheStartOfBlocks: "false"
+Language: Cpp
+MaxEmptyLinesToKeep: "2"
+NamespaceIndentation: Inner
+ReflowComments: "false"
+SpaceAfterCStyleCast: "false"
+SpaceBeforeAssignmentOperators: "true"
+SpaceBeforeParens: Never
+SpaceInEmptyParentheses: "false"
+SpacesInCStyleCastParentheses: "false"
+SpacesInContainerLiterals: "false"
+SpacesInParentheses: "false"
+SpacesInSquareBrackets: "false"
+Standard: Cpp11
 UseTab: Never
-MacroBlockBegin: "^IF_WAGGLED$|_BEGIN$"
-MacroBlockEnd: "_END$"
+TabWidth: 4
+SortIncludes: false
+AccessModifierOffset: -2
+
+BraceWrapping:
+    AfterClass: true
+    AfterControlStatement: true
+    AfterEnum: true
+    AfterFunction: true
+    AfterNamespace: true
+    AfterObjCDeclaration: true
+    AfterStruct: true
+    AfterUnion: true
+    AfterExternBlock: true
+    BeforeCatch: true
+    BeforeElse: true
+    IndentBraces: false
+    SplitEmptyFunction: false
+    SplitEmptyNamespace: false
+    SplitEmptyRecord: false
+BreakBeforeBraces: Allman
+BreakBeforeBinaryOperators: All
