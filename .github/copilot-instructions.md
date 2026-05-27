@@ -3,7 +3,7 @@
 AlloyFlux is a eurorack synthesizer module with three build targets that share a single DSP codebase:
 
 - **Firmware** — RP2350 (Pico 2), Arduino/Mozzi, PlatformIO
-- **VCV Rack plugin** — Rack SDK 2.6.6, shares `include/` + `src/SynthEngine.cpp`
+- **VCV Rack plugin** — Rack SDK 2.6.6, shares `common/include/` + `common/src/SynthEngine.cpp`
 - **Web Configurator** — Svelte 5 + TypeScript + Vite
 
 ---
@@ -13,11 +13,14 @@ AlloyFlux is a eurorack synthesizer module with three build targets that share a
 | Target     | Command                                | Notes                                                            |
 | ---------- | -------------------------------------- | ---------------------------------------------------------------- |
 | Firmware   | `platformio run`                       | env name `alloyflux`; output `.pio/build/alloyflux/firmware.uf2` |
-| VCV plugin | `cd vcv-plugin && make`                | Rack SDK path hardcoded in Makefile                              |
+| VCV plugin | `cd vcv-plugin && make`                | Run inside MinGW64 on Windows (`C:\msys64\mingw64.exe`)          |
 | Web (dev)  | `cd web-configurator && npm run dev`   | Vite at `localhost:5173`                                         |
 | Web (prod) | `cd web-configurator && npm run build` | Output in `dist/`                                                |
 
-Always build firmware after changing `include/` headers shared with VCV to confirm no regressions on either platform.
+Windows one-liner from a non-MSYS shell:
+`C:\msys64\usr\bin\bash.exe -lc 'export MSYSTEM=MINGW64; export CHERE_INVOKING=1; cd /c/Users/carlosedp/repos/AlloyFlux/vcv-plugin && make'`
+
+Always build firmware after changing shared headers under `common/include/` to confirm no regressions on either platform.
 
 ---
 
@@ -28,25 +31,25 @@ Always build firmware after changing `include/` headers shared with VCV to confi
 - **Core 0** — Mozzi audio ISR at 32768 Hz (`updateAudio()`), control loop at 128 Hz (`updateControl()`), all IO
 - **Core 1** — Reverb engine only (`DattorroReverb`). Disabled via `-DREVERB_FORCE_CORE0=1` for debugging.
 
-Key files:
+Key files and directories:
 
-- [`src/main.cpp`](../src/main.cpp) — thin platform shim; Mozzi hooks; inter-core ring buffer
-- [`include/SynthEngine.h`](../include/SynthEngine.h) / [`src/SynthEngine.cpp`](../src/SynthEngine.cpp) — all DSP, platform-independent
-- [`include/io/IOBridge.h`](../include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
-- [`include/dsp/`](../include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
+- [`firmware/src/main.cpp`](../firmware/src/main.cpp) — thin platform shim; Mozzi hooks; inter-core ring buffer
+- [`common/include/SynthEngine.h`](../common/include/SynthEngine.h) / [`common/src/SynthEngine.cpp`](../common/src/SynthEngine.cpp) — all DSP, platform-independent
+- [`common/include/io/IOBridge.h`](../common/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
+- [`common/include/dsp/`](../common/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
 
 ### Platform abstraction
 
-`IHardwareIO` (defined in [`include/io/HardwareIO.h`](../include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
+`IHardwareIO` (defined in [`common/include/io/HardwareIO.h`](../common/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
 
-- **Firmware** — `HardwarePicoIO` in [`include/io/HardwarePicoIO.h`](../include/io/HardwarePicoIO.h)
+- **Firmware** — `HardwarePicoIO` in [`firmware/include/io/HardwarePicoIO.h`](../firmware/include/io/HardwarePicoIO.h)
 - **VCV** — `VCVRackIO` in [`vcv-plugin/src/VCVRackIO.h`](../vcv-plugin/src/VCVRackIO.h)
 
 `#ifdef ARDUINO` guards exist in a few DSP headers for RP2350-specific timer calls; keep them when editing those files.
 
 ### Config/Flash
 
-[`include/config_store.h`](../include/config_store.h) defines `AlloyConfig`. Rules:
+[`firmware/include/config_store.h`](../firmware/include/config_store.h) defines `AlloyConfig`. Rules:
 
 - **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
@@ -65,7 +68,7 @@ Key files:
 
 ### Inter-core reverb transport
 
-Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (8-sample fixed-latency output buffer, read with `kRevReadDelay` offset). See [`include/dsp_shared.h`](../include/dsp_shared.h).
+Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (8-sample fixed-latency output buffer, read with `kRevReadDelay` offset). See [`firmware/include/dsp_shared.h`](../firmware/include/dsp_shared.h).
 
 ---
 
@@ -75,7 +78,9 @@ Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Co
 - **Do not commit** or run `git push` unless explicitly asked.
 - **Do not modify `/c/Users/carlosedp/Rack-SDK/`** — it is a shared external dependency.
 - **Do not increase `DELAY_MAX_MS`** without confirming SRAM budget (`platformio run` reports RAM usage after build).
-- **Shared DSP changes**: any edit to `include/dsp/` or `src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
+- **Shared DSP changes**: any edit to `common/include/dsp/` or `common/src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
+- **Windows VCV build**: use MinGW64 (`C:\msys64\mingw64.exe`) and run `make` from `vcv-plugin/`.
+- **VCV warnings on GCC**: keep `vcv-plugin/Makefile` filtering out `-Wno-vla-extension` from `CXXFLAGS` (Clang-only flag from Rack SDK).
 - **Mark Milestones as done**: when a referenced task is complete, add an "x" to the checkbox in `references/Development_Milestones.md` (e.g. `- [x] 1. Sine wave out via PCM5102`).
 
 ---

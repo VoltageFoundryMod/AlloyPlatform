@@ -195,9 +195,9 @@ static constexpr float kLfoRate4 = 0.180f / 32768.0f; // 0.18 Hz — ~5.6 s peri
 class DattorroReverb final : public ReverbEngine {
   public:
     DattorroReverb()
-        : _decay(0.75f), _bandwidth(0.9995f), _damping(0.0005f),
+        : _preDelayPos(0),
+          _decay(0.75f), _bandwidth(0.9995f), _damping(0.0005f),
           _modSpeed(1.0f), _modDepth(1.0f), _frozen(false),
-          _preDelayPos(0),
           _lfoPhase1(0.0f), _lfoPhase2(0.25f),
           _lfoPhase3(0.5f), _lfoPhase4(0.75f),
           _lastProcessUs(0) {
@@ -444,7 +444,7 @@ class DattorroReverb final : public ReverbEngine {
     float _modDepth; // LFO amplitude multiplier: 1.0 = nominal ±8 samples
 
     // Freeze (M41)
-    bool _frozen; // true = decay→1.0 + new input gated
+    bool _frozen; // true = decay -> 1.0 + new input gated
 
     // 4 LFO phases — initialised 90° apart to immediately span the full cycle
     float _lfoPhase1, _lfoPhase2, _lfoPhase3, _lfoPhase4;

@@ -3,7 +3,7 @@
 // Arduino.h pulled in transitively via ButtonEngine.h (INPUT_PULLUP, digitalRead).
 // This header must only be compiled in the hardware (Mozzi / Arduino-Pico) build.
 #include "ButtonEngine.h"
-#include "HardwareIO.h"
+#include "io/HardwareIO.h"
 #include "params.h" // gBaseFreq, gGateHigh, gGatePatched, gShape, …
 
 #include <math.h> // log2f
