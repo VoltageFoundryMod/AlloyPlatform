@@ -16,6 +16,7 @@ AlloyFlux is a eurorack synthesizer module with three build targets that share a
 | VCV plugin | `cd vcv-plugin && make`                | Run inside MinGW64 on Windows (`C:\msys64\mingw64.exe`)          |
 | Web (dev)  | `cd web-configurator && npm run dev`   | Vite at `localhost:5173`                                         |
 | Web (prod) | `cd web-configurator && npm run build` | Output in `dist/`                                                |
+| Web check  | `cd web-configurator && npm run check` | Runs `svelte-check` + `tsc` type validation                      |
 
 Windows one-liner from a non-MSYS shell:
 `C:\msys64\usr\bin\bash.exe -lc 'export MSYSTEM=MINGW64; export CHERE_INVOKING=1; cd /c/Users/carlosedp/repos/AlloyFlux/vcv-plugin && make'`
@@ -47,12 +48,24 @@ Key files and directories:
 
 `#ifdef ARDUINO` guards exist in a few DSP headers for RP2350-specific timer calls; keep them when editing those files.
 
+### Web Configurator
+
+[`web-configurator/src/`](../web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
+
+- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](../references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46`)
+- **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](../references/AlloyFlux-serial-reference.md)
+
+Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
+
+**Requirement**: Chrome or Edge only — Web Serial and Web MIDI APIs are not supported in Firefox/Safari.
+
 ### Config/Flash
 
 [`firmware/include/config_store.h`](../firmware/include/config_store.h) defines `AlloyConfig`. Rules:
 
-- **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch.
+- **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `5`.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
+- Current SRAM usage: ~236 KB of 512 KB (45%); check after any change that increases buffer sizes.
 
 ---
 
@@ -82,6 +95,34 @@ Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Co
 - **Windows VCV build**: use MinGW64 (`C:\msys64\mingw64.exe`) and run `make` from `vcv-plugin/`.
 - **VCV warnings on GCC**: keep `vcv-plugin/Makefile` filtering out `-Wno-vla-extension` from `CXXFLAGS` (Clang-only flag from Rack SDK).
 - **Mark Milestones as done**: when a referenced task is complete, add an "x" to the checkbox in `references/Development_Milestones.md` (e.g. `- [x] 1. Sine wave out via PCM5102`).
+
+### Code Style & Naming
+
+- **Headers**: always `#pragma once` — never `#ifndef` include guards.
+- **Formatting**: 4-space indent, 80-column limit, Allman brace style (after class/struct), no tabs. Governed by `.clang-format`.
+  - Check: `git ls-files "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" | xargs clang-format --dry-run --Werror -style=file`
+  - Fix: `git ls-files "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" | xargs clang-format -i -style=file`
+- **Global naming**: `gXxx` = goal/target values (updated from hardware reads), `sXxx` = smoothed/current values (updated each control tick). Inter-core volatile state follows the same convention with `volatile` qualifier.
+- **Template DSP engines**: parameterized by `SAMPLE_RATE` at compile time; call `engine.init(sampleRate)` at instantiation. Firmware uses 32768 Hz; VCV uses host sample rate (`args.sampleRate`).
+- **DSP integer samples**: `int32_t ±32512` throughout the signal path; float conversion only at DAC output boundary.
+
+### Data Flow (params → audio)
+
+```txt
+Hardware / Rack params
+        │
+        ▼
+IHardwareIO::readPot/readCV/isPatched   ← HardwarePicoIO (firmware) or VCVRackIO (VCV)
+        │
+        ▼
+fillSynthParams()  [common/include/io/IOBridge.h]
+        │ produces SynthParams snapshot
+        ▼
+SynthEngine::control()  @ 128 Hz   ← smoothing, voice pitch, effect coefficients
+        │
+        ▼
+SynthEngine::audio()   @ 32768 Hz  ← oscillators, filters, reverb, output summation
+```
 
 ---
 

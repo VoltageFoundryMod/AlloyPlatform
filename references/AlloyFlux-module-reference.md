@@ -67,6 +67,8 @@
     - [FM](#fm)
     - [CURVE](#curve)
     - [SPACE](#space)
+    - [DELAY](#delay)
+    - [REVERB](#reverb)
     - [Shift Function Summary](#shift-function-summary)
   - [Panel Layout — 14HP](#panel-layout--14hp)
   - [Jack Assignment](#jack-assignment)
@@ -101,13 +103,14 @@
       - [LED Role Assignment](#led-role-assignment)
       - [Colour Language](#colour-language)
       - [Brightness Language](#brightness-language)
-      - [D12 + D16 — Voice Activity (always)](#d12--d16--voice-activity-always)
-      - [D13 — Mode Indicator (near MODE\_SW)](#d13--mode-indicator-near-mode_sw)
-      - [D15 — Shift / Drone State (near SHIFT\_SW)](#d15--shift--drone-state-near-shift_sw)
-      - [D14 — Centre Heartbeat / Global](#d14--centre-heartbeat--global)
+      - [D12 + D22 — Voice Activity (always)](#d12--d22--voice-activity-always)
+      - [D14 — Mode Indicator (near MODE\_SW)](#d14--mode-indicator-near-mode_sw)
+      - [D16 — Shift / Drone State (near SHIFT\_SW)](#d16--shift--drone-state-near-shift_sw)
+      - [D15 — Centre Heartbeat / Global](#d15--centre-heartbeat--global)
+      - [D13 + D21 — Modulation \& Stereo Position (always)](#d13--d21--modulation--stereo-position-always)
       - [Mode Change Animation](#mode-change-animation)
   - [Drone Mode Entry / Exit](#drone-mode-entry--exit)
-    - [SHIFT Button Interaction (D15 context)](#shift-button-interaction-d15-context)
+    - [SHIFT Button Interaction (D16 context)](#shift-button-interaction-d16-context)
     - [Calibration Routine Visual](#calibration-routine-visual)
     - [Button Interaction Map](#button-interaction-map)
   - [Firmware Architecture](#firmware-architecture)
@@ -209,7 +212,7 @@ The RELATION knob is the signature control of the module. It is the most express
 | Voice modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY                                      |
 | Framework   | Arduino + Mozzi 2.x, custom DSP engines (ShapeOsc, ChorusEngine, CurveEngine, etc.) |
 | Build tool  | PlatformIO                                                                          |
-| Knobs       | 7 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE)                                 |
+| Knobs       | 9 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE, DELAY, REVERB)                  |
 | Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT)  |
 | Buttons     | 2 (MODE + SHIFT)                                                                    |
 | LEDs        | 5× APA102/SK9822 Dotstar RGB                                                        |
@@ -1221,6 +1224,20 @@ When SPACE CV is patched, SPACE knob becomes attenuverter for that CV.
 **Button shift:** hold the panel button while turning SPACE to adjust **VOL**
 (master output volume). LED dims white during shift mode.
 
+### DELAY
+
+Controls the delay effect mix. When no delay is desired, set to zero for hard bypass (zero CPU). At maximum, the delay is fully mixed in at 50% wet (to prevent clipping) with cross-channel feedback for a ping-pong effect.
+
+**Button shift:* hold the panel button while turning DELAY to adjust **DELAYTIME** (delay time in ms, 10–300 ms range). LED dims white during shift mode.
+
+### REVERB
+
+Controls the reverb mix. When no reverb is desired, set to zero for hard bypass (zero CPU). At maximum, the reverb is fully mixed in at 50% wet (to prevent clipping).
+
+**Button shift:** hold the panel button while turning REVERB to adjust **REVERBSIZE** (size of the virtual plate, 0.0–1.0). LED dims white during shift mode.
+
+**TODO**: Define damping shift function.
+
 ### Shift Function Summary
 
 The panel has two buttons: **MODE** (GP10) and **SHIFT** (GP11). Hold SHIFT while turning a knob to access the secondary parameter. The LED dims white while shift mode is active. Releasing SHIFT exits shift mode.
@@ -1231,6 +1248,8 @@ The panel has two buttons: **MODE** (GP10) and **SHIFT** (GP11). Hold SHIFT whil
 | MOTN  | Drift + chorus depth         | DRIFTSPEED — drift glide rate   |
 | CURVE | Envelope shape (pluck→swell) | CURVETIME — envelope time scale |
 | SPACE | Stereo width                 | VOL — master output volume      |
+| DELAY | Delay mix                    | DELAYTIME — delay time (ms)     |
+| REVB  | Reverb mix                   | REVERBSIZE — virtual plate size |
 
 ROOT, RELATION, and FM knobs have no shift function — they occupy the full knob travel for precision.
 
@@ -1293,7 +1312,7 @@ Priority: **musical stability over raw response speed.** The pitch must not jitt
 ### V/OCT Input Conditioning
 
 ```txt
-Eurorack CV ──→ MCP6002 precision scaling ──→ RC filter ──→ GP26 (ADC0)
+Eurorack CV ──→ MCP6004 precision scaling ──→ RC filter ──→ GP26 (ADC0)
                (rail-to-rail, 3.3V supply)    (10kΩ + 100nF)
                output range: 0–3.0V           BAT48 clamps on ADC pin
 ```
@@ -1371,9 +1390,9 @@ Complete:
 | CH10 | 21  | FM knob        | Pot     | FM depth / attenuverter when FM IN patched         |
 | CH11 | 20  | CURVE knob     | Pot     | Envelope / articulation shaping                    |
 | CH12 | 19  | Assignable CV  | CV      | Dynamically assignable CV                          |
-| CH13 |     | Spare          | Digital | Future knob or CV                                  |
-| CH14 |     | Spare          | Digital | Future knob or CV                                  |
-| CH15 |     | Spare          | Digital | Future knob or CV                                  |
+| CH13 | 18  | DELAY knob     | Pot     | Delay control                                      |
+| CH14 | 17  | REVERB knob    | Pot     | Reverb control                                     |
+| CH15 | 16  | Spare          | Digital | Future knob or CV                                  |
 
 **Select lines:** GP3 (S0), GP4 (S1), GP5 (S2), GP6 (S3)
 **Signal pin:** GP28 (ADC2)
@@ -1527,7 +1546,7 @@ Default: omni (responds to all channels). Configure via serial: `midichan 3` or 
 
 ## User Interface — Screenless
 
-**Philosophy:** All feedback via 5 APA102/SK9822 Dotstar RGB LEDs + 2 buttons. No menus. No reading required during performance. Eyes stay on the patch, not a display.
+**Philosophy:** All feedback via 7 APA102/SK9822 Dotstar RGB LEDs + 2 buttons. No menus. No reading required during performance. Eyes stay on the patch, not a display.
 
 Hidden functions (behind long-hold) cover only: calibration, MIDI channel configuration, advanced settings. Core synthesis is always directly accessible.
 
@@ -1540,25 +1559,28 @@ The crucial UX distinction: mode changes are deliberate and infrequent. You choo
 #### Hardware Layout
 
 ```txt
-D12  ·  ·  ·  D16       ← top: voice activity (left / right)
-D13  ·  ·  ·  D15       ← mid: mode indicator / shift state
-     ·  D14  ·           ← centre: heartbeat / motion / global
+ D12 ·  ·  · D22      ← top:        voice activity (left / right)
+D13  ·  ·  ·  D21     ← mid-top:    voice motion / modulation / stereo position
+  D14   ·   D16       ← mid-bottom: mode indicator / shift state
+    ·  D15  ·         ← bottom:     heartbeat / motion / global
 
-SW2 = MODE_SW   (left button  — near D13)
-SW3 = SHIFT_SW  (right button — near D15)
+SW2 = MODE_SW   (left button  — near D14)
+SW3 = SHIFT_SW  (right button — near D16)
 ```
 
 ---
 
 #### LED Role Assignment
 
-| LED | Position  | Primary Role            | Secondary Role              |
-| --- | --------- | ----------------------- | --------------------------- |
-| D12 | Top left  | ROOT voice activity     | Left channel stereo energy  |
-| D16 | Top right | RELATION voice activity | Right channel stereo energy |
-| D13 | Mid left  | Current voice mode      | MODE_SW feedback            |
-| D15 | Mid right | Shift state / drone     | SHIFT_SW feedback           |
-| D14 | Centre    | Motion / heartbeat      | Global event confirmation   |
+| LED | Position  | Primary Role            | Secondary Role                 |
+| --- | --------- | ----------------------- | ------------------------------ |
+| D12 | Top left  | ROOT voice activity     | Left channel stereo energy     |
+| D22 | Top right | RELATION voice activity | Right channel stereo energy    |
+| D13 | Mid top l | Motion and modulation   | Stereo position / chorus depth |
+| D21 | Mid top r | Modulation depth        | Stereo position / chorus depth |
+| D14 | Mid left  | Current voice mode      | MODE_SW feedback               |
+| D16 | Mid right | Shift state / drone     | SHIFT_SW feedback              |
+| D15 | Centre    | Motion / heartbeat      | Global event confirmation      |
 
 ---
 
@@ -1593,11 +1615,11 @@ SW3 = SHIFT_SW  (right button — near D15)
 
 ---
 
-#### D12 + D16 — Voice Activity (always)
+#### D12 + D22 — Voice Activity (always)
 
-D12 and D16 always reflect voice activity — they breathe with the audio envelope in all modes. Bright on attack, fading on release. Readable without mode awareness.
+D12 and D22 always reflect voice activity — they breathe with the audio envelope in all modes. Bright on attack, fading on release. Readable without mode awareness.
 
-| Mode    | D12 (ROOT / Left)                          | D16 (RELATION / Right)                      |
+| Mode    | D12 (ROOT / Left)                          | D22 (RELATION / Right)                      |
 | ------- | ------------------------------------------ | ------------------------------------------- |
 | PAIR    | Warm red — envelope level, gate response   | Cool blue — relation envelope, detune depth |
 | CLOUD   | Cyan — shifts with left voice position     | Cyan — shifts opposite, stereo spread       |
@@ -1608,7 +1630,7 @@ D12 and D16 always reflect voice activity — they breathe with the audio envelo
 
 ---
 
-#### D13 — Mode Indicator (near MODE_SW)
+#### D14 — Mode Indicator (near MODE_SW)
 
 One LED, one job. Always shows the current voice mode as a steady colour. The only LED the user needs to learn once.
 
@@ -1624,7 +1646,7 @@ One LED, one job. Always shows the current voice mode as a steady colour. The on
 
 ---
 
-#### D15 — Shift / Drone State (near SHIFT_SW)
+#### D16 — Shift / Drone State (near SHIFT_SW)
 
 Dark in normal operation — lights up only when something state-level is active.
 
@@ -1639,9 +1661,9 @@ Dark in normal operation — lights up only when something state-level is active
 
 ---
 
-#### D14 — Centre Heartbeat / Global
+#### D15 — Centre Heartbeat / Global
 
-The module's pulse. Shows overall animation and event state. Even without understanding any other LED, D14 tells you if the module is doing something.
+The module's pulse. Shows overall animation and event state. Even without understanding any other LED, D15 tells you if the module is doing something.
 
 | State                 | Colour      | Pattern                             |
 | --------------------- | ----------- | ----------------------------------- |
@@ -1654,6 +1676,21 @@ The module's pulse. Shows overall animation and event state. Even without unders
 | CASCADE / FM active   | Magenta dim | Pulses with FM depth                |
 | STRING / chorus heavy | Purple dim  | Slow movement matching chorus rate  |
 
+
+#### D13 + D21 — Modulation & Stereo Position (always)
+
+Together with the voice activity on D12/D22, these give a visual sense of how the sound is moving and modulating. They are the "motion" layer of the LED language. They should follow gradients with the voice activity to show the flow of sound.
+
+| Mode    | D13 (mid-top left)     | D21 (mid-top right)                 |
+| ------- | ---------------------- | ----------------------------------- |
+| PAIR    | Green — MOTION depth   | Green dimmer — detune amount        |
+| CLOUD   | Cyan — MOTION depth    | Cyan dimmer — stereo spread         |
+| CHORD   | Amber — MOTION depth   | Amber dimmer — chord spread         |
+| CASCADE | Magenta — MOTION depth | Magenta dimmer — FM depth           |
+| STRING  | Purple — MOTION depth  | Purple dimmer — stereo offset       |
+| POLY    | Green — MOTION depth   | Green dimmer — detune/spread amount |
+
+
 ---
 
 #### Mode Change Animation
@@ -1661,11 +1698,11 @@ The module's pulse. Shows overall animation and event state. Even without unders
 Triggered by MODE_SW tap.
 
 ```txt
-1. D14 white flash       ← centre ignites first
-2. D12, D13, D16, D15   ← ripple outward, all flash white
-3. Settle               ← D13 → new mode colour
-                           D12/D16 → new mode voice colours
-                           D14 → resumes heartbeat role
+1. D15 white flash      ← centre ignites first
+2. D13, D14, D16, D21   ← ripple outward, all flash white
+3. Settle               ← D14 → new mode colour
+                           D12/D22 → new mode voice colours
+                           D15 → resumes heartbeat role
 Total duration: ~300ms
 ```
 
@@ -1676,27 +1713,27 @@ Total duration: ~300ms
 **Entering drone** (hold SHIFT then tap MODE, or automatically on power-on before any gate is received):
 
 ```txt
-D15 → fades up to warm white slow breathe   (drone is on)
-D14 → fades to dim green slow breathe       (module is running)
-D12/D16 → hold steady voice colours         (no gate pulsing)
+D16 → fades up to warm white slow breathe    (drone is on)
+D15 → fades to dim green slow breathe        (module is running)
+D12 /D22 → hold steady voice colours         (no gate pulsing)
 ```
 
 **Exiting drone** (first gate received automatically, or hold SHIFT then tap MODE to toggle back to gated):
 
 ```txt
-D15 → fades down to off                     (gated mode active)
-D12/D16 → begin responding to gate/envelope (pulsing resumes)
-D14 → pulses with gate and MOTION           (heartbeat resumes)
+D16 → fades down to off                     (gated mode active)
+D12/D22 → begin responding to gate/envelope (pulsing resumes)
+D15 → pulses with gate and MOTION           (heartbeat resumes)
 ```
 
 ---
 
-### SHIFT Button Interaction (D15 context)
+### SHIFT Button Interaction (D16 context)
 
 | Action                    | Result                                                              |
 | ------------------------- | ------------------------------------------------------------------- |
-| SHIFT hold + MODE tap     | Toggle drone / gated mode — D15 breathes warm white in drone        |
-| SHIFT held                | D15 white steady — secondary layer active                           |
+| SHIFT hold + MODE tap     | Toggle drone / gated mode — D16 breathes warm white in drone        |
+| SHIFT held                | D16 white steady — secondary layer active                           |
 | SHIFT held + turn knob    | Access secondary parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL) |
 | Hold MODE during power-on | Enter V/OCT calibration — D15 pulses white during routine           |
 
