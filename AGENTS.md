@@ -10,18 +10,36 @@ AlloyFlux is a eurorack synthesizer module with three build targets that share a
 
 ## Build Commands
 
-| Target     | Command                                | Notes                                                            |
-| ---------- | -------------------------------------- | ---------------------------------------------------------------- |
-| Firmware   | `platformio run`                       | env name `alloyflux`; output `.pio/build/alloyflux/firmware.uf2` |
-| VCV plugin | `cd vcv-plugin && make`                | Run inside MinGW64 on Windows (`C:\msys64\mingw64.exe`)          |
-| Web (dev)  | `cd web-configurator && npm run dev`   | Vite at `localhost:5173`                                         |
-| Web (prod) | `cd web-configurator && npm run build` | Output in `dist/`                                                |
-| Web check  | `cd web-configurator && npm run check` | Runs `svelte-check` + `tsc` type validation                      |
+All three targets build from the **root `Makefile`**. Use it rather than calling
+`pio`/`make`/`npm` directly: on Windows it locates the toolchain itself — it finds
+`pio.exe` under `~/.platformio` and switches `SHELL` and `PATH` to msys2 for the
+Rack plugin build, which is what Rack's POSIX `plugin.mk` needs. `make help`
+lists every target.
 
-Windows one-liner from a non-MSYS shell:
-`C:\msys64\usr\bin\bash.exe -lc 'export MSYSTEM=MINGW64; export CHERE_INVOKING=1; cd /c/Users/carlosedp/repos/AlloyFlux/vcv-plugin && make'`
+| Target     | Command                  | Notes                                                                  |
+| ---------- | ------------------------ | ---------------------------------------------------------------------- |
+| Firmware   | `make` / `make firmware` | env `alloyflux`; output `.pio/build/alloyflux/firmware.uf2`            |
+|            | `make upload`            | build + flash; `make upload-monitor` also opens the serial console     |
+| VCV plugin | `make vcv`               | `vcv-plugin/plugin.dll`; no MSYS shell needed, the Makefile finds one  |
+|            | `make vcv-install`       | installs into Rack's user plugin dir (`make print-plugins-dir`)        |
+|            | `make vcv-dist`          | packages the `.vcvplugin` for the VCV library                          |
+| Web        | `make web`               | production build into `web-configurator/dist`                          |
+|            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc     |
+| Everything | `make everything`        | firmware + VCV + web                                                   |
+| Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate |
 
-Always build firmware after changing shared headers under `common/include/` to confirm no regressions on either platform.
+`RACK_DIR` defaults to a `Rack-SDK` checkout beside this repository. Override it
+with an **absolute** path (`make RACK_DIR=D:/Rack-SDK vcv`) — a relative one would
+be resolved from `vcv-plugin/`, not the repo root. Override `MSYS=D:/msys64` if
+msys2 lives elsewhere.
+
+VS Code tasks for all of the above are in `.vscode/tasks.json`, each one a wrapper
+around a Makefile target. `tools/env.ps1` is optional — source it (`. .\tools\env.ps1`)
+only when you want msys2, `pio` and `clang-format` on `PATH` for the PowerShell
+session itself.
+
+Always run `make everything` after changing shared headers under `common/include/`
+to confirm no regressions on either platform.
 
 ---
 
@@ -92,7 +110,7 @@ Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Co
 - **Do not modify `/c/Users/carlosedp/Rack-SDK/`** — it is a shared external dependency.
 - **Do not increase `DELAY_MAX_MS`** without confirming SRAM budget (`platformio run` reports RAM usage after build).
 - **Shared DSP changes**: any edit to `common/include/dsp/` or `common/src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
-- **Windows VCV build**: use MinGW64 (`C:\msys64\mingw64.exe`) and run `make` from `vcv-plugin/`.
+- **Windows VCV build**: run `make vcv` from the repo root — the root Makefile picks up the msys2 shell and toolchain itself, so no MinGW64 shell is needed.
 - **VCV warnings on GCC**: keep `vcv-plugin/Makefile` filtering out `-Wno-vla-extension` from `CXXFLAGS` (Clang-only flag from Rack SDK).
 - **Mark Milestones as done**: when a referenced task is complete, add an "x" to the checkbox in `references/Development_Milestones.md` (e.g. `- [x] 1. Sine wave out via PCM5102`).
 
@@ -100,8 +118,7 @@ Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Co
 
 - **Headers**: always `#pragma once` — never `#ifndef` include guards.
 - **Formatting**: 4-space indent, 80-column limit, Allman brace style (after class/struct), no tabs. Governed by `.clang-format`.
-  - Check: `git ls-files "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" | xargs clang-format --dry-run --Werror -style=file`
-  - Fix: `git ls-files "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" | xargs clang-format -i -style=file`
+  - Check: `make format-check` — Fix: `make format`. Both cover untracked-but-not-ignored files too, so a newly added header is formatted before its first commit. On Windows the Makefile falls back to the clang-format shipped with the VS Code C/C++ extension when none is on `PATH`.
 - **Global naming**: `gXxx` = goal/target values (updated from hardware reads), `sXxx` = smoothed/current values (updated each control tick). Inter-core volatile state follows the same convention with `volatile` qualifier.
 - **Template DSP engines**: parameterized by `SAMPLE_RATE` at compile time; call `engine.init(sampleRate)` at instantiation. Firmware uses 32768 Hz; VCV uses host sample rate (`args.sampleRate`).
 - **DSP integer samples**: `int32_t ±32512` throughout the signal path; float conversion only at DAC output boundary.

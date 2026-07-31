@@ -1,23 +1,192 @@
 {
+  // Every task goes through the root Makefile rather than calling pio/make/npm
+  // directly, because on Windows that Makefile is what locates the toolchain:
+  // it finds pio.exe under ~/.platformio and switches SHELL and PATH to msys2
+  // for the Rack plugin build. Calling the tools straight from PowerShell —
+  // which has neither g++ nor jq on PATH — fails. Chocolatey's make on PATH is
+  // fine here; the Makefile handles it.
+  //
+  // `make help` lists every target.
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "PlatformIO Build",
+      "label": "Firmware: Build",
+      "detail": "make firmware — RP2350 image, .pio/build/alloyflux/firmware.uf2",
       "type": "shell",
-      "command": "platformio run",
-      "problemMatcher": ["$gcc"],
-      "group": "build"
+      "command": "make",
+      "args": ["firmware"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Firmware: Upload to Pico 2",
+      "detail": "make upload — builds, then flashes over USB",
+      "type": "shell",
+      "command": "make",
+      "args": ["upload"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Firmware: Upload and Monitor",
+      "detail": "make upload-monitor — flashes, then opens the serial monitor",
+      "type": "shell",
+      "command": "make",
+      "args": ["upload-monitor"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Firmware: Serial monitor",
+      "detail": "make monitor — 115200 baud serial console",
+      "type": "shell",
+      "command": "make",
+      "args": ["monitor"],
+      "problemMatcher": [],
+      "isBackground": true
+    },
+    {
+      "label": "Firmware: Clean",
+      "detail": "make firmware-clean",
+      "type": "shell",
+      "command": "make",
+      "args": ["firmware-clean"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Firmware: Native tests",
+      "detail": "make test — PlatformIO test runner (no suites under test/ yet)",
+      "type": "shell",
+      "command": "make",
+      "args": ["test"],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "VCV: Build plugin",
+      "detail": "make vcv — vcv-plugin/plugin.dll against the Rack SDK",
+      "type": "shell",
+      "command": "make",
+      "args": ["vcv"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "VCV: Build and install plugin",
+      "detail": "make vcv-install — installs into Rack's user plugin directory (restart Rack to pick it up)",
+      "type": "shell",
+      "command": "make",
+      "args": ["vcv-install"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "VCV: Package plugin",
+      "detail": "make vcv-dist — builds the .vcvplugin for the VCV library",
+      "type": "shell",
+      "command": "make",
+      "args": ["vcv-dist"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "VCV: Clean plugin",
+      "detail": "make vcv-clean",
+      "type": "shell",
+      "command": "make",
+      "args": ["vcv-clean"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "VCV: Print Rack plugin directory",
+      "detail": "make print-plugins-dir — where 'VCV: Build and install' puts the plugin",
+      "type": "shell",
+      "command": "make",
+      "args": ["print-plugins-dir"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Web: Build configurator",
+      "detail": "make web — production build into web-configurator/dist",
+      "type": "shell",
+      "command": "make",
+      "args": ["web"],
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      // Chrome or Edge only — Web Serial and Web MIDI are not in Firefox/Safari.
+      "label": "Web: Dev server",
+      "detail": "make web-dev — vite on localhost:5173",
+      "type": "shell",
+      "command": "make",
+      "args": ["web-dev"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^([^\\s].*)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*VITE.*",
+          "endsPattern": ".*ready in.*"
+        }
+      }
+    },
+    {
+      "label": "Web: Type check",
+      "detail": "make web-check — svelte-check + tsc",
+      "type": "shell",
+      "command": "make",
+      "args": ["web-check"],
+      "group": "test",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Web: Install dependencies",
+      "detail": "make web-deps — npm install",
+      "type": "shell",
+      "command": "make",
+      "args": ["web-deps"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build everything",
+      "detail": "make everything — firmware + VCV plugin + web configurator. Run this after any change under common/, since a shared header edit can break either C++ target.",
+      "type": "shell",
+      "command": "make",
+      "args": ["everything"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
     },
     {
       "label": "Format C/C++ (all tracked)",
+      "detail": "make format — clang-format -i over every tracked C/C++ file, per .clang-format",
       "type": "shell",
-      "command": "git ls-files \"*.h\" \"*.hpp\" \"*.c\" \"*.cc\" \"*.cpp\" | xargs -r /c/Users/carlosedp/.vscode/extensions/ms-vscode.cpptools-1.32.2-win32-x64/LLVM/bin/clang-format.exe -i -style=file",
+      "command": "make",
+      "args": ["format"],
       "problemMatcher": []
     },
     {
       "label": "Check C/C++ format (dry-run)",
+      "detail": "make format-check — fails if anything is misformatted",
       "type": "shell",
-      "command": "git ls-files \"*.h\" \"*.hpp\" \"*.c\" \"*.cc\" \"*.cpp\" | xargs -r /c/Users/carlosedp/.vscode/extensions/ms-vscode.cpptools-1.32.2-win32-x64/LLVM/bin/clang-format.exe --dry-run --Werror -style=file",
+      "command": "make",
+      "args": ["format-check"],
       "problemMatcher": []
     }
   ]
