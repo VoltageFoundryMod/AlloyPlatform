@@ -13,7 +13,7 @@
 /** Panel knobs (pots).  Order reflects physical left→right / top→bottom layout. */
 enum class PotId : uint8_t
 {
-    // ---- 7 physical panel knobs (same on hardware and VCV) ----
+    // ---- 9 physical panel knobs (same on hardware and VCV) ----
     ROOT = 0, ///< Root pitch (V/Oct centre)
     RELATION, ///< RELATION — semitone offset for voice 2 (0–24 st)
     SHAPE,    ///< Waveform shape (sine → tri → saw → pulse → hollow) [0–1]
@@ -21,11 +21,15 @@ enum class PotId : uint8_t
     COLOR,    ///< FM depth / ensemble Hz spread [0–1]
     CURVE,    ///< Envelope curve character (pluck ↔ swell) [0–1]
     SPACE,    ///< Stereo width [0–1]
+    DELAY,    ///< Delay wet mix [0–1]   — 0 = hard bypass (M56)
+    REVERB,   ///< Reverb wet mix [0–1]  — 0 = hard bypass (M56)
     // ---- SHIFT-secondary parameters (VCV: hidden params / context menu sliders;
     //      hardware: same physical knob read when SHIFT held) ----
     FATNESS,    ///< Sub-oscillator level [0–1]  (SHIFT+SHAPE on hardware)
     DRIFTSPEED, ///< Drift glide rate [0–1]       (SHIFT+MOTION on hardware)
     VOL,        ///< Master output volume [0–1]   (SHIFT+SPACE on hardware)
+    DELAYTIME,  ///< Delay time [0–1] → 10–300 ms (SHIFT+DELAY on hardware)
+    REVERBSIZE, ///< Reverb plate size [0–1]      (SHIFT+REVERB on hardware)
     POT_COUNT
 };
 
@@ -50,14 +54,26 @@ enum class ButtonId : uint8_t
     BUTTON_COUNT
 };
 
-/** RGB LED identifiers (APA102/SK9822 on hardware; light widget in VCV). */
+/**
+ * RGB LED identifiers (APA102/SK9822 on hardware; light widget in VCV).
+ *
+ * Order matches LedId in io/LedEngine.h one-for-one — LedEngine::writeTo()
+ * casts between them, so the two enums must stay in sync.
+ *
+ *      VOICE_L ·  ·  · VOICE_R      top:        voice activity
+ *     MOD_L  ·  ·  ·  · MOD_R       mid-top:    motion / modulation
+ *        MODE  ·   SHIFT            mid-bottom: mode / shift-drone
+ *           · CENTRE ·              bottom:     heartbeat / global
+ */
 enum class LightId : uint8_t
 {
-    LED0 = 0,
-    LED1,
-    LED2,
-    LED3,
-    LED4,
+    VOICE_L = 0, ///< D12 / VCV LED1 — ROOT voice activity, left channel
+    VOICE_R,     ///< D22 / VCV LED7 — RELATION voice activity, right channel
+    MOD_L,       ///< D13 / VCV LED2 — motion and modulation depth
+    MOD_R,       ///< D21 / VCV LED6 — secondary modulation / stereo position
+    MODE,        ///< D14 / VCV LED3 — current voice mode (near MODE_SW)
+    SHIFT,       ///< D16 / VCV LED5 — shift state / drone (near SHIFT_SW)
+    CENTRE,      ///< D15 / VCV LED4 — heartbeat / global confirmation
     LIGHT_COUNT
 };
 
@@ -103,8 +119,23 @@ struct IHardwareIO
     /**
      * Writes a normalised RGB colour (0.0–1.0 per channel) to a panel LED.
      * No-op for unregistered or unimplemented lights.
+     *
+     * On a clocked LED chain this only stages the colour; nothing reaches the
+     * panel until showLights() latches the frame.
      */
     virtual void writeLight(LightId id, float r, float g, float b) = 0;
+
+    /**
+     * Latches every staged writeLight() as one frame.
+     * Called once per control tick, after the last writeLight().
+     *
+     * Required by daisy-chained LEDs (APA102/SK9822), where the whole chain is
+     * one shift register: shifting on every writeLight() would push each colour
+     * through the wrong LED on its way down and tear the frame. Platforms whose
+     * lights are individually addressable — VCV — need nothing here, hence the
+     * default no-op rather than a pure virtual.
+     */
+    virtual void showLights() {}
 
     virtual ~IHardwareIO() = default;
 };

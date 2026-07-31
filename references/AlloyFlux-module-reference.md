@@ -69,6 +69,7 @@
     - [SPACE](#space)
     - [DELAY](#delay)
     - [REVERB](#reverb)
+    - [DELAY / REVERB Signal Path (M56)](#delay--reverb-signal-path-m56)
     - [Shift Function Summary](#shift-function-summary)
   - [Panel Layout — 14HP](#panel-layout--14hp)
   - [Jack Assignment](#jack-assignment)
@@ -215,7 +216,7 @@ The RELATION knob is the signature control of the module. It is the most express
 | Knobs       | 9 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE, DELAY, REVERB)                  |
 | Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT)  |
 | Buttons     | 2 (MODE + SHIFT)                                                                    |
-| LEDs        | 5× APA102/SK9822 Dotstar RGB                                                        |
+| LEDs        | 7× APA102/SK9822 Dotstar RGB                                                        |
 | Power draw  | ~100mA +12V, ~5mA −12V (estimate)                                                   |
 
 ---
@@ -227,7 +228,7 @@ The RELATION knob is the signature control of the module. It is the most express
 | Peripheral | Usage                                                      |
 | ---------- | ---------------------------------------------------------- |
 | PIO 0      | I2S audio output to PCM5102A (BCK=16, LCK=17, DATA=18)     |
-| GPIO       | Dotstar LED bitbang SPI (GP7=data, GP8=clk)                |
+| GPIO       | Dotstar LED bitbang SPI (GP6=data, GP7=clk)                |
 | PIO 2      | Spare — future use                                         |
 | ADC GP26   | V/OCT pitch CV — direct, fast reads                        |
 | ADC GP27   | FM IN — direct, audio-rate reads in updateAudio()          |
@@ -252,8 +253,8 @@ All pins accounted for. No pin used twice.
 | GP3  | 5        | Mux S1              | Out    | 74HC4067 select bit 1                                                |
 | GP4  | 6        | Mux S2              | Out    | 74HC4067 select bit 2                                                |
 | GP5  | 7        | Mux S3              | Out    | 74HC4067 select bit 3                                                |
-| GP6  | 9        | Dotstar LED data    | Out    | LED chain (all 5 LEDs)                                               |
-| GP7  | 10       | Dotstar LED clk     | Out    | LED chain (all 5 LEDs)                                               |
+| GP6  | 9        | Dotstar LED data    | Out    | LED chain (all 7 LEDs)                                               |
+| GP7  | 10       | Dotstar LED clk     | Out    | LED chain (all 7 LEDs)                                               |
 | GP8  | 11       | UART1 TX            | Out    | Hardware MIDI Out (TRS jack)                                         |
 | GP9  | 12       | UART1 RX            | In     | Hardware MIDI in (TRS jack)                                          |
 | GP10 | 14       | MODE button         | In     | Internal pull-up — cycles voice modes                                |
@@ -1228,7 +1229,7 @@ When SPACE CV is patched, SPACE knob becomes attenuverter for that CV.
 
 Controls the delay effect mix. When no delay is desired, set to zero for hard bypass (zero CPU). At maximum, the delay is fully mixed in at 50% wet (to prevent clipping) with cross-channel feedback for a ping-pong effect.
 
-**Button shift:* hold the panel button while turning DELAY to adjust **DELAYTIME** (delay time in ms, 10–300 ms range). LED dims white during shift mode.
+**Button shift:** hold the panel button while turning DELAY to adjust **DELAYTIME** (delay time in ms, 10–300 ms range). LED dims white during shift mode.
 
 ### REVERB
 
@@ -1237,6 +1238,27 @@ Controls the reverb mix. When no reverb is desired, set to zero for hard bypass 
 **Button shift:** hold the panel button while turning REVERB to adjust **REVERBSIZE** (size of the virtual plate, 0.0–1.0). LED dims white during shift mode.
 
 **TODO**: Define damping shift function.
+
+### DELAY / REVERB Signal Path (M56)
+
+Both knobs are ordinary entries in the shared I/O layer, so hardware and VCV
+resolve them through exactly the same code:
+
+| Stage             | Where                                | What it does                                                                         |
+| ----------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| Pot identity      | `PotId::DELAY` / `REVERB`            | Physical knobs; `DELAYTIME` / `REVERBSIZE` are their SHIFT-secondaries                 |
+| Read (hardware)   | `HardwarePicoIO::readPot()`          | Normalises `gDelayMix` / `gRevMix` / `gDelayTime` / `gRevSize` back to 0–1             |
+| Read (VCV)        | `VCVRackIO::readPot()`               | Reads `DELAY_MIX_PARAM` / `REV_MIX_PARAM` / `DELAY_TIME_PARAM` / `REV_SIZE_PARAM`      |
+| Translate         | `fillSynthParams()` in `IOBridge.h`  | Writes `delayMix`, `delayTime`, `revMix`, `revSize`, and derives `revEnabled`          |
+
+`revEnabled` is derived from the mix (`revMix > 0.001`) rather than set by CC, so
+a fully-CCW REVERB knob costs no CPU. The same is true of a zeroed DELAY mix.
+
+Because the hardware read is the exact inverse of the `gXxx` scaling, MIDI CC and
+serial writes still reach the engine through this path unchanged — CC 91
+(reverb mix), CC 95 (delay mix), CC 117 (reverb size), and CC 86 (delay time)
+behave as before. DELAYTIME spans 10–`DELAY_MAX_MS` ms on the knob and on CC 86
+alike, so knob travel and CC travel cover the same range.
 
 ### Shift Function Summary
 
@@ -1251,6 +1273,8 @@ The panel has two buttons: **MODE** (GP10) and **SHIFT** (GP11). Hold SHIFT whil
 | DELAY | Delay mix                    | DELAYTIME — delay time (ms)     |
 | REVB  | Reverb mix                   | REVERBSIZE — virtual plate size |
 
+Both effects are hard-bypassed (zero CPU) with their mix knob fully CCW.
+
 ROOT, RELATION, and FM knobs have no shift function — they occupy the full knob travel for precision.
 
 ---
@@ -1260,9 +1284,9 @@ ROOT, RELATION, and FM knobs have no shift function — they occupy the full kno
 
 **HP:** 14HP (70.96mm panel width)
 **Jacks:** 10× Thonkiconn PJ398SM (switched, vertical mount)
-**Knobs:** 7× Alpha 9mm (ROOT and RELATION largest)
+**Knobs:** 9× Alpha 9mm (ROOT and RELATION largest)
 **Buttons:** 2× tactile panel mount
-**LEDs:** 5× APA102/SK9822 Dotstar RGB (GP7=data, GP8=clk, bitbang SPI in `updateControl()`)
+**LEDs:** 7× APA102/SK9822 Dotstar RGB (GP6=data, GP7=clk, bitbang SPI in `updateControl()`)
 
 ---
 
@@ -1791,7 +1815,7 @@ Core 0 — deterministic control:
 ├── Attenuverter logic (probe state → knob mode switch)
 ├── Parameter smoothing (one-pole LPF on all params)
 ├── Modulation routing matrix
-├── LED update (APA102/SK9822 Dotstar, bitbang SPI on GP7/GP8)
+├── LED update (APA102/SK9822 Dotstar, bitbang SPI on GP6/GP7)
 └── Button debounce and mode logic
 
 Core 1 — audio DSP (runs continuously):
@@ -1867,7 +1891,7 @@ void updateControl() {
     updateJackStates(); // attenuverter logic
     updateGateState();  // GP12 + MIDI + I2C → gGateHigh
     parseMIDI();        // non-blocking
-    updateLEDs();       // APA102/SK9822 Dotstar bitbang SPI (GP7/GP8)
+    updateLEDs();       // APA102/SK9822 Dotstar bitbang SPI (GP6/GP7)
     routeModulation();  // CV → DSP param mapping
 }
 
@@ -2022,9 +2046,9 @@ One audio-cycle chorus latency (~30µs) — completely inaudible. Effectively do
 | BAT48 Schottky      | DO-35             | 10–12                | CV clamp diodes                                       |
 | 1N5817 or SS14      | —                 | 2                    | Reverse polarity protection                           |
 | Ferrite bead        | BLM21PG221        | 3                    | Rail noise filtering                                  |
-| APA102/SK9822       | 5mm or SMD        | 5                    | Dotstar RGB status LEDs (clocked SPI, interrupt-safe) |
+| APA102/SK9822       | 5mm or SMD        | 7                    | Dotstar RGB status LEDs (clocked SPI, interrupt-safe) |
 | Thonkiconn PJ398SM  | —                 | 10                   | Switched Eurorack jacks                               |
-| Alpha 9mm pot       | RD901F            | 7                    | Panel knobs (2 large for ROOT/RELATION)               |
+| Alpha 9mm pot       | RD901F            | 9                    | Panel knobs (2 large for ROOT/RELATION)               |
 | Tactile button      | 6×6mm panel mount | 1                    | Single button                                         |
 | Eurorack header     | 16-pin shrouded   | 1                    | Power connector                                       |
 | Film cap            | 10µF              | 2                    | Audio AC coupling (L + R output)                      |

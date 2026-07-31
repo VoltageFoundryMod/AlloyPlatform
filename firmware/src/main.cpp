@@ -63,6 +63,7 @@
 #include "dsp_shared.h"
 #include "io/HardwarePicoIO.h" // M37d — IHardwareIO implementation for Pico
 #include "io/IOBridge.h"       // M37d — fillSynthParams()
+#include "io/LedEngine.h"      // M30/M37k — shared LED language
 #include "io/commands.h"       // doTrig()
 #include "io/serial_console.h"
 #include "params.h"
@@ -108,6 +109,16 @@ static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
 static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
 // M37d — hardware IO abstraction layer; owns readPot/readCV/readButton/writeLight.
 static HardwarePicoIO sHardwareIO(gBtnMode, gBtnShift);
+// M30/M37k — LED language. Platform-independent colour logic shared with the
+// VCV build; writeTo() pushes the result through sHardwareIO, which shifts it
+// out to the APA102 chain on GP6/GP7.
+static LedEngine sLedEngine;
+// Output peak-hold for LED metering — written by the audio ISR, read and
+// cleared by updateControl(). Aligned int32 = atomic on Cortex-M33.
+volatile int32_t gLedPeakL = 0;
+volatile int32_t gLedPeakR = 0;
+// Voice mode last rendered by the LEDs; a change triggers the ripple animation.
+static VoiceMode sLedPrevMode = VoiceMode::PAIR;
 // Set to true whenever SHIFT is consumed by a combo or knob action so the
 // trig-on-release is suppressed. Reset automatically on SHIFT release.
 static bool sShiftConsumed
@@ -235,6 +246,9 @@ void setup()
     gSynthEngine.init(MOZZI_AUDIO_RATE, MOZZI_CONTROL_RATE);
     gBtnMode.begin();
     gBtnShift.begin();
+    // M30: claim the Dotstar GPIOs and blank the panel before audio starts, so
+    // the LEDs are dark rather than showing whatever they powered up with.
+    sHardwareIO.begin();
     startMozzi();
     serialConsole_ready();
 #ifdef CPU_PROFILE
@@ -364,8 +378,9 @@ void updateControl()
 
     // -----------------------------------------------------------------------
     // M37d/M37b: populate SynthParams — IO layer first, then MIDI/serial globals.
-    // fillSynthParams() covers hardware-knob/CV driven fields (baseFreq, gate).
-    // All other fields (filter, reverb, ADSR, …) continue via gXxx globals.
+    // fillSynthParams() covers hardware-knob/CV driven fields (baseFreq, gate,
+    // and since M56 the DELAY/REVERB sends).  All other fields (filter, ADSR,
+    // …) continue via gXxx globals.
     // -----------------------------------------------------------------------
     {
         SynthParams p;
@@ -403,21 +418,58 @@ void updateControl()
         p.filterRes    = gFilterRes;
         p.filterMode   = gFilterMode;
         p.fxOrder      = gFxOrder;
-        p.revMix       = gRevMix;
-        gRevEnabled
-            = (gRevMix > 0.001f); // derived from mix; no longer set by CC
-        p.revEnabled    = gRevEnabled;
-        p.revSize       = gRevSize;
+        // M56: revMix/revEnabled/revSize/delayMix/delayTime now arrive from the
+        // DELAY and REVERB panel knobs via fillSynthParams() — HardwarePicoIO
+        // reads them back out of the gXxx globals, so MIDI/serial writes still
+        // reach the engine through the same path.
+        gRevEnabled     = p.revEnabled; // Core 1 loop reads the global
         p.revDamping    = gRevDamping;
         p.revModSpeed   = gRevModSpeed;
         p.revModDepth   = gRevModDepth;
         p.revFrozen     = gRevFrozen;
-        p.delayTime     = gDelayTime;
         p.delayFeedback = gDelayFeedback;
-        p.delayMix      = gDelayMix;
 
         SynthControlOutput co;
         gSynthEngine.control(p, sPolySlots, co);
+
+        // -------------------------------------------------------------------
+        // M30/M37k — LED language. All colour decisions live in LedEngine so
+        // hardware and VCV behave identically; only the transport differs.
+        // -------------------------------------------------------------------
+        {
+            if(p.voiceMode != sLedPrevMode)
+            {
+                sLedPrevMode = p.voiceMode;
+                sLedEngine.notifyModeChanged();
+            }
+
+            LedSignals sig;
+            if(p.voiceMode == VoiceMode::POLY)
+            {
+                for(uint8_t i = 0; i < 6; i++)
+                {
+                    if(sPolySlots[i].midiNote != 255)
+                        sig.activeVoices++;
+                    if(gSynthEngine.polyEnvs[i]
+                       && gSynthEngine.polyEnvs[i]->level() > sig.envLevel)
+                        sig.envLevel = gSynthEngine.polyEnvs[i]->level();
+                }
+            }
+            else if(gSynthEngine.curveEng)
+                sig.envLevel = gSynthEngine.curveEng->level();
+
+            constexpr float kPeakNorm = 1.0f / 32512.0f;
+            sig.peakL                 = (float)gLedPeakL * kPeakNorm;
+            sig.peakR                 = (float)gLedPeakR * kPeakNorm;
+            gLedPeakL                 = 0;
+            gLedPeakR                 = 0;
+            sig.droneMode             = !p.gatePatched;
+            sig.shiftHeld             = gBtnShift.isDown();
+            sig.gateHigh              = p.gateHigh;
+
+            sLedEngine.update(p, sig, 1.0f / (float)MOZZI_CONTROL_RATE);
+            sLedEngine.writeTo(sHardwareIO);
+        }
 
         revApplyParams();
 
@@ -603,6 +655,17 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
 
     if(gRevEnabled)
         revFeedDry(dryL, dryR);
+
+    // M37k — LED metering. Integer peak-hold only (abs + compare, no FPU,
+    // no allocation); updateControl() reads and clears it at 128 Hz.
+    {
+        const int32_t aL = outL < 0 ? -outL : outL;
+        const int32_t aR = outR < 0 ? -outR : outR;
+        if(aL > gLedPeakL)
+            gLedPeakL = aL;
+        if(aR > gLedPeakR)
+            gLedPeakR = aR;
+    }
 
 #ifdef CPU_PROFILE
     const uint32_t elapsed = time_us_32() - _t0;

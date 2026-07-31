@@ -1,4 +1,5 @@
 #include "io/param_map.h"
+#include "dsp/DelayEngine.h" // DELAY_MAX_MS
 #include "dsp/ReverbEngine.h"
 #include "params.h"
 
@@ -34,7 +35,7 @@
 //   83  General Purpose                  adsrsustain  (0.0–1.0)
 //   84  General Purpose                  fat  (sub oscillator level 0.0–1.0)
 //   85  (undefined)                      delayon  (≥64=on) — special case
-//   86  (undefined)                      delaytime  (10–500 ms)
+//   86  (undefined)                      delaytime  (10–DELAY_MAX_MS ms)
 //   87  (undefined)                      delayfeedback  (0.0–0.95)
 //   88  (undefined)                      curvetime  (0.25–4.0×)
 //   89  (undefined)                      dspeed   (drift glide speed 0.001–0.1)
@@ -74,7 +75,7 @@ const CCParam kCCParams[] = {
     {  82,  0.001f,  4.0f,    &gAdsrDecay,                "adsrdecay",   false },  // General Purpose
     {  83,  0.0f,    1.0f,    &gAdsrSustain,              "adsrsustain", false },  // General Purpose
     {  84,  0.0f,    1.0f,    &gFatness,                  "fat",         false },  // General Purpose
-    {  86,  10.0f, 500.0f,    &gDelayTime,                "delaytime",   false },  // Delay time ms
+    {  86,  10.0f, (float)DELAY_MAX_MS, &gDelayTime,       "delaytime",   false },  // Delay time ms
     {  87,  0.0f,   0.95f,    &gDelayFeedback,            "delayfb",     false },  // Delay feedback
     {  88,  0.25f,   4.0f,    &gCurveTime,                "curvetime",   false },  // Envelope time scale
     {  89,  0.001f,  0.1f,    &gDriftSpeed,               "dspeed",      false },  // Drift speed

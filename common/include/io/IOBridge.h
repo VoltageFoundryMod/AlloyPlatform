@@ -1,7 +1,8 @@
 #pragma once
 
 #include "HardwareIO.h"
-#include "SynthEngine.h" // SynthParams
+#include "SynthEngine.h"     // SynthParams
+#include "dsp/DelayEngine.h" // DELAY_MAX_MS
 
 #include <math.h> // exp2f
 
@@ -13,9 +14,10 @@ static inline float clampf(float v, float lo, float hi)
 // fillSynthParams — shared hardware-IO → SynthParams translation.
 //
 // Fills all knob/CV-driven fields of `p` from the given IHardwareIO.
-// MIDI- and serial-driven fields (ADSR times, reverb, delay, etc.) are
-// managed separately per-platform: gXxx globals on hardware, additional
-// context-menu/param entries in VCV Rack (M37h+).
+// The remaining MIDI- and serial-driven fields (ADSR times, filter, reverb
+// damping/modulation, delay feedback, …) are managed separately per-platform:
+// gXxx globals on hardware, additional context-menu/param entries in VCV
+// Rack (M37h+).
 //
 // Called by:
 //   src/main.cpp                   via HardwarePicoIO
@@ -82,6 +84,23 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
 
     // VOL (SHIFT+SPACE on hardware; context menu in VCV).
     p.volume = io.readPot(PotId::VOL);
+
+    // -----------------------------------------------------------------------
+    // Effects sends (M56)
+    // DELAY / REVERB pots: 0–1 wet mix, fully CCW = hard bypass (zero CPU).
+    // Everything else about the two effects (feedback, damping, modulation)
+    // stays on the MIDI/serial side — only mix and the shift-secondary are
+    // on the panel.
+    p.delayMix = io.readPot(PotId::DELAY);
+    // DELAYTIME (SHIFT+DELAY on hardware; context menu in VCV): 10–DELAY_MAX_MS.
+    p.delayTime
+        = 10.0f + io.readPot(PotId::DELAYTIME) * ((float)DELAY_MAX_MS - 10.0f);
+
+    p.revMix = io.readPot(PotId::REVERB);
+    // revEnabled is derived from the mix so a fully-CCW knob costs no CPU.
+    p.revEnabled = (p.revMix > 0.001f);
+    // REVERBSIZE (SHIFT+REVERB on hardware; context menu in VCV).
+    p.revSize = io.readPot(PotId::REVERBSIZE);
 
     // -----------------------------------------------------------------------
     // Gate / drone mode

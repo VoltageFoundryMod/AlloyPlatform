@@ -6,6 +6,7 @@
 #include "dsp/CurveEngine.h"  // EnvelopeType enum
 #include "dsp/FilterEngine.h" // FilterMode, FilterType enums
 #include "io/IOBridge.h"      // fillSynthParams() shared bridge
+#include "io/LedEngine.h"     // shared LED language (M30 / M37k)
 #include "plugin.hpp"
 #include "scale_quantizer.h"   // M37j: ScaleId, quantizeNote()
 #include <app/MidiDisplay.hpp> // M37i: appendMidiMenu()
@@ -29,7 +30,10 @@ volatile uint32_t gAudioOverruns           = 0;
 struct AlloyFlux : Module
 {
     // -----------------------------------------------------------------------
-    // Panel knobs (7 — mirrors hardware layout exactly)
+    // Panel knobs (9 — mirrors hardware layout exactly)
+    // The DELAY / REVERB panel knobs are the effect wet mixes; they reuse the
+    // pre-existing REV_MIX_PARAM / DELAY_MIX_PARAM entries below rather than
+    // adding duplicates, so CC 91 / CC 95 and saved patches keep working.
     // SHIFT-secondary params are hidden from the panel; exposed in context menu.
     enum ParamId
     {
@@ -61,13 +65,13 @@ struct AlloyFlux : Module
         FILTER_TYPE_PARAM,   // 0=SVF,1=LADDER
         FILTER_CUTOFF_PARAM, // [20, 16000] Hz, default 8000
         FILTER_RES_PARAM,    // [0, 1], default 0
-        REV_MIX_PARAM,       // [0, 1], default 0
-        REV_SIZE_PARAM,      // [0, 1], default 0.5
+        REV_MIX_PARAM,       // [0, 1], default 0    — REVERB panel knob (M56)
+        REV_SIZE_PARAM,      // [0, 1], default 0.5  — SHIFT+REVERB
         REV_DAMPING_PARAM,   // [0, 1], default 0.5
         REV_MOD_SPEED_PARAM, // [0.1, 4] Hz, default 1.0
         REV_MOD_DEPTH_PARAM, // [0, 1], default 0.
-        DELAY_MIX_PARAM,     // [0, 1], default 0
-        DELAY_TIME_PARAM,    // [1, 1000] ms, default 100
+        DELAY_MIX_PARAM,     // [0, 1], default 0    — DELAY panel knob (M56)
+        DELAY_TIME_PARAM,    // [10, DELAY_MAX_MS] ms, default 100 — SHIFT+DELAY
         DELAY_FB_PARAM,      // [0, 0.99], default 0.5
         // ---- FX chain ordering ----
         FX_FILTER_POS_PARAM, // 0=pre-chorus, 1=post-chorus
@@ -105,14 +109,41 @@ struct AlloyFlux : Module
         OUTPUTS_LEN
     };
 
+    // 7 RGB LEDs — three consecutive Rack light indices each (R, G, B).
+    // Panel order and roles mirror the hardware designators; see LedId in
+    // common/include/io/LedEngine.h.
+    // NOTE: this unscoped enum shadows the global ::LightId from HardwareIO.h
+    // inside this struct — qualify that one as ::LightId::X when registering.
     enum LightId
     {
+        LED1_R_LIGHT, // D12 top left     — ROOT voice activity
+        LED1_G_LIGHT,
+        LED1_B_LIGHT,
+        LED7_R_LIGHT, // D22 top right    — RELATION voice activity
+        LED7_G_LIGHT,
+        LED7_B_LIGHT,
+        LED2_R_LIGHT, // D13 mid-top left — motion / modulation
+        LED2_G_LIGHT,
+        LED2_B_LIGHT,
+        LED6_R_LIGHT, // D21 mid-top right — secondary modulation
+        LED6_G_LIGHT,
+        LED6_B_LIGHT,
+        LED3_R_LIGHT, // D14 mid left     — voice mode indicator
+        LED3_G_LIGHT,
+        LED3_B_LIGHT,
+        LED5_R_LIGHT, // D16 mid right    — shift / drone state
+        LED5_G_LIGHT,
+        LED5_B_LIGHT,
+        LED4_R_LIGHT, // D15 centre       — heartbeat / global
+        LED4_G_LIGHT,
+        LED4_B_LIGHT,
         LIGHTS_LEN
     };
 
     // -----------------------------------------------------------------------
     SynthEngine _engine;
     VCVRackIO   _io;
+    LedEngine   _leds;
     PolySlot    _polySlots[6] = {
         {440.0f, 1.0f, 255},
         {440.0f, 1.0f, 255},
@@ -165,6 +196,12 @@ struct AlloyFlux : Module
     // CC feedback cache: 0xFF = never sent (forces first-tick emission)
     uint8_t _lastFeedbackCC[128];
 
+    // M37k: LED feedback — output peak accumulated between control ticks and
+    // the mode we last rendered (so menu/MIDI mode changes ripple too).
+    float     _ledPeakL    = 0.f;
+    float     _ledPeakR    = 0.f;
+    VoiceMode _ledPrevMode = VoiceMode::PAIR;
+
     AlloyFlux() : _io(this)
     {
         memset(_lastFeedbackCC, 0xFF, sizeof(_lastFeedbackCC));
@@ -178,6 +215,7 @@ struct AlloyFlux : Module
         configParam(COLOR_PARAM, 0.0f, 1.0f, 0.0f, "Color");
         configParam(CURVE_PARAM, 0.0f, 1.0f, 0.5f, "Curve");
         configParam(SPACE_PARAM, 0.0f, 1.0f, 0.5f, "Space");
+        // DELAY / REVERB panel knobs — see REV_MIX_PARAM / DELAY_MIX_PARAM below.
 
         // Context menu secondary params (hidden from panel, saved in patch)
         configParam(FATNESS_PARAM, 0.0f, 1.0f, 0.4f, "Fatness");
@@ -208,10 +246,15 @@ struct AlloyFlux : Module
         _io.assignPot(PotId::COLOR, COLOR_PARAM, 0.0f, 1.0f);
         _io.assignPot(PotId::CURVE, CURVE_PARAM, 0.0f, 1.0f);
         _io.assignPot(PotId::SPACE, SPACE_PARAM, 0.0f, 1.0f);
+        _io.assignPot(PotId::DELAY, DELAY_MIX_PARAM, 0.0f, 1.0f);
+        _io.assignPot(PotId::REVERB, REV_MIX_PARAM, 0.0f, 1.0f);
         // IO mappings — secondary (context menu)
         _io.assignPot(PotId::FATNESS, FATNESS_PARAM, 0.0f, 1.0f);
         _io.assignPot(PotId::DRIFTSPEED, DRIFTSPEED_PARAM, 0.0f, 1.0f);
         _io.assignPot(PotId::VOL, VOL_PARAM, 0.0f, 1.0f);
+        _io.assignPot(
+            PotId::DELAYTIME, DELAY_TIME_PARAM, 10.0f, (float)DELAY_MAX_MS);
+        _io.assignPot(PotId::REVERBSIZE, REV_SIZE_PARAM, 0.0f, 1.0f);
 
         // IO mappings — CV jacks
         _io.assignCV(CVId::VOCT, VOCT_INPUT);
@@ -221,6 +264,24 @@ struct AlloyFlux : Module
         _io.assignCV(CVId::MTN_CV, MTN_CV_INPUT);
         _io.assignCV(CVId::SPC_CV, SPC_CV_INPUT);
         _io.assignCV(CVId::FM_IN, FM_IN_INPUT);
+
+        // IO mappings — LEDs (RGB triplets; base index = red channel).
+        // ::LightId is the shared enum from HardwareIO.h, not this struct's.
+        _io.assignLight(::LightId::VOICE_L, LED1_R_LIGHT);
+        _io.assignLight(::LightId::VOICE_R, LED7_R_LIGHT);
+        _io.assignLight(::LightId::MOD_L, LED2_R_LIGHT);
+        _io.assignLight(::LightId::MOD_R, LED6_R_LIGHT);
+        _io.assignLight(::LightId::MODE, LED3_R_LIGHT);
+        _io.assignLight(::LightId::SHIFT, LED5_R_LIGHT);
+        _io.assignLight(::LightId::CENTRE, LED4_R_LIGHT);
+
+        configLight(LED1_R_LIGHT, "Voice activity (root / left)");
+        configLight(LED7_R_LIGHT, "Voice activity (relation / right)");
+        configLight(LED2_R_LIGHT, "Motion depth");
+        configLight(LED6_R_LIGHT, "Modulation / stereo position");
+        configLight(LED3_R_LIGHT, "Voice mode");
+        configLight(LED5_R_LIGHT, "Shift / drone");
+        configLight(LED4_R_LIGHT, "Heartbeat");
 
         // Buttons
         configButton(MODE_PARAM, "Mode");
@@ -256,13 +317,20 @@ struct AlloyFlux : Module
         configParam(
             FILTER_CUTOFF_PARAM, 20.f, 16000.f, 839.f, "Filter cutoff", " Hz");
         configParam(FILTER_RES_PARAM, 0.f, 1.f, 0.f, "Filter resonance");
-        configParam(REV_MIX_PARAM, 0.f, 1.f, 0.f, "Reverb mix");
+        configParam(REV_MIX_PARAM, 0.f, 1.f, 0.f, "Reverb");
         configParam(REV_SIZE_PARAM, 0.f, 1.f, 0.5f, "Reverb size");
         configParam(REV_DAMPING_PARAM, 0.f, 1.f, 0.5f, "Reverb damping");
         configParam(REV_MOD_SPEED_PARAM, 0.1f, 4.0f, 1.0f, "Reverb mod speed");
         configParam(REV_MOD_DEPTH_PARAM, 0.0f, 1.0f, 1.0f, "Reverb mod depth");
-        configParam(DELAY_MIX_PARAM, 0.f, 1.f, 0.f, "Delay mix");
-        configParam(DELAY_TIME_PARAM, 1.f, 500.f, 100.f, "Delay time", " ms");
+        configParam(DELAY_MIX_PARAM, 0.f, 1.f, 0.f, "Delay");
+        // Range matches the hardware engine limit so the knob travel is the
+        // same on both platforms (DelayEngine clamps above DELAY_MAX_MS).
+        configParam(DELAY_TIME_PARAM,
+                    10.f,
+                    (float)DELAY_MAX_MS,
+                    100.f,
+                    "Delay time",
+                    " ms");
         configParam(DELAY_FB_PARAM, 0.f, 0.99f, 0.5f, "Delay feedback");
         configSwitch(FX_FILTER_POS_PARAM,
                      0.f,
@@ -403,7 +471,10 @@ struct AlloyFlux : Module
             {112, cc7(0.1f, 4.f, params[REV_MOD_SPEED_PARAM].getValue())},
             {113, cc7(0.f, 1.f, params[REV_MOD_DEPTH_PARAM].getValue())},
             {95, cc7(0.f, 1.f, params[DELAY_MIX_PARAM].getValue())},
-            {86, cc7(10.f, 500.f, params[DELAY_TIME_PARAM].getValue())},
+            {86,
+             cc7(10.f,
+                 (float)DELAY_MAX_MS,
+                 params[DELAY_TIME_PARAM].getValue())},
             {87, cc7(0.f, 0.95f, params[DELAY_FB_PARAM].getValue())},
             {79,
              (uint8_t)(params[FX_FILTER_POS_PARAM].getValue() >= 0.5f ? 96
@@ -570,7 +641,7 @@ struct AlloyFlux : Module
         cc7(118, 0.f, 1.f, params[REV_DAMPING_PARAM].getValue());
         cc7(112, 0.1f, 4.f, params[REV_MOD_SPEED_PARAM].getValue());
         cc7(113, 0.f, 1.f, params[REV_MOD_DEPTH_PARAM].getValue());
-        cc7(86, 10.f, 500.f, params[DELAY_TIME_PARAM].getValue());
+        cc7(86, 10.f, (float)DELAY_MAX_MS, params[DELAY_TIME_PARAM].getValue());
         {
             float fb = params[DELAY_FB_PARAM].getValue();
             int   v  = (int)std::round(fb / 0.95f * 127.f);
@@ -713,7 +784,8 @@ struct AlloyFlux : Module
                 break;
             case 113: params[REV_MOD_DEPTH_PARAM].setValue(norm); break;
             case 86:
-                params[DELAY_TIME_PARAM].setValue(10.0f + norm * 490.0f);
+                params[DELAY_TIME_PARAM].setValue(
+                    10.0f + norm * ((float)DELAY_MAX_MS - 10.0f));
                 break;
             case 87: params[DELAY_FB_PARAM].setValue(norm * 0.95f); break;
             case 95: params[DELAY_MIX_PARAM].setValue(norm); break;
@@ -800,6 +872,7 @@ struct AlloyFlux : Module
                 {
                     // Note On
                     _droneMode = false;
+                    _leds.notifyNoteOn();
                     if(_voiceMode == VoiceMode::POLY)
                     {
                         // POLY: search for a free slot starting at _polyRR so
@@ -892,7 +965,10 @@ struct AlloyFlux : Module
                         else if(cmd == 0x04)
                         { // PRESET_SAVE — snapshot current params to slot
                             if(arg >= 1 && arg <= 9)
+                            {
                                 _presets[arg - 1] = _snapshotPairs();
+                                _leds.notifyConfirm();
+                            }
                         }
                         else if(cmd == 0x05)
                         { // PRESET_LOAD — restore slot
@@ -902,6 +978,7 @@ struct AlloyFlux : Module
                                 for(auto &p : _presets[arg - 1])
                                     _applyCC(p.first, p.second);
                                 _dumpPending.store(true);
+                                _leds.notifyConfirm();
                             }
                         }
                         else if(cmd == 0x06)
@@ -1007,7 +1084,10 @@ struct AlloyFlux : Module
         bool gateRising  = gateNow && !_prevGateHigh;
         bool gateFalling = !gateNow && _prevGateHigh;
         if(gateRising)
+        {
             _droneMode = false;
+            _leds.notifyNoteOn();
+        }
         _prevGateHigh = gateNow;
 
         // Drone mode: bypass envelope by clearing gate flags.
@@ -1110,16 +1190,13 @@ struct AlloyFlux : Module
             (int)params[FILTER_MODE_PARAM].getValue());
         _params.filterType = static_cast<FilterType>(
             (int)params[FILTER_TYPE_PARAM].getValue());
-        _params.filterCutoff  = params[FILTER_CUTOFF_PARAM].getValue();
-        _params.filterRes     = params[FILTER_RES_PARAM].getValue();
-        _params.revMix        = params[REV_MIX_PARAM].getValue();
-        _params.revEnabled    = _params.revMix > 0.f;
-        _params.revSize       = params[REV_SIZE_PARAM].getValue();
+        _params.filterCutoff = params[FILTER_CUTOFF_PARAM].getValue();
+        _params.filterRes    = params[FILTER_RES_PARAM].getValue();
+        // M56: revMix/revEnabled/revSize/delayMix/delayTime come from the DELAY
+        // and REVERB panel knobs via fillSynthParams() — same path as hardware.
         _params.revDamping    = params[REV_DAMPING_PARAM].getValue();
         _params.revModSpeed   = params[REV_MOD_SPEED_PARAM].getValue();
         _params.revModDepth   = params[REV_MOD_DEPTH_PARAM].getValue();
-        _params.delayMix      = params[DELAY_MIX_PARAM].getValue();
-        _params.delayTime     = params[DELAY_TIME_PARAM].getValue();
         _params.delayFeedback = params[DELAY_FB_PARAM].getValue();
         _params.fxOrder.filterPostChorus
             = params[FX_FILTER_POS_PARAM].getValue() >= 0.5f;
@@ -1150,6 +1227,41 @@ struct AlloyFlux : Module
                    && _engine.polyEnvs[i]->level() < 0.001f)
                     _polySlots[i].midiNote = 255;
             }
+
+            // --- M37k: LED language ---------------------------------------
+            // Mode changes arrive from the panel button, the context menu and
+            // MIDI CC 115 alike, so detect them here rather than at each site.
+            if(_voiceMode != _ledPrevMode)
+            {
+                _ledPrevMode = _voiceMode;
+                _leds.notifyModeChanged();
+            }
+
+            LedSignals sig;
+            if(_voiceMode == VoiceMode::POLY)
+            {
+                for(int i = 0; i < 6; i++)
+                {
+                    if(_polySlots[i].midiNote != 255)
+                        sig.activeVoices++;
+                    if(_engine.polyEnvs[i]
+                       && _engine.polyEnvs[i]->level() > sig.envLevel)
+                        sig.envLevel = _engine.polyEnvs[i]->level();
+                }
+            }
+            else if(_engine.curveEng)
+                sig.envLevel = _engine.curveEng->level();
+
+            sig.peakL     = _ledPeakL;
+            sig.peakR     = _ledPeakR;
+            _ledPeakL     = 0.f;
+            _ledPeakR     = 0.f;
+            sig.droneMode = _droneMode;
+            sig.shiftHeld = shiftDown;
+            sig.gateHigh  = _params.gateHigh;
+
+            _leds.update(_params, sig, (float)_controlDiv * args.sampleTime);
+            _leds.writeTo(_io);
         }
 
         // M37h — inline reverb: process last frame's dry signal, pass wet to audio().
@@ -1183,6 +1295,16 @@ struct AlloyFlux : Module
         constexpr float kScale = 5.0f / 32512.0f;
         outputs[L_OUTPUT].setVoltage((float)outL * kScale);
         outputs[R_OUTPUT].setVoltage((float)outR * kScale);
+
+        // M37k: peak-hold the output between control ticks — LedEngine turns
+        // this into the voice-activity / stereo-energy brightness.
+        constexpr float kNormOut = 1.0f / 32512.0f;
+        float           aL       = std::fabs((float)outL) * kNormOut;
+        float           aR       = std::fabs((float)outR) * kNormOut;
+        if(aL > _ledPeakL)
+            _ledPeakL = aL;
+        if(aR > _ledPeakR)
+            _ledPeakR = aR;
     }
 
     // M37i: persist MIDI port config; M37l: persist preset slots 1–9
@@ -1255,14 +1377,14 @@ struct AlloyFluxWidget : ModuleWidget
             createPanel(asset::plugin(pluginInstance, "res/AlloyFlux.svg")));
 
         // Screws
-        addChild(createWidget<ScrewSilver>(Vec(RACK_GRID_WIDTH, 0)));
-        addChild(createWidget<ScrewSilver>(
-            Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
-        addChild(createWidget<ScrewSilver>(
+        addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));
+        addChild(
+            createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
+        addChild(createWidget<ScrewBlack>(
             Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
         addChild(
-            createWidget<ScrewSilver>(Vec(box.size.x - 2 * RACK_GRID_WIDTH,
-                                          RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
+            createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH,
+                                         RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         // --- Panel knobs (7) ---
         addParam(createParamCentered<RoundBlackKnob>(
@@ -1279,12 +1401,16 @@ struct AlloyFluxWidget : ModuleWidget
             mm2px(Vec(35.48, 43.653)), module, AlloyFlux::CURVE_PARAM));
         addParam(createParamCentered<RoundBlackKnob>(
             mm2px(Vec(35.477, 62.018)), module, AlloyFlux::SPACE_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>(
+            mm2px(Vec(19.748, 62.018)), module, AlloyFlux::DELAY_MIX_PARAM));
+        addParam(createParamCentered<RoundBlackKnob>(
+            mm2px(Vec(51.196, 61.885)), module, AlloyFlux::REV_MIX_PARAM));
 
         // --- Buttons ---
         addParam(createParamCentered<VCVButton>(
-            mm2px(Vec(22.3, 74.07)), module, AlloyFlux::MODE_PARAM));
+            mm2px(Vec(22.312, 76.912)), module, AlloyFlux::MODE_PARAM));
         addParam(createParamCentered<VCVButton>(
-            mm2px(Vec(48.6, 74.07)), module, AlloyFlux::SHIFT_PARAM));
+            mm2px(Vec(48.612, 76.912)), module, AlloyFlux::SHIFT_PARAM));
 
         // --- CV inputs — row 1 (V/OCT, GATE, [MIDI jack — software only], REL CV, SHAPE CV) ---
         addInput(createInputCentered<PJ301MPort>(
@@ -1311,6 +1437,22 @@ struct AlloyFluxWidget : ModuleWidget
             mm2px(Vec(48.645, 107.369)), module, AlloyFlux::L_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(
             mm2px(Vec(61.389, 107.437)), module, AlloyFlux::R_OUTPUT));
+
+        // --- LEDs (7 × RGB) — colour driven by the shared LedEngine ---
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(13.868, 52.389)), module, AlloyFlux::LED1_R_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(57.046, 52.389)), module, AlloyFlux::LED7_R_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(9.356, 66.422)), module, AlloyFlux::LED2_R_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(61.934, 66.422)), module, AlloyFlux::LED6_R_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(13.853, 77.328)), module, AlloyFlux::LED3_R_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(57.018, 77.328)), module, AlloyFlux::LED5_R_LIGHT));
+        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+            mm2px(Vec(35.477, 79.106)), module, AlloyFlux::LED4_R_LIGHT));
     }
 
     // -----------------------------------------------------------------------
@@ -1646,11 +1788,7 @@ struct AlloyFluxWidget : ModuleWidget
             "",
             [=](rack::ui::Menu *submenu)
             {
-                auto *mix     = new SubMenuSlider;
-                mix->text     = "Mix";
-                mix->quantity = m->getParamQuantity(AlloyFlux::REV_MIX_PARAM);
-                submenu->addChild(mix);
-
+                // Mix lives on the REVERB panel knob (M56), not here.
                 auto *sz     = new SubMenuSlider;
                 sz->text     = "Size";
                 sz->quantity = m->getParamQuantity(AlloyFlux::REV_SIZE_PARAM);
@@ -1724,11 +1862,7 @@ struct AlloyFluxWidget : ModuleWidget
 
                 submenu->addChild(new rack::ui::MenuSeparator);
 
-                auto *mix     = new SubMenuSlider;
-                mix->text     = "Mix";
-                mix->quantity = m->getParamQuantity(AlloyFlux::DELAY_MIX_PARAM);
-                submenu->addChild(mix);
-
+                // Mix lives on the DELAY panel knob (M56), not here.
                 auto *time = new SubMenuSlider;
                 time->text = "Time";
                 time->quantity
@@ -1827,7 +1961,10 @@ struct AlloyFluxWidget : ModuleWidget
                                 "Preset " + std::to_string(s),
                                 hasSave ? "(overwrite)" : "",
                                 [=]()
-                                { m->_presets[s - 1] = m->_snapshotPairs(); }));
+                                {
+                                    m->_presets[s - 1] = m->_snapshotPairs();
+                                    m->_leds.notifyConfirm();
+                                }));
                         }
                     }));
 
@@ -1847,6 +1984,7 @@ struct AlloyFluxWidget : ModuleWidget
                                     for(auto &p : m->_presets[s - 1])
                                         m->_applyCC(p.first, p.second);
                                     m->_dumpPending.store(true);
+                                    m->_leds.notifyConfirm();
                                 });
                             item->disabled = !hasSave;
                             loadMenu->addChild(item);

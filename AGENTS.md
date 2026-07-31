@@ -83,7 +83,7 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 - **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `5`.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
-- Current SRAM usage: ~236 KB of 512 KB (45%); check after any change that increases buffer sizes.
+- Current SRAM usage: ~290 KB of 512 KB (56.5%), flash 4.5%; check after any change that increases buffer sizes. The jump from the previously documented 236 KB is `-DDELAY_MAX_MS=500` in `platformio.ini` (~65 KB of delay buffer), not a regression.
 
 ---
 
