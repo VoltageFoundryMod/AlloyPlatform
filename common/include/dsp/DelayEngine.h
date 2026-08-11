@@ -28,8 +28,13 @@
 class DelayEngine
 {
   public:
+    // Buffer is sized at the hardware rate; the buffer, not DELAY_MAX_MS, is the
+    // real ceiling. A VCV host running faster than 32768 Hz therefore tops out
+    // below DELAY_MAX_MS in wall-clock terms — setParams() clamps to whatever
+    // the buffer actually holds at the current rate.
+    static constexpr uint32_t kNativeRate = 32768;
     static constexpr uint32_t kMaxSamples
-        = (uint32_t)((DELAY_MAX_MS / 1000.0f) * 32768.0f + 0.5f);
+        = (uint32_t)((DELAY_MAX_MS / 1000.0f) * (float)kNativeRate + 0.5f);
 
     DelayEngine()
     : _enabled(false),
@@ -38,7 +43,8 @@ class DelayEngine
       _feedback(0.0f),
       _mix(0.0f),
       _dryGain(1.0f),
-      _writeIdx(0)
+      _writeIdx(0),
+      _sampleRate((float)kNativeRate)
     {
         memset(_bufL, 0, sizeof(_bufL));
         memset(_bufR, 0, sizeof(_bufR));
@@ -57,6 +63,12 @@ class DelayEngine
             time_ms = 10.0f;
         if(time_ms > (float)DELAY_MAX_MS)
             time_ms = (float)DELAY_MAX_MS;
+        // Ceiling imposed by the buffer at the *current* rate, so a 48 kHz host
+        // gets an accurate (if shorter) delay rather than a mistuned one.
+        const float maxAtRate
+            = ((float)(kMaxSamples - 2) * 1000.0f) / _sampleRate;
+        if(time_ms > maxAtRate)
+            time_ms = maxAtRate;
         if(feedback < 0.0f)
             feedback = 0.0f;
         if(feedback > 0.95f)
@@ -65,7 +77,7 @@ class DelayEngine
             mix = 0.0f;
         if(mix > 1.0f)
             mix = 1.0f;
-        const float fsamples = time_ms * (32768.0f / 1000.0f);
+        const float fsamples = time_ms * (_sampleRate / 1000.0f);
         _timeSamples         = (uint32_t)fsamples;
         if(_timeSamples >= kMaxSamples)
             _timeSamples = kMaxSamples - 1;
@@ -77,6 +89,19 @@ class DelayEngine
 
     void setEnabled(bool en) { _enabled = en; }
     bool enabled() const { return _enabled; }
+
+    /**
+     * setSampleRate() — control rate only.
+     * Hardware is fixed at kNativeRate; VCV forwards the host rate here on every
+     * engine sample-rate change. Without it a 100 ms request became 68 ms at
+     * 48 kHz. Callers must re-issue setParams() afterwards to re-derive the
+     * delay length; SynthEngine::setSampleRate() does exactly that.
+     */
+    void setSampleRate(uint32_t rate)
+    {
+        if(rate > 0)
+            _sampleRate = (float)rate;
+    }
 
     /**
      * process() — audio rate, stereo ping-pong delay.
@@ -158,6 +183,7 @@ class DelayEngine
     float    _mix;
     float    _dryGain;
     uint32_t _writeIdx;
+    float    _sampleRate; // kNativeRate on hardware; host rate under VCV
 
     // Delay line buffers — statically allocated at compile time
     int32_t _bufL[kMaxSamples];

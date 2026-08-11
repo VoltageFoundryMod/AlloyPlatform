@@ -86,6 +86,8 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     curveEng  = &_arEnv;
     gCurveEng = &_arEnv;
 
+    _delay.setSampleRate(audioRate);
+
     // Chorus — must run before the audio ISR starts.
     _chorus.init(audioRate);
 
@@ -126,6 +128,9 @@ void SynthEngine::setSampleRate(uint32_t audioRate)
     _arEnv.setSampleRate(audioRate);
     _adsrEnv.setSampleRate(audioRate);
     _chorus.setSampleRate(audioRate);
+    // Delay converts ms → samples, so it needs the rate too; control() re-issues
+    // setParams() every tick, which re-derives the length from the new rate.
+    _delay.setSampleRate(audioRate);
     // Wavetables and filter coefficients are sample-rate independent; no
     // regeneration needed (filter coefficients are recomputed each tick anyway).
 }
