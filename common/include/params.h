@@ -4,6 +4,7 @@
 #include "dsp/ChorusEngine.h" // ChorusMode enum
 #include "dsp/CurveEngine.h"  // EnvelopeType enum (M5x)
 #include "dsp/FilterEngine.h" // FilterMode, FilterType enums (M26a / M5x)
+#include "io/PotTakeover.h"   // PotTakeoverMode enum (M62)
 #include "scale_quantizer.h"  // ScaleId enum (M49)
 
 /**
@@ -75,6 +76,11 @@ extern int8_t  gTranspose;     // semitone offset: −24…+24, default 0
 
 // MIDI configuration
 extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel
+
+// Knob takeover (M62) — how a physical pot regains control of a parameter that
+// was last set from the Web Configurator, MIDI, the serial console or a preset.
+// Firmware only: VCV knobs are virtual and are simply moved by incoming CC.
+extern PotTakeoverMode gPotTakeoverMode; // default: SCALE (soft pickup)
 
 // CPU profiling — defined in main.cpp, only present when CPU_PROFILE is set.
 // gAudioElapsedUs : µs spent inside the last updateAudio() call

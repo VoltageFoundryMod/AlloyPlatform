@@ -32,7 +32,7 @@
  */
 
 static constexpr uint32_t kConfigMagic   = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t  kConfigVersion = 5;
+static constexpr uint8_t  kConfigVersion = 6;
 static constexpr uint8_t  kMaxPresets
     = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
 
@@ -103,6 +103,8 @@ struct AlloyConfig
     // Scale quantizer (M49)
     uint8_t quantizeScale; // cast of ScaleId enum; 0 = CHROMATIC (bypass)
     int8_t  transpose;     // semitone offset −24…+24; 0 = no transpose
+    // Knob takeover (M62)
+    uint8_t potTakeover; // cast of PotTakeoverMode; 2 = SCALE (default)
 };
 
 enum class ConfigSaveResult : uint8_t

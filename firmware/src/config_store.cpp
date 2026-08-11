@@ -97,6 +97,8 @@ static void packConfig(AlloyConfig &cfg)
     // Scale quantizer (M49)
     cfg.quantizeScale = (uint8_t)gQuantizeScale;
     cfg.transpose     = gTranspose;
+    // Knob takeover (M62)
+    cfg.potTakeover = (uint8_t)gPotTakeoverMode;
 }
 
 // Apply a validated config struct to all gXxx globals.
@@ -154,6 +156,10 @@ static void applyConfig(const AlloyConfig &cfg)
                          ? (ScaleId)cfg.quantizeScale
                          : ScaleId::CHROMATIC;
     gTranspose     = (int8_t)constrain((int)cfg.transpose, -24, 24);
+    // Knob takeover (M62) — unknown values fall back to the SCALE default.
+    gPotTakeoverMode = (cfg.potTakeover <= (uint8_t)PotTakeoverMode::SCALE)
+                           ? (PotTakeoverMode)cfg.potTakeover
+                           : PotTakeoverMode::SCALE;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,5 +277,6 @@ void configStore_applyDefaults()
     d.glideEnabled       = false;
     d.quantizeScale      = (uint8_t)ScaleId::CHROMATIC;
     d.transpose          = 0;
+    d.potTakeover        = (uint8_t)PotTakeoverMode::SCALE;
     applyConfig(d);
 }

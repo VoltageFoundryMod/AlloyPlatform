@@ -42,6 +42,14 @@ void                 doTrig(uint32_t durMs);
 extern const uint8_t kCommandCount;
 
 /**
+ * Re-attach every knob to its parameter immediately, without waiting for it to
+ * be moved (M62).  Backs `pot sync`: the next control tick snaps all knob-owned
+ * parameters to the physical knob positions.  Defined in main.cpp, which owns
+ * the HardwarePicoIO instance.
+ */
+void potsReattach();
+
+/**
  * Dispatch a null-terminated command string to the matching handler.
  * Writes the response to `out`.
  * On no match: prints "unknown: <cmd>" then the full help listing.

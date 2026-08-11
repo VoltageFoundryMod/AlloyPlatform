@@ -6,9 +6,10 @@
 #include "dsp/DelayEngine.h" // DELAY_MAX_MS (SHIFT+DELAY normalisation)
 #include "io/Apa102.h"       // M30 — Dotstar chain driver
 #include "io/HardwareIO.h"
-#include "params.h" // gBaseFreq, gGateHigh, gGatePatched, gShape, …
+#include "io/PotTakeover.h" // M62 — knob vs. web/MIDI arbitration
+#include "params.h"         // gBaseFreq, gGateHigh, gGatePatched, gShape, …
 
-#include <math.h> // log2f
+#include <math.h> // log2f, exp2f
 
 // Panel LED wiring — from hardware/MainPCB (LEDs.kicad_sch / MCU.kicad_sch).
 // Override at build time if a board revision moves them.
@@ -25,14 +26,43 @@
 #define PIN_LED_SHIFT_BTN 13 // GP13, pin 17 — SHIFT switch backlight (via R36)
 #endif
 
+// The multiplexed ADC driver is not wired yet.  Until it is, readPotRaw()
+// reports the parameter's own position, which makes the takeover layer inert:
+// knob and parameter never disagree, so nothing ever detaches.  The driver
+// only has to fill in readPotRaw() — every other piece is already in place.
+#ifndef POT_ADC_PRESENT
+#define POT_ADC_PRESENT 0
+#endif
+
+// Physical knobs that serve two parameters — {primary, SHIFT-secondary}.
+// One ADC channel each; the SHIFT edge detaches both sides so neither
+// parameter inherits the position the other left the knob in.  The ADC driver
+// reuses this table to map both ids onto a single mux channel.
+static constexpr uint8_t kShiftPairCount                 = 6;
+static constexpr PotId   kShiftPairs[kShiftPairCount][2] = {
+    {PotId::SHAPE, PotId::FATNESS},
+    {PotId::MOTION, PotId::DRIFTSPEED},
+    {PotId::CURVE, PotId::CURVETIME},
+    {PotId::SPACE, PotId::VOL},
+    {PotId::DELAY, PotId::DELAYTIME},
+    {PotId::REVERB, PotId::REVERBSIZE},
+};
+
 // ---------------------------------------------------------------------------
 // HardwarePicoIO — IHardwareIO implementation for Raspberry Pi Pico 2.
 //
+// The gXxx globals are the single source of truth for every parameter: the
+// engine, preset save, SysEx dump, CC feedback and the LEDs all read them.
+// The knobs are one writer among several (web, MIDI, serial, preset recall),
+// so the only question a physical knob raises is *when it may write* — which
+// is what PotTakeover answers.  updatePots() is the one place knob positions
+// become parameter values; readPot() stays a pure read of the globals, so
+// IOBridge::fillSynthParams() is unaffected either way.
+//
 // M37d bootstrap: pot reads derive from the gXxx globals (set by MIDI/serial)
-// normalised back to the 0–1 contract that IOBridge expects.  When the ADC
-// mux driver lands (future hardware pass), readPot() will query the physical
-// multiplexed ADC directly and will be the primary writer of the gXxx pitch
-// and timbre globals.
+// normalised back to the 0–1 contract that IOBridge expects.  When the ADC mux
+// driver lands, readPotRaw() queries the physical multiplexed ADC and knob
+// motion starts flowing through updatePots() into those same globals.
 //
 // ButtonEngine references (MODE, SHIFT) are injected by main.cpp so that the
 // same button objects are shared between HardwarePicoIO and the combo logic.
@@ -45,12 +75,78 @@ class HardwarePicoIO : public IHardwareIO
     {
     }
 
+    /**
+     * IHardwareIO pot read — the parameter's current position, 0–1.
+     * Always reads the gXxx globals, never the ADC: knob motion reaches the
+     * globals through updatePots() first, so this stays the one consistent
+     * view for fillSynthParams() regardless of takeover state.
+     */
+    float readPot(PotId id) override { return readPotNorm(id); }
+
     // -----------------------------------------------------------------------
-    // Pot reads — normalise engineering-unit gXxx globals → 0–1.
+    // M62 — knob takeover.
+    //
+    // Call once per control tick, before fillSynthParams().  For every pot:
+    // read the knob, ask PotTakeover what the parameter should now be, and
+    // write the result back.  External writes need no cooperation from the
+    // writer — they are detected by diffing the parameter against what the
+    // takeover layer last wrote, so MIDI CC, SysEx apply, the serial console
+    // and preset recall are all covered by the same three lines.
+    // -----------------------------------------------------------------------
+    void updatePots()
+    {
+        _takeover.setMode(gPotTakeoverMode);
+
+        // SHIFT edge: a shared knob now addresses its other parameter.  The
+        // one it just stopped addressing has been left wherever it was, and
+        // the one it now addresses has not seen the knob move — so neither may
+        // inherit the other's position.  Detaching both sides of every pair on
+        // the edge makes SHIFT+knob obey exactly the same takeover rule as the
+        // web does, which is the behaviour the shared knob needs anyway.
+        const bool shiftNow = _btnShift.isDown();
+        if(shiftNow != _shiftPrev)
+        {
+            _shiftPrev = shiftNow;
+            for(uint8_t i = 0; i < kShiftPairCount; i++)
+            {
+                _takeover.detach(kShiftPairs[i][0]);
+                _takeover.detach(kShiftPairs[i][1]);
+            }
+        }
+
+        for(uint8_t i = 0; i < (uint8_t)PotId::POT_COUNT; i++)
+        {
+            const PotId id = (PotId)i;
+            // ROOT is deliberately not takeover-managed.  Pitch does not flow
+            // knob → global → engine like the others: fillSynthParams() sums
+            // the ROOT knob with the V/Oct jack straight into p.baseFreq, and
+            // gBaseFreq belongs to MIDI Note On, which main.cpp gives priority
+            // while a note is held.  Writing gBaseFreq from the knob here
+            // would fight every note-on.  The knob's position still reaches
+            // the web: CC 16 is in the patch dump and the CC feedback diff.
+            if(id == PotId::ROOT)
+                continue;
+
+            const float phys = readPotRaw(id);
+            const float cur  = readPotNorm(id);
+            const float next = _takeover.process(id, phys, cur);
+            if(next != cur)
+                writePotNorm(id, next);
+        }
+    }
+
+    /** Declare the knobs to be the truth now — backs `pot sync`. */
+    void reattachPots() { _takeover.reattachAll(); }
+
+    /** True while this knob is waiting to be moved before it takes over. */
+    bool potDetached(PotId id) const { return _takeover.isDetached(id); }
+
+    // -----------------------------------------------------------------------
+    // Pot normalisation — engineering-unit gXxx globals ↔ 0–1.
     // Each conversion is the exact inverse of the scaling applied in
     // IOBridge::fillSynthParams(), so the round-trip is lossless.
     // -----------------------------------------------------------------------
-    float readPot(PotId id) override
+    float readPotNorm(PotId id)
     {
         switch(id)
         {
@@ -74,6 +170,9 @@ class HardwarePicoIO : public IHardwareIO
             case PotId::DRIFTSPEED:
                 // gDriftSpeed is in [0.001, 0.10] coeff; normalise to 0–1
                 return (gDriftSpeed - 0.001f) / (0.10f - 0.001f);
+            case PotId::CURVETIME:
+                // gCurveTime is a 0.25–4.0× time scale; normalise to 0–1
+                return (gCurveTime - 0.25f) / (4.0f - 0.25f);
             case PotId::VOL: return gVolume; // already 0–1
             case PotId::DELAYTIME:
                 // gDelayTime is in ms over [10, DELAY_MAX_MS]; normalise to 0–1
@@ -81,6 +180,69 @@ class HardwarePicoIO : public IHardwareIO
             case PotId::REVERBSIZE: return gRevSize; // already 0–1
             default: return 0.5f;
         }
+    }
+
+    /**
+     * Write a 0–1 knob position back into the parameter it drives — the exact
+     * inverse of readPotNorm(). Only updatePots() calls this; every other
+     * writer (MIDI, serial, SysEx, preset load) sets the globals directly and
+     * is detected as an external write on the following tick.
+     */
+    void writePotNorm(PotId id, float v)
+    {
+        switch(id)
+        {
+            case PotId::ROOT:
+                // norm → ±4 V/Oct → Hz.  Not reached today (updatePots skips
+                // ROOT); kept exact so the inverse pair stays complete.
+                gBaseFreq = 440.0f * exp2f(v * 8.0f - 4.0f);
+                break;
+            case PotId::RELATION: gRelation = v * 24.0f; break;
+            case PotId::SHAPE: gShape = v; break;
+            case PotId::MOTION: gMotion = v; break;
+            case PotId::COLOR: gColor = v; break;
+            case PotId::CURVE: gCurve = v; break;
+            case PotId::SPACE: gSpace = v * 2.0f; break;
+            case PotId::DELAY: gDelayMix = v; break;
+            case PotId::REVERB: gRevMix = v; break;
+            case PotId::FATNESS: gFatness = v; break;
+            case PotId::DRIFTSPEED:
+                gDriftSpeed = 0.001f + v * (0.10f - 0.001f);
+                break;
+            case PotId::CURVETIME:
+                gCurveTime = 0.25f + v * (4.0f - 0.25f);
+                break;
+            case PotId::VOL: gVolume = v; break;
+            case PotId::DELAYTIME:
+                gDelayTime = 10.0f + v * ((float)DELAY_MAX_MS - 10.0f);
+                break;
+            case PotId::REVERBSIZE: gRevSize = v; break;
+            default: break;
+        }
+    }
+
+    /**
+     * Physical knob position, 0–1 — the ADC seam.
+     *
+     * When the multiplexed ADC driver lands this becomes the only thing that
+     * changes: sample the mux channel for `id`, scale to 0–1, and slew-limit
+     * or dead-band it before returning.  PotTakeover expects a de-noised
+     * value; its movement threshold decides when a knob was *touched*, and
+     * cannot double as a filter for raw ADC jitter.
+     *
+     * On a shared (SHIFT-secondary) knob both PotIds of the pair read the same
+     * physical channel — the SHIFT edge handling in updatePots() is what keeps
+     * them from stealing each other's position.
+     */
+    float readPotRaw(PotId id)
+    {
+#if POT_ADC_PRESENT
+#error "ADC mux driver not implemented — see readPotRaw()"
+#else
+        // No ADC yet: report the parameter's own position so knob and value
+        // never disagree and the takeover layer stays inert.
+        return readPotNorm(id);
+#endif
     }
 
     // -----------------------------------------------------------------------
@@ -200,6 +362,9 @@ class HardwarePicoIO : public IHardwareIO
 
     ButtonEngine &_btnMode;
     ButtonEngine &_btnShift;
+
+    PotTakeover _takeover;          // M62 — knob vs. web/MIDI arbitration
+    bool        _shiftPrev = false; // SHIFT state at the last updatePots()
 
     Apa102<(uint8_t)LightId::LIGHT_COUNT> _dotstars;
     uint8_t                               _btnLedMode  = 0u;

@@ -286,10 +286,11 @@ At COLOR = 0 the effect is completely absent in all modes.
 
 ### CURVE
 
-Envelope and articulation shaping. Controls attack and release time together:
+Envelope and articulation shaping. Controls attack and release time together, and how much the note sustains while the gate is held:
 
-- Fully CCW: pluck — fast attack, fast decay (percussive)
-- Centre: natural attack, medium decay
+- Fully CCW to ~0.2: pluck — fast attack, fast decay (percussive). The note is a fixed-length blip; holding the gate longer does not lengthen it.
+- ~0.2 to ~0.4: the note decays partway and then holds at that level — the sustain amount rises smoothly across this stretch of the knob.
+- Centre: natural attack, medium decay, holds while gate is high
 - Fully CW: swell — slow attack, long sustain (pad-like)
 
 The module includes an envelope and VCA — no external envelope needed for basic play.
@@ -352,6 +353,22 @@ Hold **SHIFT** and turn a knob to access its secondary parameter. The L4 LED (ne
 | REVERB | Reverb wet mix                 | **REVERBSIZE** — virtual plate size |
 
 ROOT, RELATION, and FM have no shift function — full knob travel is needed for precision.
+
+---
+
+## Knob Takeover
+
+Alloy Flux can be driven from the panel and from the Web Configurator (or a DAW, or a MIDI controller) at the same time. Whatever changes a parameter, the panel LEDs and the Web Configurator both follow it — the module reports its own state, so a knob you turn shows up on screen, and a slider you move on screen takes effect immediately.
+
+Only the panel knobs can be out of step, because a physical knob cannot move itself. When the web sets SHAPE to 0.80 while the knob sits at 0.20, the knob is no longer telling the truth. Turning it hands control back, and how it does that is selectable:
+
+- **Scale** _(default)_ — the value moves as soon as the knob does, in the same direction, scaled across the travel that remains, and lands exactly on the knob position at either end. No jump, and no dead knob.
+- **Pickup** — the knob does nothing until it passes through the current value, then takes over. No jump, but the knob can feel dead for up to a full turn.
+- **Jump** — the first movement takes over instantly. Simplest, and the most abrupt.
+
+A knob has to move about 1.5 % of its travel to count as touched, so nothing is stolen by vibration or noise. The mode is saved with your settings — set it with `pot takeover scale|pickup|jump` on the serial console, and use `pot sync` to make every knob the truth immediately.
+
+At power-on the module restores its last state rather than reading the knobs, so a patch survives a power cycle even though the knobs are wherever you left them. Each knob claims its parameter the first time you move it.
 
 ---
 
@@ -538,7 +555,7 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | CC    | Parameter      | Range                                | Description              |
 | ----- | -------------- | ------------------------------------ | ------------------------ |
 | CC 80 | Delay Position | 0–63=pre-reverb / 64–127=post-reverb | Effect chain placement   |
-| CC 86 | Delay Time     | 0–127                                | Delay time (10–300 ms)   |
+| CC 86 | Delay Time     | 0–127                                | Delay time (10–500 ms)   |
 | CC 87 | Delay Feedback | 0–127                                | Feedback amount (0–0.95) |
 | CC 95 | Delay Mix      | 0–127                                | Delay wet level (0–1)    |
 

@@ -96,6 +96,10 @@ ChorusMode gChorusMode
     = ChorusMode::I_II;      // default: Juno I+II (maximum stereo spread)
 float   gSpace       = 1.0f; // stereo width: 0.0 = mono, 1.0 = full stereo
 uint8_t gMidiChannel = 0;    // 0 = omni, 1–16 = specific MIDI channel
+// M62 — knob takeover. SCALE (soft pickup) by default: a knob moved after the
+// web/MIDI changed a parameter steers it proportionally toward the end of
+// travel, so there is neither an audible jump nor a dead knob.
+PotTakeoverMode gPotTakeoverMode = PotTakeoverMode::SCALE;
 
 EnvelopeType gEnvelopeType = EnvelopeType::AR;
 // Trig pulse timer — set by cmd_trig / doTrig(), cleared in updateControl() when elapsed.
@@ -109,6 +113,10 @@ static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
 static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
 // M37d — hardware IO abstraction layer; owns readPot/readCV/readButton/writeLight.
 static HardwarePicoIO sHardwareIO(gBtnMode, gBtnShift);
+// M62 — backs the `pot sync` console command (handler lives in commands.cpp,
+// which has no visibility of sHardwareIO).
+void potsReattach()
+{ sHardwareIO.reattachPots(); }
 // M30/M37k — LED language. Platform-independent colour logic shared with the
 // VCV build; writeTo() pushes the result through sHardwareIO, which shifts it
 // out to the APA102 chain on GP6/GP7.
@@ -383,6 +391,12 @@ void updateControl()
     // …) continue via gXxx globals.
     // -----------------------------------------------------------------------
     {
+        // M62: knobs → globals first, so everything downstream (this snapshot,
+        // CC feedback, preset save, LEDs) sees one consistent set of values.
+        // Knobs only win where PotTakeover says they may — a parameter last
+        // set from the web holds until its knob is moved.
+        sHardwareIO.updatePots();
+
         SynthParams p;
         fillSynthParams(sHardwareIO,
                         p); // M37d: baseFreq, gateHigh, gatePatched

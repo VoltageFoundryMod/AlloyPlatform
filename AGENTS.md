@@ -52,26 +52,26 @@ to confirm no regressions on either platform.
 
 Key files and directories:
 
-- [`firmware/src/main.cpp`](../firmware/src/main.cpp) — thin platform shim; Mozzi hooks; inter-core ring buffer
-- [`common/include/SynthEngine.h`](../common/include/SynthEngine.h) / [`common/src/SynthEngine.cpp`](../common/src/SynthEngine.cpp) — all DSP, platform-independent
-- [`common/include/io/IOBridge.h`](../common/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
-- [`common/include/dsp/`](../common/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
+- [`firmware/src/main.cpp`](firmware/src/main.cpp) — thin platform shim; Mozzi hooks; inter-core ring buffer
+- [`common/include/SynthEngine.h`](common/include/SynthEngine.h) / [`common/src/SynthEngine.cpp`](common/src/SynthEngine.cpp) — all DSP, platform-independent
+- [`common/include/io/IOBridge.h`](common/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
+- [`common/include/dsp/`](common/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
 
 ### Platform abstraction
 
-`IHardwareIO` (defined in [`common/include/io/HardwareIO.h`](../common/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
+`IHardwareIO` (defined in [`common/include/io/HardwareIO.h`](common/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
 
-- **Firmware** — `HardwarePicoIO` in [`firmware/include/io/HardwarePicoIO.h`](../firmware/include/io/HardwarePicoIO.h)
-- **VCV** — `VCVRackIO` in [`vcv-plugin/src/VCVRackIO.h`](../vcv-plugin/src/VCVRackIO.h)
+- **Firmware** — `HardwarePicoIO` in [`firmware/include/io/HardwarePicoIO.h`](firmware/include/io/HardwarePicoIO.h)
+- **VCV** — `VCVRackIO` in [`vcv-plugin/src/VCVRackIO.h`](vcv-plugin/src/VCVRackIO.h)
 
 `#ifdef ARDUINO` guards exist in a few DSP headers for RP2350-specific timer calls; keep them when editing those files.
 
 ### Web Configurator
 
-[`web-configurator/src/`](../web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
+[`web-configurator/src/`](web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
 
-- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](../references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46`)
-- **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](../references/AlloyFlux-serial-reference.md)
+- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46`)
+- **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md)
 
 Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
 
@@ -79,7 +79,7 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 ### Config/Flash
 
-[`firmware/include/config_store.h`](../firmware/include/config_store.h) defines `AlloyConfig`. Rules:
+[`firmware/include/config_store.h`](firmware/include/config_store.h) defines `AlloyConfig`. Rules:
 
 - **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `5`.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
@@ -99,7 +99,7 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 ### Inter-core reverb transport
 
-Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (8-sample fixed-latency output buffer, read with `kRevReadDelay` offset). See [`firmware/include/dsp_shared.h`](../firmware/include/dsp_shared.h).
+Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (8-sample fixed-latency output buffer, read with `kRevReadDelay` offset). See [`firmware/include/dsp_shared.h`](firmware/include/dsp_shared.h).
 
 ---
 
@@ -145,9 +145,9 @@ SynthEngine::audio()   @ 32768 Hz  ← oscillators, filters, reverb, output summ
 
 ## Reference Docs
 
-- [`references/Development_Milestones.md`](../references/Development_Milestones.md) — project roadmap and feature breakdown
-- [`references/AlloyFlux-module-reference.md`](../references/AlloyFlux-module-reference.md) — full parameter/CV specification
-- [`references/AlloyFlux-MIDI-reference.md`](../references/AlloyFlux-MIDI-reference.md) — CC map and SysEx protocol
-- [`references/AlloyFlux-serial-reference.md`](../references/AlloyFlux-serial-reference.md) — serial console commands
-- [`references/AlloyFlux-user-manual.md`](../references/AlloyFlux-user-manual.md) — end-user manual
-- [`references/ai-notes/`](../references/ai-notes/) — AI-generated notes on debugging, refactors, and optimizations (e.g. reverb concurrency, MIDI handling, etc.)
+- [`references/Development_Milestones.md`](references/AlloyFlux-Development_Milestones.md) — project roadmap and feature breakdown
+- [`references/AlloyFlux-module-reference.md`](references/AlloyFlux-module-reference.md) — full parameter/CV specification
+- [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) — CC map and SysEx protocol
+- [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md) — serial console commands
+- [`Manual.md`](Manual.md) — end-user manual
+- [`references/ai-notes/`](references/ai-notes/) — AI-generated notes on debugging, refactors, and optimizations (e.g. reverb concurrency, MIDI handling, etc.)

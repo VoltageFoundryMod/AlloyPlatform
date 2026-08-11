@@ -21,6 +21,9 @@
 // atof() used instead of sscanf(%f) — avoids pulling full sscanf float impl.
 // ---------------------------------------------------------------------------
 
+// Defined further down with cmd_pot; declared here for cmd_status.
+static const __FlashStringHelper *potTakeoverName(PotTakeoverMode m);
+
 static void cmd_pitch(const char *args, Print &out)
 {
     gBaseFreq = constrain((float)atof(args), 20.0f, 8000.0f);
@@ -342,6 +345,8 @@ static void cmd_status(const char * /*args*/, Print &out)
         out.print(F(" transpose="));
         out.print(gTranspose);
     }
+    out.print(F(" pot="));
+    out.print(potTakeoverName(gPotTakeoverMode));
     out.println();
 
     // Line 2 — post-effects state
@@ -1211,6 +1216,67 @@ static void cmd_env_loop(const char *args, Print &out)
 }
 
 // ---------------------------------------------------------------------------
+// cmd_pot — knob takeover behaviour (M62).
+//
+// A physical knob cannot move itself, so once the Web Configurator, a MIDI CC
+// or a preset recall changes a parameter, the panel knob is left pointing
+// somewhere else.  This selects what happens the next time that knob is turned:
+//
+//   scale  (default) knob movement steers the value proportionally toward the
+//                    end of travel — no jump, and the knob never feels dead
+//   pickup           knob is inert until it passes through the current value
+//   jump             first movement takes over instantly
+//
+// `pot sync` skips the wait entirely: every parameter snaps to its knob.
+// ---------------------------------------------------------------------------
+static const __FlashStringHelper *potTakeoverName(PotTakeoverMode m)
+{
+    switch(m)
+    {
+        case PotTakeoverMode::JUMP: return F("jump");
+        case PotTakeoverMode::PICKUP: return F("pickup");
+        default: return F("scale");
+    }
+}
+
+static void cmd_pot(const char *args, Print &out)
+{
+    if(strncmp(args, "takeover", 8) == 0)
+    {
+        const char *mode = args + 8;
+        while(*mode == ' ')
+            mode++;
+        if(strcmp(mode, "scale") == 0)
+            gPotTakeoverMode = PotTakeoverMode::SCALE;
+        else if(strcmp(mode, "pickup") == 0)
+            gPotTakeoverMode = PotTakeoverMode::PICKUP;
+        else if(strcmp(mode, "jump") == 0)
+            gPotTakeoverMode = PotTakeoverMode::JUMP;
+        else if(*mode != '\0')
+        {
+            out.println(F("usage: pot takeover <scale|pickup|jump>"));
+            return;
+        }
+        out.print(F("pot takeover -> "));
+        out.println(potTakeoverName(gPotTakeoverMode));
+        return;
+    }
+    if(strcmp(args, "sync") == 0)
+    {
+        potsReattach();
+        out.println(F("pot sync -> knobs now own their parameters"));
+        return;
+    }
+    if(args[0] == '\0')
+    {
+        out.print(F("pot takeover: "));
+        out.println(potTakeoverName(gPotTakeoverMode));
+        return;
+    }
+    out.println(F("usage: pot <takeover <scale|pickup|jump> | sync>"));
+}
+
+// ---------------------------------------------------------------------------
 // cmd_dump — machine-readable patch snapshot consumed by the web configurator.
 //
 // Output format:
@@ -1245,6 +1311,12 @@ static void cmd_dump(const char * /*args*/, Print &out)
         out.println((uint8_t)v);
     }
     // Special / select params not in kCCParams
+    // cc:16 = ROOT pitch as a ±4 V/Oct offset: 0 = −4 V, 64 ≈ 440 Hz, 127 = +4 V
+    out.print(F("cc:16="));
+    out.println((uint8_t)constrain(
+        (int)((log2f(gBaseFreq / 440.0f) + 4.0f) / 8.0f * 127.0f + 0.5f),
+        0,
+        127));
     out.print(F("cc:76="));
     out.println((gFilterMode == FilterMode::OFF)  ? 0
                 : (gFilterMode == FilterMode::LP) ? 26
@@ -1327,6 +1399,7 @@ const CommandEntry kCommands[] = {
     {"scale",     "<name|off>  scale quantization (chromatic=off, major, minor, dorian...)",           cmd_scale},
     {"transpose", "<-24..24>   MIDI note transpose in semitones (default: 0)",                        cmd_transpose},
     {"midichan",  "<1-16|omni> MIDI receive channel (default: omni)",                    cmd_midichan},
+    {"pot",       "<takeover <scale|pickup|jump> | sync>  knob takeover after a web/MIDI edit", cmd_pot},
     {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
     {"dump",      "            output all params as cc:N=V lines (web configurator sync)", cmd_dump},
     {"status",    "            print all current parameters",                              cmd_status},
