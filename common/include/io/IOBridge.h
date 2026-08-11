@@ -75,6 +75,9 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
     // CURVE pot: 0–1 direct.
     p.curve = io.readPot(PotId::CURVE);
 
+    // CURVETIME (SHIFT+CURVE on hardware; context menu in VCV): 0.25–4.0×.
+    p.curveTime = 0.25f + io.readPot(PotId::CURVETIME) * (4.0f - 0.25f);
+
     // -----------------------------------------------------------------------
     // Spatial / output
     // SPACE pot: 0–1 → 0–2 (stereo width; >1 = hyper-wide).

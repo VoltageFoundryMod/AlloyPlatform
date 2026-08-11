@@ -12,6 +12,8 @@ Connects to the module over **Web MIDI** and **Web Serial** to read and write al
 - FX chain signal-flow visualiser
 - Interactive MIDI keyboard (QWERTY mapping + velocity presets)
 - Web Serial console drawer — send commands, view output, command history (↑/↓)
+- MIDI monitor drawer — decoded traffic both directions, with port names, TX/RX byte counters, hex view, pause and per-type filters
+- Live mirroring of the module — knob moves, button combos and preset recalls on the device appear in the UI via CC feedback
 - Import / export patches as `.syx` SysEx files
 
 ## Stack
@@ -64,11 +66,13 @@ src/
     ParamSlider.svelte    — labelled range slider (linear & log scale)
     ParamSelect.svelte    — labelled enum selector
     MidiKeyboard.svelte   — QWERTY piano keyboard
+    MidiMonitor.svelte    — MIDI traffic drawer (both directions, decoded)
     FxChainVisual.svelte  — signal-flow diagram
     PresetManager.svelte  — preset save/load/reset/import/export
   lib/
     paramMap.ts           — CC parameter descriptors + ccToFloat/floatToCC helpers
     midi.ts               — Web MIDI store + connect/disconnect/send helpers
+    midiDecode.ts         — raw MIDI bytes → readable text for the monitor
     serial.ts             — Web Serial store + connect/disconnect/send/onLine helpers
     patchSync.ts          — SysEx protocol encode/decode, .syx file I/O
     presets.ts            — preset SysEx commands + serial fallback

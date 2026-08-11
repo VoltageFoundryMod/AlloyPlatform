@@ -903,15 +903,23 @@ fully CCW — pluck                      fully CW — swell
    gate length irrelevant                 gate = sustain duration
 ```
 
-| CURVE position | Attack  | Release | Sustain behaviour                    |
-| -------------- | ------- | ------- | ------------------------------------ |
-| 0.0 (pluck)    | ~1 ms   | ~80 ms  | Decays regardless of gate length     |
-| 0.25           | ~10 ms  | ~150 ms | Brief sustain, gate starts to matter |
-| 0.5 (natural)  | ~50 ms  | ~300 ms | Sustains while gate is held          |
-| 0.75           | ~200 ms | ~500 ms | Sustains while gate is held          |
-| 1.0 (swell)    | ~800 ms | ~1 s    | Sustains while gate is held          |
+Times below are computed from the formulas in the implementation table further
+down (`0.001 + curve² × 0.799` s and `0.080 + curve² × 1.920` s), at CURVETIME ×1.
 
-At the pluck extreme the amplitude decays even if the gate remains high — the envelope ignores gate length below approximately CURVE = 0.2. Above that the gate duration controls the sustain level, transitioning naturally to a full sustain+release model at CW.
+| CURVE position | Attack  | Release | Sustain level | Sustain behaviour                     |
+| -------------- | ------- | ------- | ------------- | ------------------------------------- |
+| 0.0 (pluck)    | ~1 ms   | ~80 ms  | 0.00          | Decays regardless of gate length      |
+| 0.20           | ~33 ms  | ~157 ms | 0.00          | Last fully percussive position        |
+| 0.25           | ~51 ms  | ~200 ms | 0.25          | Decays to a quarter level, then holds |
+| 0.30           | ~73 ms  | ~253 ms | 0.50          | Decays to half level, then holds      |
+| 0.40           | ~129 ms | ~387 ms | 1.00          | First fully sustaining position       |
+| 0.5 (natural)  | ~201 ms | ~560 ms | 1.00          | Sustains while gate is held           |
+| 0.75           | ~450 ms | ~1.16 s | 1.00          | Sustains while gate is held           |
+| 1.0 (swell)    | ~800 ms | ~2 s    | 1.00          | Sustains while gate is held           |
+
+At the pluck extreme the amplitude decays even if the gate remains high — the envelope ignores gate length at and below CURVE = 0.20. From there the **sustain level** morphs continuously up to full across CURVE 0.20 → 0.40, so the note decays partway and then holds; at and above 0.40 it is a full sustain+release model. The morph is continuous in both level and time, so there is no audible step anywhere on the knob.
+
+> Prior to this the transition was a hard branch at `curve > 0.2`: sustain was either 0.0 or 1.0 with nothing in between, so a single ADC count near the threshold flipped a note between a fixed-length blip and an indefinite hold. The endpoints of the knob are unchanged.
 
 ### VCA Placement — Before Chorus
 
@@ -933,13 +941,19 @@ Oscillators → Drift/Motion → [VCA — CURVE envelope] → Chorus → SPACE �
 
 `CurveEngine<SAMPLE_RATE>` template class in `include/CurveEngine.h`:
 
-| Parameter          | Value                              | Notes                                   |
-| ------------------ | ---------------------------------- | --------------------------------------- |
-| Attack range       | 1 ms – 800 ms                      | `0.001 + curve² × 0.799` s              |
-| Release range      | 80 ms – 1 000 ms                   | `0.080 + curve² × 0.920` s              |
-| Pluck threshold    | curve ≤ 0.2                        | auto-release at peak, gate hold ignored |
-| Coefficient method | `expf()` in `setCurve()` at 128 Hz | never called in audio ISR               |
-| `next()`           | one-pole multiply/add              | no expf, branch-minimal, safe in ISR    |
+| Parameter          | Value                              | Notes                                                    |
+| ------------------ | ---------------------------------- | -------------------------------------------------------- |
+| Attack range       | 1 ms – 800 ms                      | `0.001 + curve² × 0.799` s                               |
+| Release range      | 80 ms – 2 000 ms                   | `0.080 + curve² × 1.920` s                               |
+| Sustain morph      | `(curve − 0.20) / 0.20`, clamped   | 0.0 at curve ≤ 0.20, 1.0 at curve ≥ 0.40                 |
+| Pluck region       | curve ≤ 0.20 (sustain 0.0)         | decays to silence at the release rate, gate hold ignored |
+| Decay rate         | same coefficient as release        | one-pole toward the sustain level                        |
+| Coefficient method | `expf()` in `setCurve()` at 128 Hz | never called in audio ISR                                |
+| `next()`           | one-pole multiply/add              | no expf, branch-minimal, safe in ISR                     |
+
+State machine: `IDLE → ATTACK → DECAY → SUSTAIN → RELEASE → IDLE`. At sustain 0.0
+the DECAY step reduces algebraically to `env *= relDecay` — the identical pluck
+release the engine performed before the morph existed.
 
 **Gate patched behaviour** — controlled by `gGatePatched` (volatile bool, Core 0):
 
@@ -1102,8 +1116,8 @@ Stereo ping-pong delay with compile-time configurable maximum (`DELAY_MAX_MS`, d
 | Max delay | RAM cost | Notes                               |
 | --------- | -------- | ----------------------------------- |
 | 200 ms    | ~26 KB   |                                     |
-| 300 ms    | ~39 KB   | **Default** — set in platformio.ini |
-| 500 ms    | ~65 KB   | All safe within RP2350's 520KB SRAM |
+| 300 ms    | ~39 KB   | `DelayEngine.h` fallback default    |
+| 500 ms    | ~65 KB   | **In use** — set in platformio.ini and vcv-plugin/Makefile |
 
 **Cross-channel feedback** creates the ping-pong effect — echoes alternate L/R/L/R:
 
@@ -1117,7 +1131,7 @@ Linear interpolation on fractional delay samples eliminates zipper artefacts whe
 | Parameter | Range       | Notes                                    |
 | --------- | ----------- | ---------------------------------------- |
 | mix       | 0.0–1.0     | 0 = hard bypass (zero CPU, early return) |
-| time_ms   | 10–300 ms   | Fractional sample accuracy               |
+| time_ms   | 10–500 ms   | Fractional sample accuracy (`DELAY_MAX_MS`) |
 | feedback  | 0.0–0.95    | Clamped to prevent runaway accumulation  |
 | dry gain  | 1 − mix×0.5 | Slight dry reduction at high mix         |
 
@@ -1229,7 +1243,7 @@ When SPACE CV is patched, SPACE knob becomes attenuverter for that CV.
 
 Controls the delay effect mix. When no delay is desired, set to zero for hard bypass (zero CPU). At maximum, the delay is fully mixed in at 50% wet (to prevent clipping) with cross-channel feedback for a ping-pong effect.
 
-**Button shift:** hold the panel button while turning DELAY to adjust **DELAYTIME** (delay time in ms, 10–300 ms range). LED dims white during shift mode.
+**Button shift:** hold the panel button while turning DELAY to adjust **DELAYTIME** (delay time in ms, 10–`DELAY_MAX_MS` — currently 500 ms). LED dims white during shift mode.
 
 ### REVERB
 

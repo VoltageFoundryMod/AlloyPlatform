@@ -73,6 +73,15 @@ static uint8_t sBuildPatchPairs(uint8_t *buf)
         buf[n++] = sFloatToCC(*p.target, p.valMin, p.valMax, p.logScale);
     }
     // Special / select params not in kCCParams
+    // CC 16 — ROOT pitch as a ±4 V/Oct offset: 0 = −4 V, 64 ≈ 440 Hz, 127 = +4 V.
+    // Inverse of the CC 16 case in onControlChange().  Without this the ROOT
+    // knob is the one control whose position never reaches the configurator.
+    buf[n++] = 16;
+    {
+        const int v
+            = (int)((log2f(gBaseFreq / 440.0f) + 4.0f) / 8.0f * 127.0f + 0.5f);
+        buf[n++] = (uint8_t)(v < 0 ? 0 : (v > 127 ? 127 : v));
+    }
     // CC 76 — filter mode: OFF=0, LP=26, HP=51, BP=77, NOTCH=102
     buf[n++] = 76;
     buf[n++] = (gFilterMode == FilterMode::OFF)  ? 0
@@ -122,6 +131,28 @@ static uint8_t sBuildPatchPairs(uint8_t *buf)
     buf[n++] = 110;
     buf[n++] = gMidiChannel; // 0-16 fits in 7 bits
     return n;
+}
+
+// ---------------------------------------------------------------------------
+// Outbound CC cache — last value emitted to the host per CC number.
+// 0xFF = never sent, so the first feedback pass emits a full snapshot.
+// Also seeded from inbound host CCs (sNoteHostCC) so a value the host set is
+// not immediately echoed back at it.
+// ---------------------------------------------------------------------------
+static uint8_t sLastSentCC[128];
+static bool    sLastSentCCInit = false;
+
+static void sResetLastSentCC()
+{
+    memset(sLastSentCC, 0xFF, sizeof(sLastSentCC));
+    sLastSentCCInit = true;
+}
+
+static void sNoteHostCC(uint8_t cc, uint8_t value)
+{
+    if(!sLastSentCCInit)
+        sResetLastSentCC();
+    sLastSentCC[cc & 0x7F] = value & 0x7F;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +287,11 @@ static void onControlChange(byte channel, byte cc, byte value)
 {
     if(!channelMatches(channel))
         return;
+    // Echo suppression: the host already knows the value it just sent us, so
+    // record it as if we had emitted it.  Without this the next feedback tick
+    // sends it straight back, and on log/wide-range params the 7-bit
+    // round-trip can land a step off and visibly nudge the host's slider.
+    sNoteHostCC(cc, value);
     // Continuous parameters — delegated to the central CC map (param_map.cpp).
     if(paramMap_dispatchCC(cc, value))
         return;
@@ -385,7 +421,7 @@ static void onProgramChange(byte channel, byte program)
 // Must be placed after MIDI_CREATE_INSTANCE since it calls MidiUsb.sendSysEx.
 static void sSendPatchDump()
 {
-    // Header (4) + float params (24×2=48) + select params (14×2=28) = 80 + 4 = 84 bytes; use 92.
+    // Header (4) + float params (25×2=50) + select/special (13×2=26) = 80; use 92.
     static uint8_t sBuf[92];
     sBuf[0]                 = kSysExMfr;
     sBuf[1]                 = kSysExDevA;
@@ -393,6 +429,11 @@ static void sSendPatchDump()
     sBuf[3]                 = kSysExCmdPatchDump;
     const uint8_t pairBytes = sBuildPatchPairs(sBuf + 4);
     MidiUsb.sendSysEx(4 + pairBytes, sBuf, false); // library adds F0/F7
+    // The host now has every value; seed the outbound cache from the same
+    // snapshot so the next feedback tick doesn't repeat the whole dump as
+    // individual CCs (a preset load would otherwise emit ~30 of them).
+    for(uint8_t i = 0; i + 1 < pairBytes; i += 2)
+        sNoteHostCC(sBuf[4 + i], sBuf[4 + i + 1]);
 }
 
 // SysEx handler — AlloyFlux patch dump protocol.
@@ -508,13 +549,8 @@ void usbMidi_update()
 // ---------------------------------------------------------------------------
 void usbMidi_sendFeedback()
 {
-    static uint8_t sLastCC[128]; // last-sent CC value per CC number
-    static bool    sInit = false;
-    if(!sInit)
-    {
-        memset(sLastCC, 0xFF, sizeof(sLastCC)); // 0xFF = never sent
-        sInit = true;
-    }
+    if(!sLastSentCCInit)
+        sResetLastSentCC();
 
     // Build full snapshot into a temp buffer, then diff and send.
     static uint8_t buf[128]; // max 64 CC pairs = 128 bytes
@@ -523,9 +559,9 @@ void usbMidi_sendFeedback()
     {
         uint8_t cc  = buf[i] & 0x7F;
         uint8_t val = buf[i + 1] & 0x7F;
-        if(sLastCC[cc] != val)
+        if(sLastSentCC[cc] != val)
         {
-            sLastCC[cc] = val;
+            sLastSentCC[cc] = val;
             MidiUsb.sendControlChange(
                 cc, val, gMidiChannel == 0 ? 1 : gMidiChannel);
         }

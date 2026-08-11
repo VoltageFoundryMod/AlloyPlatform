@@ -1,6 +1,6 @@
 # MIDI & SysEx Reference
 
-For MIDI CC implementation table, check the user manual: [AlloyFlux-user-manual.md](AlloyFlux-user-manual.md#midi-cc-map).
+For MIDI CC implementation table, check the user manual: [Manual.md](../Manual.md#midi-cc-map).
 
 ## Patch Management & SysEx
 
@@ -104,6 +104,23 @@ PRESET\_RESET (cmd 0x06, payload = slot) restores factory defaults to that slot.
 
 ---
 
+### Live Parameter Feedback (device → host)
+
+Alloy Flux does not only accept parameter changes, it reports them. Every 250 ms the firmware builds the same CC snapshot used by PATCH\_DUMP, diffs it against the last one sent, and emits a plain CC message for each value that changed — typically none, and only a handful while something is being moved.
+
+The effect is that anything changing a parameter on the module — a panel knob, a button combo, a preset recall, the serial console — shows up on the host within one feedback tick. The Web Configurator uses exactly this to mirror the hardware; any DAW or controller sees it as ordinary CC input.
+
+Two rules keep the loop from feeding on itself:
+
+- **The device does not echo the host.** A CC received from the host is recorded as if the device had sent it, so it is not immediately transmitted back. This matters most for log or wide-range parameters (filter cutoff, delay time), where the 7-bit round-trip can land a step away from what the host sent and would otherwise nudge the host's control.
+- **A PATCH\_DUMP seeds the same cache.** After a dump the host already has every value, so the next feedback tick does not repeat the whole patch as individual CCs.
+
+The host side is expected to be symmetrical: ignore an inbound CC that merely repeats what you last sent, and ignore inbound CC for a control the user is currently dragging (the Web Configurator uses a 400 ms window — see `shouldIgnoreInbound()` in `src/lib/midi.ts`).
+
+CC 16 (ROOT pitch, ±4 V/Oct) is part of both the dump and the feedback diff, so the ROOT knob position reaches the host like every other control.
+
+---
+
 ### DAW Integration Examples
 
 **Ableton Live:** Use the *SysEx* editor in a MIDI clip or Max for Live's *SysEx* device. Record a REQUEST\_DUMP response onto a MIDI track; drop-in that clip to recall the patch at the start of a session.
@@ -122,4 +139,4 @@ PRESET\_RESET (cmd 0x06, payload = slot) restores factory defaults to that slot.
 
 Every parameter in the CC map can be automated directly. Since Alloy Flux appears as a standard USB MIDI device, any DAW can record and play back CC automation on the Alloy Flux MIDI track. No SysEx is needed for per-parameter automation — use standard MIDI CC messages.
 
-For parameters with unusual ranges (e.g. CC 104 Transpose encodes −24…+24 st as CC values 0–48, with CC 24 = 0 semitones) refer to the MIDI CC Map at the user manual: [AlloyFlux-user-manual.md#midi-cc-map](AlloyFlux-user-manual.md#midi-cc-map).
+For parameters with unusual ranges (e.g. CC 104 Transpose encodes −24…+24 st as CC values 0–48, with CC 24 = 0 semitones) refer to the MIDI CC Map at the user manual: [Manual.md#midi-cc-map](../Manual.md#midi-cc-map).

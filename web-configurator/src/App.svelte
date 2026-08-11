@@ -23,6 +23,7 @@
   import PresetManager from "./components/PresetManager.svelte";
   import FxChainVisual from "./components/FxChainVisual.svelte";
   import EnvelopeGraph from "./components/EnvelopeGraph.svelte";
+  import MidiMonitor from "./components/MidiMonitor.svelte";
 
   // Float values, keyed by CC — only meaningful for slider-type params
   let paramValues = $state(
@@ -57,10 +58,16 @@
   let sliderRefs: Record<number, { applyCC: (v: number) => void }> = {};
   let selectRefs: Record<number, { applyCC: (v: number) => void }> = {};
 
-  // Subscribe to incoming MIDI CC messages and route to the right component
+  // Subscribe to incoming MIDI CC messages and route to the right component.
+  // This is the live feedback path: the module emits a CC whenever a parameter
+  // changes on its side — a panel knob being turned, a button combo, a preset
+  // recall — so the UI follows the hardware within one feedback tick (250 ms).
   $effect(() => {
     if (!$midi.connected) return;
     const unsubscribe = midi.onCC((cc: number, value: number) => {
+      // Drop our own echo, and anything arriving mid-gesture for a control the
+      // user is currently working. Full syncs go through applyPatch() instead.
+      if (midi.shouldIgnoreInbound(cc, value)) return;
       const param = PARAM_MAP.find((p) => p.cc === cc);
       if (!param) return;
       if (param.type === "select") {
@@ -505,6 +512,13 @@
     >
   </div>
 
+  <!-- Bottom dock — pinned to the viewport so both drawers stay reachable
+       without scrolling to the end of the page.  They live in one fixed
+       container rather than being individually fixed, so they stack instead
+       of overlapping. -->
+  <div class="drawer-dock">
+  <MidiMonitor />
+
   <!-- Serial console drawer -->
   <div class="console-drawer" class:open={consoleOpen}>
     <button class="console-tab" onclick={() => (consoleOpen = !consoleOpen)}>
@@ -544,6 +558,7 @@
       </div>
     {/if}
   </div>
+  </div>
 </div>
 
 <style>
@@ -554,6 +569,17 @@
     background: #0f0f1a;
     color: #ddd;
     font-family: "Inter", system-ui, sans-serif;
+    /* Clears the two collapsed drawer tabs pinned at the bottom. */
+    padding-bottom: 3.6rem;
+  }
+  .drawer-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
   }
   .main-content {
     display: flex;
@@ -661,11 +687,8 @@
     min-width: 3rem;
   }
   .console-drawer {
-    position: sticky;
-    bottom: 0;
     background: #111120;
     border-top: 1px solid #333;
-    z-index: 100;
   }
   .console-tab {
     width: 100%;
@@ -702,7 +725,9 @@
     color: #aaa;
   }
   .console-body {
-    height: 180px;
+    /* Matches the MIDI monitor: capped so both drawers open together still
+       leave the page usable on a short screen. */
+    height: min(180px, 28vh);
     overflow-y: auto;
     padding: 0.4rem 0.75rem;
     font-family: monospace;

@@ -251,6 +251,7 @@ struct AlloyFlux : Module
         // IO mappings — secondary (context menu)
         _io.assignPot(PotId::FATNESS, FATNESS_PARAM, 0.0f, 1.0f);
         _io.assignPot(PotId::DRIFTSPEED, DRIFTSPEED_PARAM, 0.0f, 1.0f);
+        _io.assignPot(PotId::CURVETIME, CURVETIME_PARAM, 0.25f, 4.0f);
         _io.assignPot(PotId::VOL, VOL_PARAM, 0.0f, 1.0f);
         _io.assignPot(
             PotId::DELAYTIME, DELAY_TIME_PARAM, 10.0f, (float)DELAY_MAX_MS);
@@ -1205,7 +1206,8 @@ struct AlloyFlux : Module
         // M37m — portamento/glide, sub-octave, reverb freeze, velocity sensitivity
         _params.glideEnabled = params[GLIDE_ENABLE_PARAM].getValue() >= 0.5f;
         _params.glideTime    = params[GLIDE_TIME_PARAM].getValue();
-        _params.curveTime    = params[CURVETIME_PARAM].getValue();
+        // curveTime now arrives from PotId::CURVETIME via fillSynthParams() —
+        // SHIFT+CURVE on hardware, the same path DELAY/REVERB took in M56.
         _params.subOctave = params[SUB_OCTAVE_PARAM].getValue() >= 0.5f ? 2 : 1;
         _params.revFrozen = params[REV_FROZEN_PARAM].getValue() >= 0.5f;
         _params.midiVelocity

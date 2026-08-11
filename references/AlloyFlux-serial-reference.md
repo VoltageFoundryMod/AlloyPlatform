@@ -4,7 +4,7 @@
 
 This document covers serial console commands, flash preset management, and configuration details for Alloy Flux. These features are primarily intended for development, testing, and advanced users willing to use a USB serial terminal.
 
-For the user-facing manual (panel controls, voice modes, MIDI CC map), see [AlloyFlux-user-manual.md](AlloyFlux-user-manual.md).
+For the user-facing manual (panel controls, voice modes, MIDI CC map), see [Manual.md](../Manual.md).
 
 ---
 
@@ -140,6 +140,24 @@ midichan 3           → respond only to MIDI channel 3
 midichan omni        → respond to all channels (default)
 ```
 
+### Knob Takeover
+
+A panel knob cannot move itself, so once the Web Configurator, a MIDI CC or a preset recall changes a parameter, the knob is left pointing somewhere else. This selects what happens the next time that knob is turned.
+
+```txt
+pot                        → print the current takeover mode
+pot takeover scale         → proportional soft pickup (default)
+pot takeover pickup        → knob inert until it crosses the current value
+pot takeover jump          → first movement takes over instantly
+pot sync                   → skip the wait: every parameter snaps to its knob now
+```
+
+`scale` steers the value proportionally toward the end of travel: the parameter moves the moment the knob moves, in the same direction, and the two converge exactly at either extreme. No audible jump, and the knob never feels dead — which is why it is the default. `pickup` avoids the jump at the cost of a knob that does nothing until it passes the current value; `jump` is the simplest and the most abrupt.
+
+The mode is stored in `AlloyConfig` and persists across power cycles.
+
+A knob claims its parameter only after it has moved ~1.5 % of full travel, so ADC noise never steals a value set from the web. At power-on every knob starts detached: the parameters come from the auto-save slot, not from wherever the knobs happen to be parked.
+
 ### Velocity Sensitivity
 
 ```txt
@@ -198,10 +216,13 @@ SysEx format details and integration instructions are available in the firmware 
 A browser-based configurator connects via Web MIDI API (Chrome/Edge). It provides:
 
 - Real-time parameter control via MIDI CC
+- Live mirroring of the module — panel knobs, button combos and preset recalls appear in the UI within one CC feedback tick (250 ms)
 - Voice mode selection and display
 - Preset save/load via SysEx
 - MIDI channel configuration
 - Visualisation of internal state (chord shape, mode)
+
+Over the serial transport the sync is one-shot rather than continuous: the configurator sends `dump` on connect and applies the `cc:N=V` reply. There is no push channel on serial, so re-send `dump` to pick up changes made on the module. The MIDI transport gets them automatically.
 
 No driver or installation required. Open in Chrome/Edge, select Alloy Flux as the MIDI device.
 

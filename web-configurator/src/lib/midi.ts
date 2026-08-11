@@ -17,6 +17,14 @@ import { writable, get, type Writable } from "svelte/store";
 
 export type MidiPortInfo = { id: string; name: string };
 
+/** One message observed on the wire, either direction. See onTraffic(). */
+export interface MidiTrafficEvent {
+  dir: "in" | "out";
+  bytes: number[];
+  t: number; // performance.now() at capture
+  port: string; // port name the message went to / came from
+}
+
 export interface MidiStore {
   supported: boolean;
   scanned: boolean;
@@ -27,6 +35,14 @@ export interface MidiStore {
   selectedOutput: string | null;
   selectedInput: string | null;
   error: string | null;
+  /** Bytes actually handed to a MIDIOutput. Compare against the counter in
+   *  loopMIDI / your MIDI monitor: if this climbs and theirs does not, the
+   *  bytes are going to a different port than you think. */
+  txBytes: number;
+  /** Bytes received across all input ports.  Counted independently of the
+   *  monitor's traffic tap, so both totals keep running while the monitor is
+   *  closed — the asymmetry between them is the diagnostic. */
+  rxBytes: number;
 }
 
 function createMidi() {
@@ -41,10 +57,84 @@ function createMidi() {
     selectedOutput: null,
     selectedInput: null,
     error: null,
+    txBytes: 0,
+    rxBytes: 0,
   });
 
   let access: MIDIAccess | null = null;
   let channel = 0; // 0-based, i.e. MIDI channel 1
+
+  // ---------------------------------------------------------------------------
+  // Local-edit tracking — the other half of the module's echo suppression.
+  //
+  // The module pushes a CC feedback diff every 250 ms, so anything we send is
+  // liable to come straight back at us.  Two problems follow, and one record
+  // per CC solves both:
+  //
+  //   Echo      — the value returns unchanged, or a step off after the 7-bit
+  //               round-trip on log/wide-range params (filter cutoff, delay
+  //               time), and visibly nudges the control the user just set.
+  //   Drag war  — while a slider is being dragged, feedback for that same CC
+  //               arrives mid-gesture and fights the pointer.
+  //
+  // So a CC is ignored on the way in when it merely repeats what we last sent,
+  // or when we touched that control within the last LOCAL_EDIT_MS.  Full syncs
+  // (SysEx dump, serial dump, file import) deliberately bypass this — they are
+  // explicit "the device is the truth" moments, not feedback.
+  // ---------------------------------------------------------------------------
+  const LOCAL_EDIT_MS = 400;
+  const lastSent = new Map<number, { value: number; t: number }>();
+
+  /** True when an inbound CC is our own echo or lands mid-gesture. */
+  function shouldIgnoreInbound(cc: number, value: number): boolean {
+    const rec = lastSent.get(cc);
+    if (!rec) return false;
+    if (rec.value === value) return true;
+    return performance.now() - rec.t < LOCAL_EDIT_MS;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Traffic tap — every message, both directions, undecoded.
+  //
+  // Feeds the MIDI monitor.  Gated on there being a listener: parameter
+  // feedback can run to hundreds of messages a second while a knob is moving,
+  // and there is no reason to allocate an event per message for a panel nobody
+  // has open.  Subscribe only while the monitor is visible.
+  // ---------------------------------------------------------------------------
+  type TrafficListener = (e: MidiTrafficEvent) => void;
+  const trafficListeners = new Set<TrafficListener>();
+  let trafficTapped = false;
+
+  function emitTraffic(
+    dir: "in" | "out",
+    bytes: ArrayLike<number>,
+    port: string,
+  ): void {
+    if (!trafficTapped) return;
+    const ev: MidiTrafficEvent = {
+      dir,
+      bytes: Array.from(bytes),
+      t: performance.now(),
+      port,
+    };
+    trafficListeners.forEach((fn) => fn(ev));
+  }
+
+  /** Zero the TX/RX byte totals — lets the monitor's Clear act as a baseline
+   *  reset, so "did that action send anything?" is answerable at a glance. */
+  function resetCounters(): void {
+    store.update((s) => ({ ...s, txBytes: 0, rxBytes: 0 }));
+  }
+
+  /** Observe raw MIDI traffic in both directions. Returns an unsubscribe fn. */
+  function onTraffic(fn: TrafficListener): () => void {
+    trafficListeners.add(fn);
+    trafficTapped = true;
+    return () => {
+      trafficListeners.delete(fn);
+      trafficTapped = trafficListeners.size > 0;
+    };
+  }
 
   // CC listeners registered by consumers
   type CCListener = (cc: number, value: number) => void;
@@ -57,6 +147,8 @@ function createMidi() {
   function handleMidiMessage(event: MIDIMessageEvent) {
     const data = event.data;
     if (!data || data.length < 1) return;
+    emitTraffic("in", data, (event.target as MIDIInput | null)?.name ?? "?");
+    store.update((s) => ({ ...s, rxBytes: s.rxBytes + data.length }));
     const status = data[0];
 
     // SysEx: data[0] = 0xF0, data includes F0 and trailing F7
@@ -101,11 +193,45 @@ function createMidi() {
    * payload — additional data bytes after the AlloyFlux header (7-bit safe)
    */
   function sendSysEx(cmd: number, payload: number[]): void {
-    const out = getOutput();
-    if (!out) return;
     // Full message: F0 7D 41 46 <cmd> [payload] F7
-    out.send(
+    sendRaw(
       new Uint8Array([0xf0, 0x7d, 0x41, 0x46, cmd & 0x7f, ...payload, 0xf7]),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Port auto-selection.
+  //
+  // Hardware announces itself as "Alloy Flux", so that always wins.  Failing
+  // that, prefer a virtual/loopback port: the VCV Rack workflow runs the module
+  // and this page through loopMIDI (Windows), the IAC Driver (macOS) or a
+  // similar virtual cable, and that port is what Rack is listening on.
+  //
+  // The avoid-list exists because Windows enumerates "Microsoft GS Wavetable
+  // Synth" as an output and it is usually *first* in the list.  Falling back to
+  // outputs[0] therefore aimed the whole configurator at the Windows softsynth:
+  // inbound MIDI still worked (we subscribe to every input port, see
+  // subscribeInputs), so the UI looked connected and mirrored the module, while
+  // everything it sent disappeared into a synth nobody was listening to.
+  //
+  // Inbound is not port-filtered at all — selectedInput is display only.
+  // ---------------------------------------------------------------------------
+  const NAME_ALLOY = /alloy/i;
+  const NAME_VIRTUAL = /loop(be|midi)|iac|virtual|rack|through/i;
+  const NAME_AVOID = /wavetable|microsoft gs/i;
+
+  function pickPort(
+    ports: MidiPortInfo[],
+    current: string | null,
+  ): string | null {
+    // Keep an existing selection as long as that port is still present.
+    if (current && ports.some((p) => p.id === current)) return current;
+    return (
+      ports.find((p) => NAME_ALLOY.test(p.name))?.id ??
+      ports.find((p) => NAME_VIRTUAL.test(p.name))?.id ??
+      ports.find((p) => !NAME_AVOID.test(p.name))?.id ??
+      ports[0]?.id ??
+      null
     );
   }
 
@@ -128,18 +254,8 @@ function createMidi() {
     });
     store.update((s) => {
       // Keep existing selection if port still present; auto-select otherwise.
-      const selectedOutput =
-        s.selectedOutput && outputs.some((o) => o.id === s.selectedOutput)
-          ? s.selectedOutput
-          : (outputs.find((o) => /alloy/i.test(o.name))?.id ??
-            outputs[0]?.id ??
-            null);
-      const selectedInput =
-        s.selectedInput && inputs.some((i) => i.id === s.selectedInput)
-          ? s.selectedInput
-          : (inputs.find((i) => /alloy/i.test(i.name))?.id ??
-            inputs[0]?.id ??
-            null);
+      const selectedOutput = pickPort(outputs, s.selectedOutput);
+      const selectedInput = pickPort(inputs, s.selectedInput);
       // Auto-connect: if a port is available, mark connected immediately.
       // No manual "Connect" click required — mirrors VCV behaviour where
       // selecting a port is sufficient.  Explicit disconnect (user clicks ✕)
@@ -176,8 +292,8 @@ function createMidi() {
         // in App.svelte never re-fires to request a fresh config dump.
         const portEvent = e as MIDIConnectionEvent;
         if (
-          portEvent.port.type === "output" &&
-          portEvent.port.state === "connected"
+          portEvent.port?.type === "output" &&
+          portEvent.port?.state === "connected"
         ) {
           store.update((s) => ({ ...s, deviceConnected: false }));
           // Next microtask: restore true so the $effect sees the edge.
@@ -224,20 +340,47 @@ function createMidi() {
     channel = Math.max(0, Math.min(15, ch - 1)); // user passes 1-16
   }
 
+  /**
+   * The single outbound path.  Every send goes through here so that a message
+   * can never be dropped silently: previously each sender did `getOutput()?.
+   * send(...)`, and when the port failed to resolve the optional-chain turned
+   * the whole thing into a no-op with no error and no clue — the UI still read
+   * "Connected", because that badge only reports that *some* port exists.
+   * txBytes gives a counter to compare directly against loopMIDI's.
+   */
+  function sendRaw(bytes: number[] | Uint8Array): void {
+    const out = getOutput();
+    if (!out) {
+      store.update((s) => ({
+        ...s,
+        error: "No MIDI output resolved — message not sent",
+      }));
+      return;
+    }
+    out.send(bytes as number[]);
+    emitTraffic("out", bytes, out.name ?? "?");
+    store.update((s) => ({
+      ...s,
+      txBytes: s.txBytes + bytes.length,
+      error: null,
+    }));
+  }
+
   function sendCC(cc: number, value: number /* 0-127 */) {
-    getOutput()?.send([0xb0 | channel, cc & 0x7f, value & 0x7f]);
+    lastSent.set(cc & 0x7f, { value: value & 0x7f, t: performance.now() });
+    sendRaw([0xb0 | channel, cc & 0x7f, value & 0x7f]);
   }
 
   function sendNoteOn(note: number, velocity = 100) {
-    getOutput()?.send([0x90 | channel, note & 0x7f, velocity & 0x7f]);
+    sendRaw([0x90 | channel, note & 0x7f, velocity & 0x7f]);
   }
 
   function sendNoteOff(note: number) {
-    getOutput()?.send([0x80 | channel, note & 0x7f, 0]);
+    sendRaw([0x80 | channel, note & 0x7f, 0]);
   }
 
   function sendProgramChange(program: number /* 1-5 → VoiceMode */) {
-    getOutput()?.send([0xc0 | channel, (program - 1) & 0x7f]);
+    sendRaw([0xc0 | channel, (program - 1) & 0x7f]);
   }
 
   /** CC 64 sustain pedal — keeps gate high */
@@ -279,6 +422,9 @@ function createMidi() {
       store.update((s) => ({ ...s, selectedInput: id })),
     onCC,
     onSysEx,
+    onTraffic,
+    resetCounters,
+    shouldIgnoreInbound,
   };
 }
 

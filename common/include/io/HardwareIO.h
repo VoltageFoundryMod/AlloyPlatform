@@ -27,7 +27,8 @@ enum class PotId : uint8_t
     //      hardware: same physical knob read when SHIFT held) ----
     FATNESS,    ///< Sub-oscillator level [0–1]  (SHIFT+SHAPE on hardware)
     DRIFTSPEED, ///< Drift glide rate [0–1]       (SHIFT+MOTION on hardware)
-    VOL,        ///< Master output volume [0–1]   (SHIFT+SPACE on hardware)
+    CURVETIME, ///< Envelope time scale [0–1] → 0.25–4× (SHIFT+CURVE on hardware)
+    VOL,       ///< Master output volume [0–1]   (SHIFT+SPACE on hardware)
     DELAYTIME,  ///< Delay time [0–1] → 10–300 ms (SHIFT+DELAY on hardware)
     REVERBSIZE, ///< Reverb plate size [0–1]      (SHIFT+REVERB on hardware)
     POT_COUNT

@@ -46,8 +46,21 @@ class EnvelopeEngine
 // ---------------------------------------------------------------------------
 // AREnvelope — original single-knob AR envelope (= former CurveEngine).
 //
-// CURVE knob (0.0–1.0) morphs attack and release simultaneously.
-// Below curve=0.2 → pluck mode: auto-releases at peak regardless of gate.
+// CURVE knob (0.0–1.0) morphs attack and release simultaneously, and also
+// morphs the post-attack sustain level continuously:
+//
+//   curve ≤ 0.20 → sustain 0.0 — pluck: decays to silence at the release rate
+//                                while the gate is still high (gate ignored).
+//   curve ≥ 0.40 → sustain 1.0 — holds at full level for as long as the gate
+//                                is high, then releases.
+//   in between   → decays partway, then holds at that level.
+//
+// The endpoints reproduce the previous behaviour exactly; what changed is that
+// the transition is now continuous instead of a hard branch at curve > 0.2,
+// which made the envelope jump audibly (and visibly) across that one point.
+// This is the "transitioning naturally to a full sustain+release model"
+// behaviour the module reference has always described.
+//
 // setCurve() calls expf() — safe at 128 Hz; next() is multiply-only.
 // ---------------------------------------------------------------------------
 
@@ -57,13 +70,20 @@ class AREnvelope : public EnvelopeEngine
   public:
     void setCurve(float curve, float timeScale = 1.0f)
     {
-        _curve              = curve;
         const float c2      = curve * curve;
         const float ts      = (timeScale < 0.01f) ? 0.01f : timeScale;
         const float attTime = (0.001f + c2 * 0.799f) * ts;
         const float relTime = (0.080f + c2 * 1.920f) * ts;
         _attCoeff = 1.0f - expf(-1.0f / (attTime * (float)_sampleRate));
         _relDecay = expf(-1.0f / (relTime * (float)_sampleRate));
+        _decCoeff = 1.0f - _relDecay; // decay runs at the release rate
+
+        // Continuous pluck → sustain morph.  At _sustain == 0 the DECAY branch
+        // in next() reduces to exactly the old pluck release (env *= _relDecay).
+        constexpr float kPluckEnd   = 0.20f; // at/below: full pluck
+        constexpr float kSustainEnd = 0.40f; // at/above: full sustain
+        const float     s = (curve - kPluckEnd) / (kSustainEnd - kPluckEnd);
+        _sustain          = (s < 0.0f) ? 0.0f : (s > 1.0f ? 1.0f : s);
     }
 
     void setGate(bool high) override
@@ -71,7 +91,7 @@ class AREnvelope : public EnvelopeEngine
         if(high && !_gateHigh)
             _state = ATTACK;
         else if(!high && _gateHigh)
-            if(_state == ATTACK || _state == SUSTAIN)
+            if(_state == ATTACK || _state == DECAY || _state == SUSTAIN)
                 _state = RELEASE;
         _gateHigh = high;
     }
@@ -84,10 +104,19 @@ class AREnvelope : public EnvelopeEngine
                 _env += _attCoeff * (1.0f - _env);
                 if(_env >= 0.99f)
                 {
-                    _state = (_curve > 0.2f && _gateHigh) ? SUSTAIN : RELEASE;
+                    _env   = 1.0f;
+                    _state = DECAY;
                 }
                 break;
-            case SUSTAIN: _env = 1.0f; break;
+            case DECAY:
+                _env += _decCoeff * (_sustain - _env);
+                if(fabsf(_env - _sustain) < 0.001f)
+                {
+                    _env   = _sustain;
+                    _state = (_sustain < 0.001f) ? RELEASE : SUSTAIN;
+                }
+                break;
+            case SUSTAIN: _env = _sustain; break;
             case RELEASE:
                 _env *= _relDecay;
                 if(_env < 0.001f)
@@ -117,13 +146,15 @@ class AREnvelope : public EnvelopeEngine
     {
         IDLE,
         ATTACK,
+        DECAY,
         SUSTAIN,
         RELEASE
     } _state             = IDLE;
     float    _env        = 0.0f;
     float    _attCoeff   = 0.001f;
     float    _relDecay   = 0.999f;
-    float    _curve      = 0.5f;
+    float    _decCoeff   = 0.001f; // = 1 - _relDecay; toward _sustain
+    float    _sustain    = 1.0f;   // post-attack hold level (0 = pluck)
     bool     _gateHigh   = false;
     uint32_t _sampleRate = SAMPLE_RATE;
 };

@@ -55,6 +55,7 @@
       <span class="badge ok">Connected</span>
       <select
         value={$midi.selectedOutput}
+        title="MIDI output — the port this page sends on. For VCV Rack, pick the same virtual port Rack's MIDI input is set to (loopMIDI / IAC). Incoming MIDI is received on every port regardless."
         onchange={(e) =>
           midi.selectOutput((e.target as HTMLSelectElement).value)}
       >
@@ -62,6 +63,8 @@
           <option value={port.id}>{port.name}</option>
         {/each}
       </select>
+      <!-- TX/RX byte counters live on the MIDI Monitor tab at the bottom of
+           the page, next to the traffic they describe. -->
       <button
         class="btn-disconnect"
         onclick={() => midi.disconnect()}

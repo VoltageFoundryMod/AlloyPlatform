@@ -2,13 +2,26 @@
   /**
    * EnvelopeGraph — SVG visualization of the current envelope shape.
    *
-   * AR mode:   shape derived from `curve` (0–1) and `curveTime` (0.25–4×).
-   *            curve=0 → pluck (instant attack, fast decay)
-   *            curve=1 → swell (slow attack, long decay)
-   * ADSR mode: independent attack / decay / sustain / release.
-   *            curve scales A/D/R:  0→×0.25 (percussive), 0.5→×1.0, 1→×4.0
+   * The horizontal axis is ABSOLUTE TIME on a log scale (≈5 ms … 32 s), so a
+   * uniform time scale actually moves the drawing.  The previous version sized
+   * every segment as a fraction of a fixed total width, which made any uniform
+   * scaling (CURVETIME in AR, the CURVE tScale in ADSR) cancel out exactly and
+   * so have no visible effect at all.
    *
-   * The dashed vertical line marks the gate-off boundary.
+   * Segment times mirror the DSP in common/include/dsp/CurveEngine.h:
+   *   AR   — att = (0.001 + curve² · 0.799) · curveTime
+   *          rel = (0.080 + curve² · 1.920) · curveTime
+   *          sustain level morphs 0 → 1 across curve 0.20 → 0.40, so AR draws
+   *          as a four-segment envelope whose decay and release are derived
+   *          from the single release rate.  At sustain 0 that is pluck.
+   *   ADSR — A/D/R scaled by CURVE: tScale = 4^(2·curve−1) (×0.25 … ×4), each
+   *          clamped to 0.001–10 s like ADSREnvelope::_coeff().
+   *
+   * Segments are drawn at their nominal parameter values (the one-pole time
+   * constants), not the ~4.6·τ a real ramp takes to reach peak — so the picture
+   * matches the numbers on the knobs.
+   *
+   * The dashed vertical line marks gate-off, assuming a GATE_HOLD_S gate.
    */
   let {
     isAdsr = false,
@@ -35,32 +48,81 @@
   const YT = 4; // y at amplitude 1.0  (top)
   const YB = 48; // y at amplitude 0.0  (bottom)  YT + H = 48
 
+  // ── Time axis ─────────────────────────────────────────────────────────
+  // x(t) = X0 + W · log10(1 + t/T0) / log10(1 + TMAX/T0)
+  // T0 sets the resolution near zero; TMAX is the right edge.  TMAX covers the
+  // slowest reachable envelope (ADSR 10+10+10 s + gate hold).
+  const T0 = 0.005;
+  const TMAX = 32;
+  const LOG_DEN = Math.log10(1 + TMAX / T0);
+
+  // Assumed gate-on duration, drawn between the end of attack (AR) or decay
+  // (ADSR) and gate-off.  The envelope itself has no opinion on gate length.
+  const GATE_HOLD_S = 0.25;
+
+  const MIN_LABEL_W = 11; // hide a segment label narrower than this
+
+  function xOf(t: number): number {
+    const u = Math.log10(1 + Math.max(t, 0) / T0) / LOG_DEN;
+    return X0 + Math.min(u, 1) * W;
+  }
+
+  function fmtTime(t: number): string {
+    if (t < 1) return `${Math.round(t * 1000)} ms`;
+    return t < 10 ? `${t.toFixed(2)} s` : `${t.toFixed(1)} s`;
+  }
+
+  // Decade gridlines.  10 s is drawn but left unlabelled so it cannot collide
+  // with the total-duration readout on the right.
+  const ticks = [
+    { t: 0.01, label: "10ms" },
+    { t: 0.1, label: "100ms" },
+    { t: 1, label: "1s" },
+    { t: 10, label: "" },
+  ];
+
   // ── Geometry helpers ──────────────────────────────────────────────────
+  // Cubic bezier control points sit at ±25 % of each segment's width, which
+  // reads as a natural exponential curve.
 
-  function adsrGeom(a: number, d: number, s: number, r: number) {
-    const susW = 42; // fixed-width sustain plateau in display units
-    const total = Math.max(a + d + r, 1e-6);
-    const avail = W - susW;
+  function arGeom(c: number, ct: number) {
+    const ts = Math.max(ct, 0.01); // AREnvelope::setCurve clamps the same way
+    const c2 = c * c;
+    const a = (0.001 + c2 * 0.799) * ts;
+    const r = (0.08 + c2 * 1.92) * ts;
 
-    // Proportional widths, clamped to a usable minimum
-    let aw = Math.max((a / total) * avail, 10);
-    let dw = Math.max((d / total) * avail, 10);
-    let rw = Math.max((r / total) * avail, 10);
+    // Sustain morph mirrors AREnvelope::setCurve(): 0 at curve 0.20, 1 at 0.40.
+    const s = Math.min(Math.max((c - 0.2) / 0.2, 0), 1);
 
-    // Rescale so aw + dw + susW + rw = W exactly
-    const sc = W / (aw + dw + susW + rw);
-    aw *= sc;
-    dw *= sc;
-    rw *= sc;
-    const sw = susW * sc;
+    // Decay (1.0 → s) and release (s → 0) both run at the single release rate,
+    // so the nominal time r is split between them in proportion to the height
+    // each one covers.  Linear in s, so no landmark jumps anywhere in the
+    // morph, and the total stays exactly a + r at both ends and in between.
+    // (Splitting by a one-pole's true settling time instead looks principled
+    // but collapses almost entirely in the last 2 % of the morph, which just
+    // moves the old cliff from curve 0.20 to curve 0.40.)
+    //
+    // AR is now structurally an ADSR whose decay and release are derived from
+    // the single release rate, so it shares the same geometry.
+    return { ...envGeom(a, r * (1 - s), s, r * s), pluck: s <= 0 };
+  }
 
-    const xA = X0 + aw;
-    const xD = xA + dw;
-    const xSe = xD + sw;
-    const xR = xSe + rw;
+  function envGeom(a: number, d: number, s: number, r: number) {
+    const tA = a;
+    const tD = tA + d;
+    const tS = tD + GATE_HOLD_S;
+    const tR = tS + r;
+
+    const xA = xOf(tA);
+    const xD = xOf(tD);
+    const xSe = xOf(tS);
+    const xR = xOf(tR);
+    const aw = xA - X0;
+    const dw = xD - xA;
+    const sw = xSe - xD;
+    const rw = xR - xSe;
     const ys = YB - s * H; // sustain level y
 
-    // Cubic bezier: cp at ±25 % of segment width for a natural exponential look
     const pathD = [
       `M ${X0},${YB}`,
       `C ${X0 + aw * 0.25},${YB} ${xA - aw * 0.25},${YT} ${xA},${YT}`,
@@ -69,57 +131,52 @@
       `C ${xSe + rw * 0.25},${ys} ${xR - rw * 0.25},${YB} ${xR},${YB}`,
     ].join(" ");
 
-    return { pathD, xA, xD, xSe, xR, ys, aw, dw, sw, rw };
+    return { pathD, xA, xD, xSe, xR, ys, aw, dw, sw, rw, total: a + d + r };
   }
 
-  function arGeom(c: number, ct: number) {
-    // Approximate attack and release times from the curve knob
-    //   c=0 → pluck : a≈0.005 s, r≈0.05 s  (narrow spike)
-    //   c=1 → swell  : a≈2.5 s,  r≈2.0 s   (wide gradual rise)
-    const a = (0.005 + Math.pow(c, 1.5) * 2.5) * ct;
-    const r = (0.05 + c * 1.95) * ct;
-
-    const holdW = 28; // gate-held visual segment width
-    const total = Math.max(a + r, 1e-6);
-    const avail = W - holdW;
-    const aw = Math.max((a / total) * avail, 10);
-    const rw = avail - aw; // fills the rest exactly → xR always equals X0 + W
-
-    const xA = X0 + aw;
-    const xHe = xA + holdW;
-    const xR = xHe + rw;
-
-    const pathD = [
-      `M ${X0},${YB}`,
-      `C ${X0 + aw * 0.25},${YB} ${xA - aw * 0.25},${YT} ${xA},${YT}`,
-      `L ${xHe},${YT}`,
-      `C ${xHe + rw * 0.25},${YT} ${xR - rw * 0.25},${YB} ${xR},${YB}`,
-    ].join(" ");
-
-    return { pathD, xA, xHe, xR, aw, rw, holdW };
-  }
+  // ADSREnvelope::_coeff() clamps every time to 0.001–10 s; mirror that so the
+  // graph stops growing exactly where the DSP does.
+  const clampT = (t: number) => Math.min(Math.max(t, 0.001), 10);
 
   const geom = $derived.by(() => {
     if (isAdsr) {
-      // Apply CURVE time scale: 4^(2×curve-1)
+      // CURVE is a global time scale in ADSR mode: 4^(2·curve−1)
       const tScale = Math.pow(4, 2 * curve - 1);
       return {
-        kind: "adsr" as const,
-        ...adsrGeom(attack * tScale, decay * tScale, sustain, release * tScale),
+        labels: ["A", "D", "S", "R"],
+        pluck: false,
+        ...envGeom(
+          clampT(attack * tScale),
+          clampT(decay * tScale),
+          sustain,
+          clampT(release * tScale),
+        ),
       };
     }
-    return { kind: "ar" as const, ...arGeom(curve, curveTime) };
+    return { labels: ["ATK", "DEC", "HOLD", "REL"], ...arGeom(curve, curveTime) };
   });
 </script>
 
 <div class="env-graph">
   <!--
-    viewBox 0 0 216 68 — envelope drawn in x:8–208, y:4–48;
-    label row at y:60–66.  Width scales to container; height fixed at 64 px.
+    viewBox 0 0 216 76 — envelope drawn in x:8–208, y:4–48;
+    segment labels at y:58, time axis at y:70.
   -->
-  <svg viewBox="0 0 216 68" width="100%" height="64" aria-hidden="true">
-    <!-- Mode badge -->
-    <text x={X0} y="62" class="mode-label">{isAdsr ? "ADSR" : "AR"}</text>
+  <svg viewBox="0 0 216 76" width="100%" height="72" aria-hidden="true">
+    <!-- Decade gridlines + labels -->
+    {#each ticks as tick (tick.t)}
+      <line
+        x1={xOf(tick.t)}
+        y1={YT - 3}
+        x2={xOf(tick.t)}
+        y2={YB}
+        stroke="#191a28"
+        stroke-width="1"
+      />
+      {#if tick.label}
+        <text x={xOf(tick.t)} y="70" class="tick-label">{tick.label}</text>
+      {/if}
+    {/each}
 
     <!-- Zero baseline -->
     <line
@@ -131,76 +188,69 @@
       stroke-width="1"
     />
 
-    {#if geom.kind === "adsr"}
-      <!-- Sustain level reference -->
-      <line
-        x1={X0}
-        y1={geom.ys}
-        x2={X0 + W}
-        y2={geom.ys}
-        stroke="#1e2030"
-        stroke-width="1"
-      />
+    <!-- Sustain level reference -->
+    <line
+      x1={X0}
+      y1={geom.ys}
+      x2={X0 + W}
+      y2={geom.ys}
+      stroke="#1e2030"
+      stroke-width="1"
+    />
 
-      <!-- Gate-off boundary (dashed) -->
-      <line
-        x1={geom.xSe}
-        y1={YT - 3}
-        x2={geom.xSe}
-        y2={YB + 3}
-        stroke="#33344a"
-        stroke-width="1"
-        stroke-dasharray="3 2"
-      />
+    <!--
+      Gate-off boundary (dashed).  In AR pluck mode the envelope has already
+      decayed to silence before this line, which is exactly what "gate hold
+      ignored" looks like.
+    -->
+    <line
+      x1={geom.xSe}
+      y1={YT - 3}
+      x2={geom.xSe}
+      y2={YB + 3}
+      stroke={geom.pluck ? "#26273a" : "#33344a"}
+      stroke-width="1"
+      stroke-dasharray="3 2"
+    />
 
-      <!-- Fill under curve -->
-      <path d="{geom.pathD} Z" fill="rgba(124,184,255,0.07)" />
+    <!-- Fill under curve -->
+    <path d="{geom.pathD} Z" fill="rgba(124,184,255,0.07)" />
 
-      <!-- Envelope curve -->
-      <path
-        d={geom.pathD}
-        fill="none"
-        stroke="#7cb8ff"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
+    <!-- Envelope curve -->
+    <path
+      d={geom.pathD}
+      fill="none"
+      stroke="#7cb8ff"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
 
-      <!-- Segment labels: A D S R centred under each segment -->
-      <text x={X0 + geom.aw * 0.5} y="62" class="seg-label">A</text>
-      <text x={geom.xA + geom.dw * 0.5} y="62" class="seg-label">D</text>
-      <text x={geom.xD + geom.sw * 0.5} y="62" class="seg-label">S</text>
-      <text x={geom.xSe + geom.rw * 0.5} y="62" class="seg-label">R</text>
-    {:else}
-      <!-- Gate-off boundary (dashed) -->
-      <line
-        x1={geom.xHe}
-        y1={YT - 3}
-        x2={geom.xHe}
-        y2={YB + 3}
-        stroke="#33344a"
-        stroke-width="1"
-        stroke-dasharray="3 2"
-      />
-
-      <!-- Fill under curve -->
-      <path d="{geom.pathD} Z" fill="rgba(124,184,255,0.07)" />
-
-      <!-- Envelope curve -->
-      <path
-        d={geom.pathD}
-        fill="none"
-        stroke="#7cb8ff"
-        stroke-width="1.8"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      />
-
-      <!-- Segment labels: ATK  HOLD  REL -->
-      <text x={X0 + geom.aw * 0.5} y="62" class="seg-label">ATK</text>
-      <text x={geom.xA + geom.holdW * 0.5} y="62" class="seg-label">HOLD</text>
-      <text x={geom.xHe + geom.rw * 0.5} y="62" class="seg-label">REL</text>
+    <!-- Segment labels centred under each segment, hidden when too narrow -->
+    {#if geom.aw >= MIN_LABEL_W}
+      <text x={X0 + geom.aw * 0.5} y="58" class="seg-label">{geom.labels[0]}</text>
     {/if}
+    {#if geom.dw >= MIN_LABEL_W}
+      <text x={geom.xA + geom.dw * 0.5} y="58" class="seg-label"
+        >{geom.labels[1]}</text
+      >
+    {/if}
+    {#if geom.sw >= MIN_LABEL_W}
+      <text x={geom.xD + geom.sw * 0.5} y="58" class="seg-label"
+        >{geom.labels[2]}</text
+      >
+    {/if}
+    {#if geom.rw >= MIN_LABEL_W}
+      <text x={geom.xSe + geom.rw * 0.5} y="58" class="seg-label"
+        >{geom.labels[3]}</text
+      >
+    {/if}
+
+    <!-- Mode badge (left) and total envelope time (right) -->
+    <text x={X0} y="70" class="mode-label">
+      {isAdsr ? "ADSR" : geom.pluck ? "AR PLUCK" : "AR"}
+    </text>
+    <text x={X0 + W} y="70" class="total-label">{fmtTime(geom.total)}</text>
   </svg>
 </div>
 
@@ -232,5 +282,19 @@
     font-family: monospace;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+  }
+
+  .tick-label {
+    fill: #2c2d40;
+    font-size: 6px;
+    text-anchor: middle;
+    font-family: monospace;
+  }
+
+  .total-label {
+    fill: #5a6a8a;
+    font-size: 7px;
+    text-anchor: end;
+    font-family: monospace;
   }
 </style>
