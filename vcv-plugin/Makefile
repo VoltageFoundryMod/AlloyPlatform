@@ -3,11 +3,9 @@ RACK_DIR ?= ../../Rack-SDK
 # Expose the shared DSP headers and sources under common/include and common/src
 EXTRA_FLAGS += -I../common/include -I../common/src
 
-# Must match platformio.ini — DELAY_MAX_MS sizes the delay buffer and, since
-# M56, the travel of the DELAYTIME knob and CC 86 on both platforms. Without
-# it the plugin falls back to DelayEngine.h's 300 ms default and the same
-# patch would sound different in Rack than on hardware.
-EXTRA_FLAGS += -DDELAY_MAX_MS=500
+# DELAY_MAX_MS is no longer set here: 500 ms is the default in DelayEngine.h
+# for every target as of M63g, so there is nothing left to keep in sync with
+# platformio.ini.
 
 # VCV plugin sources (compile.mk resolves these to build/src/*.o)
 SOURCES += src/plugin.cpp

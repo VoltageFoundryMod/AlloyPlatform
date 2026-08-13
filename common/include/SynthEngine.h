@@ -90,10 +90,10 @@ struct SynthControlOutput
 //   3. Each control tick: gSynthEngine.control(params, polySlots, output)
 //   4. Each audio sample: gSynthEngine.audio(...)
 //
-// Audio signal range is kept as int32_t ±32512 throughout to match the
-// existing Mozzi pipeline.  Float conversion happens only at the ISR boundary.
+// Audio signal range is kept as int32_t ±32512 throughout; float conversion
+// happens only at the output boundary.
 //
-// For VCV Rack (M37c+): call setSampleRate() when the host rate changes.
+// Call setSampleRate() whenever the host or driver rate changes.
 // ---------------------------------------------------------------------------
 class SynthEngine
 {
@@ -112,11 +112,11 @@ class SynthEngine
 
     /**
      * One-time init — generate wavetables, seed all engines.
-     * Must be called before startMozzi() so delay buffers are warm.
-     * @param audioRate   samples/sec (firmware: MOZZI_AUDIO_RATE = 32768)
-     * @param controlRate control ticks/sec (firmware: MOZZI_CONTROL_RATE = 128)
+     * Must be called before the audio driver starts so delay buffers are warm.
+     * @param audioRate   samples/sec (firmware: kAudioRate = 48000)
+     * @param controlRate control ticks/sec (firmware: kControlRate = 128)
      */
-    void init(uint32_t audioRate = 32768u, uint32_t controlRate = 128u);
+    void init(uint32_t audioRate = 48000u, uint32_t controlRate = 128u);
 
     /**
      * Control-rate update (128 Hz on hardware).
@@ -189,7 +189,7 @@ class SynthEngine
     volatile float chorusDepth = 0.0f;
 
   private:
-    uint32_t _audioRate   = 32768u;
+    uint32_t _audioRate   = 48000u;
     uint32_t _controlRate = 128u;
 
     // -----------------------------------------------------------------------
@@ -209,25 +209,25 @@ class SynthEngine
     // -----------------------------------------------------------------------
     // Oscillators — 4 main voices + 4 sub voices.
     // -----------------------------------------------------------------------
-    ShapeOsc<32768u> _voices[6];
-    ShapeOsc<32768u> _subVoices[6];
+    ShapeOsc<48000u> _voices[6];
+    ShapeOsc<48000u> _subVoices[6];
 
     // -----------------------------------------------------------------------
     // Envelopes
     // -----------------------------------------------------------------------
-    AREnvelope<32768u>   _arEnv;
-    ADSREnvelope<32768u> _adsrEnv;
+    AREnvelope<48000u>   _arEnv;
+    ADSREnvelope<48000u> _adsrEnv;
     EnvelopeType         _envType     = EnvelopeType::AR;
     EnvelopeType         _prevEnvType = EnvelopeType::AR;
 
     // POLY mode — 6 independent per-voice envelopes.
-    AREnvelope<32768u> _polyEnvArr[6];
+    AREnvelope<48000u> _polyEnvArr[6];
 
     // -----------------------------------------------------------------------
     // Effect engines
     // -----------------------------------------------------------------------
     DriftEngine<6u>      _drift;
-    ChorusEngine<32768u> _chorus;
+    ChorusEngine<48000u> _chorus;
 
     SVFFilter  _svfFilter;
     OTALadder  _otaLadder;

@@ -2,7 +2,7 @@
 
 AlloyFlux is a eurorack synthesizer module with three build targets that share a single DSP codebase:
 
-- **Firmware** — RP2350 (Pico 2), Arduino/Mozzi, PlatformIO
+- **Firmware** — RP2350 (Pico 2), Arduino, PlatformIO
 - **VCV Rack plugin** — Rack SDK 2.6.6, shares `common/include/` + `common/src/SynthEngine.cpp`
 - **Web Configurator** — Svelte 5 + TypeScript + Vite
 
@@ -47,12 +47,12 @@ to confirm no regressions on either platform.
 
 ### Firmware (RP2350, dual-core)
 
-- **Core 0** — Mozzi audio ISR at 32768 Hz (`updateAudio()`), control loop at 128 Hz (`updateControl()`), all IO
+- **Core 0** — block audio render at 48000 Hz (`renderAudio()`, 32-frame blocks via `AudioDriver::pump()`), control loop at 128 Hz (`updateControl()`), all IO
 - **Core 1** — Reverb engine only (`DattorroReverb`). Disabled via `-DREVERB_FORCE_CORE0=1` for debugging.
 
 Key files and directories:
 
-- [`firmware/src/main.cpp`](firmware/src/main.cpp) — thin platform shim; Mozzi hooks; inter-core ring buffer
+- [`firmware/src/main.cpp`](firmware/src/main.cpp) — thin platform shim; audio driver + control callbacks; inter-core ring buffer
 - [`common/include/SynthEngine.h`](common/include/SynthEngine.h) / [`common/src/SynthEngine.cpp`](common/src/SynthEngine.cpp) — all DSP, platform-independent
 - [`common/include/io/IOBridge.h`](common/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
 - [`common/include/dsp/`](common/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
@@ -81,25 +81,25 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 [`firmware/include/config_store.h`](firmware/include/config_store.h) defines `AlloyConfig`. Rules:
 
-- **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `5`.
+- **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `6`.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
-- Current SRAM usage: ~290 KB of 512 KB (56.5%), flash 4.5%; check after any change that increases buffer sizes. The jump from the previously documented 236 KB is `-DDELAY_MAX_MS=500` in `platformio.ini` (~65 KB of delay buffer), not a regression.
+- Current SRAM usage: ~359 KB of 512 KB (68.5%), flash 4.5%; check after any change that increases buffer sizes. The delay buffers alone are ~187 KB (`DELAY_MAX_MS` 500 ms sized at `DelayEngine::kNativeRate`).
 
 ---
 
-## ISR Safety (updateAudio)
+## Audio path safety (renderAudio)
 
-`updateAudio()` runs at 32768 Hz. Violations cause audio dropouts or watchdog resets:
+`renderAudio()` runs 32 times per block, 1500 blocks/sec at 48000 Hz. The render loop is driven from `loop()` by `AudioDriver::pump()`, which paces itself on the I2S DMA. The budget is one block's wall-clock period, ~667 µs, reported as `gAudioBudgetUs`. Violations cause audio dropouts or watchdog resets:
 
-- **Never** acquire a mutex inside `updateAudio()`
+- **Never** acquire a mutex inside `renderAudio()`
 - **Never** call `malloc`, `free`, `sqrt()`, `pow()`, or any blocking/File I/O function
-- **Never** trigger serial/USB output from the ISR
-- Hot ISR functions must be annotated `__attribute__((section(".time_critical")))` or wrapped via `IRAM_ATTR`
+- **Never** trigger serial/USB output from `renderAudio()`
+- Hot render-path functions must be annotated `__attribute__((section(".time_critical")))` or wrapped via `IRAM_ATTR`
 - All `volatile` inter-core state (gate, reverb params, chorus depth) is single aligned `float`/`bool` — atomic on Cortex-M33; larger structs need `gDspMutex`
 
 ### Inter-core reverb transport
 
-Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (8-sample fixed-latency output buffer, read with `kRevReadDelay` offset). See [`firmware/include/dsp_shared.h`](firmware/include/dsp_shared.h).
+Core 0 renderAudio() → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (fixed-latency output ring, read `kRevReadDelay` frames behind the write cursor; must absorb a whole audio block). See [`firmware/include/dsp_shared.h`](firmware/include/dsp_shared.h).
 
 ---
 
@@ -120,7 +120,7 @@ Core 0 ISR → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Co
 - **Formatting**: 4-space indent, 80-column limit, Allman brace style (after class/struct), no tabs. Governed by `.clang-format`.
   - Check: `make format-check` — Fix: `make format`. Both cover untracked-but-not-ignored files too, so a newly added header is formatted before its first commit. On Windows the Makefile falls back to the clang-format shipped with the VS Code C/C++ extension when none is on `PATH`.
 - **Global naming**: `gXxx` = goal/target values (updated from hardware reads), `sXxx` = smoothed/current values (updated each control tick). Inter-core volatile state follows the same convention with `volatile` qualifier.
-- **Template DSP engines**: parameterized by `SAMPLE_RATE` at compile time; call `engine.init(sampleRate)` at instantiation. Firmware uses 32768 Hz; VCV uses host sample rate (`args.sampleRate`).
+- **Template DSP engines**: the `SAMPLE_RATE` template argument is only a *default* — `setSampleRate()` / `init(rate)` is what actually sets the rate, and `SynthEngine::init()` calls it on every engine. Firmware uses 48000 Hz (M63g); VCV uses host sample rate (`args.sampleRate`). Note `DattorroReverb` is deliberately absent from `SynthEngine::setSampleRate()` — its delay lines are fixed sample counts, so the plate scales with rate on both platforms alike.
 - **DSP integer samples**: `int32_t ±32512` throughout the signal path; float conversion only at DAC output boundary.
 
 ### Data Flow (params → audio)
@@ -138,7 +138,7 @@ fillSynthParams()  [common/include/io/IOBridge.h]
 SynthEngine::control()  @ 128 Hz   ← smoothing, voice pitch, effect coefficients
         │
         ▼
-SynthEngine::audio()   @ 32768 Hz  ← oscillators, filters, reverb, output summation
+SynthEngine::audio()   @ 48000 Hz  ← oscillators, filters, reverb, output summation
 ```
 
 ---

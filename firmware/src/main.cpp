@@ -2,18 +2,22 @@
  * AlloyFlux — Dual Relation Oscillator, Juno-inspired Eurorack voice
  * Hardware : Raspberry Pi Pico 2 (RP2350) + PCM5102A I2S DAC
  *
- * Audio: stereo I2S via PIO, 16-bit in 32-bit frames, 32768 Hz.
+ * Audio: stereo I2S via PIO, 16-bit in 32-bit frames, 48000 Hz.
  * Serial dev console active when SERIAL_CONTROL is defined (build flag).
  * See reference/AlloyFlux-module-reference.md for full design specification.
  */
 
 // ---------------------------------------------------------------------------
-// Audio configuration (M63a — was Mozzi's MOZZI_* macros)
+// Audio configuration
 //
-// These are firmware-local on purpose.  Nothing under common/ may depend on
-// them: the platform work (M63b+) makes sample rate a per-module property, and
-// a shared header that hardcodes one rate would defeat that.  SynthEngine
-// already takes both rates as init() arguments, so it needs no macro at all.
+// Firmware-local on purpose: nothing under common/ may depend on these.  The
+// sample rate is a property of the module, not of the platform, and a shared
+// header hardcoding one rate would defeat that.  SynthEngine takes both rates
+// as init() arguments.
+//
+// 48 kHz is exactly representable at the default 150 MHz system clock: the bit
+// clock is 48000 × 32 bits × 2 channels = 3.072 MHz, and 150/3.072 = 48.828125,
+// whose fraction lands exactly on 212/256 in the PIO's 16.8 divider.
 //
 // I2S pin assignments — PCM5102A.  WS must be BCK+1; the PIO program derives it
 // and there is no way to place it elsewhere.
@@ -23,7 +27,7 @@
 // ---------------------------------------------------------------------------
 #include <stdint.h>
 
-static constexpr uint32_t kAudioRate   = 32768u;
+static constexpr uint32_t kAudioRate   = 48000u;
 static constexpr uint32_t kControlRate = 128u;
 
 static constexpr uint8_t kPinI2sBCK  = 16u;
@@ -45,7 +49,7 @@ static constexpr uint8_t kPinI2sData = 18u;
 #include "dsp/ChorusEngine.h"
 #include "dsp/ShapeOsc.h"
 #include "dsp/SpaceEngine.h"
-#include "io/AudioDriver.h" // M63a — block I2S output, replaces Mozzi
+#include "io/AudioDriver.h" // block I2S output + control tick
 #include "io/ButtonEngine.h"
 #include "io/usb_midi.h"
 #include <math.h>
@@ -184,21 +188,17 @@ volatile uint32_t         gRevInDrops
 // Core 0 reads kRevReadDelay slots behind the write pointer, guaranteeing a
 // constant 2-sample wet latency regardless of Core 1 execution jitter.
 // Constant latency = constant comb = no shimmer.
-// M63a — resized for block rendering.  These were 8 / 3, sized for Mozzi's
-// steady one-frame-per-sample-period cadence where Core 0's read cursor and
-// Core 1's write cursor advanced in lockstep.  AudioDriver renders a whole
-// block back-to-back (32 frames in ~190 µs, then idle), so Core 0 now consumes
-// 32 slots in a burst — it wrapped an 8-slot ring four times inside one block
-// while Core 1 was still producing, scrambling the wet return into broadband
-// noise.  The ring must absorb a full block plus margin, and the read delay
-// must sit far enough behind the write cursor that a burst cannot catch it.
-// Latency rises from ~90 µs to ~1.5 ms; still *constant*, which is what keeps
-// the dry/wet comb fixed and the shimmer away, and 1.5 ms of wet pre-delay on
-// a reverb is musically free.
+// Core 0 consumes wet frames a whole block at a time (32 back-to-back in
+// ~190 µs, then idle), so the ring must absorb a full block plus margin and the
+// read delay must sit far enough behind the write cursor that a burst cannot
+// catch it.  Sizing these too tightly lets Core 0 wrap the ring inside a single
+// block while Core 1 is still producing, which scrambles the wet return into
+// broadband noise.  The latency it costs must stay *constant* — that is what
+// keeps the dry/wet comb fixed and the shimmer away.
 static constexpr uint32_t kRevOutBufDepth
     = 128u; // power-of-2; must exceed kRevReadDelay + AudioDriver::kBlockFrames
 static constexpr uint32_t kRevReadDelay
-    = 48u; // fixed wet latency in frames (~1.5 ms at 32768 Hz)
+    = 48u; // fixed wet latency in frames (~1.0 ms at 48 kHz)
 volatile int32_t gRevOutBuf_L[kRevOutBufDepth] = {};
 volatile int32_t gRevOutBuf_R[kRevOutBufDepth] = {};
 // Pre-seeded to kRevReadDelay so slots [0..kRevReadDelay-1] are valid silence
@@ -233,10 +233,9 @@ float gDelayMix      = 0.0f;
 volatile bool     gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs          = 0;
 volatile uint32_t gAudioOverruns           = 0;
-// M63a — the budget is now one block's wall-clock period rather than a fixed
-// 30 µs per sample. Published from AudioDriver so the console prints the real
-// figure instead of a constant that only held at 32768 Hz with per-sample
-// rendering.
+// One block's wall-clock period — the budget gAudioElapsedUs is measured
+// against.  Published from AudioDriver rather than hardcoded so it follows the
+// sample rate and block size.
 volatile uint32_t gAudioBudgetUs = 1;
 #endif
 
@@ -250,12 +249,11 @@ mutex_t   gDspMutex;
 volatile float gChorusDepth = 0.0f;
 
 // ---------------------------------------------------------------------------
-// Audio driver (M63a) and its two callbacks.
+// Audio driver and its two callbacks.
 //
-// renderAudio() replaces Mozzi's updateAudio() — same body, but it writes both
-// channels through pointers instead of returning a StereoOutput.
-// updateControl() keeps its name and its 128 Hz cadence; the driver counts
-// rendered frames and calls it on a block boundary, in thread context.
+// renderAudio() produces one stereo frame; the driver calls it kBlockFrames
+// times per block.  updateControl() runs at 128 Hz — the driver counts rendered
+// frames and calls it on a block boundary, in thread context.
 // ---------------------------------------------------------------------------
 static AudioDriver sAudioDriver;
 
@@ -313,7 +311,7 @@ void setup()
 #endif
 }
 
-// Forward declarations for reverb helpers defined before updateAudio().
+// Forward declarations for reverb helpers defined before renderAudio().
 static void revApplyParams();
 static void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive);
 static void revFeedDry(int32_t dryL, int32_t dryR);
@@ -548,11 +546,8 @@ void updateControl()
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
     // Print audio ISR timing once every 5 s so it doesn't flood the console.
-    // M63a — republish the driver's block timings each control tick.
-    // gAudioOverruns now carries real DMA underflows (audible dropouts), not
-    // the old synthetic per-frame >30 µs count, which measured a single frame
-    // of a block against a whole sample period's budget and so fired
-    // constantly on harmless USB-ISR jitter.
+    // Republish the driver's block timings.  gAudioOverruns carries real DMA
+    // underflows — an audible dropout — not blocks that merely ran long.
     gAudioElapsedUs = sAudioDriver.lastBlockUs();
     gAudioOverruns  = sAudioDriver.underflows();
     gAudioBudgetUs  = sAudioDriver.blockPeriodUs();
@@ -610,8 +605,8 @@ void updateControl()
 
 // ---------------------------------------------------------------------------
 // Reverb transport helpers — hide the Core0-inline vs Core1-offload divergence
-// so updateAudio() has a single unified control flow regardless of the flag.
-// Both helpers are hot-path: placed in SRAM alongside updateAudio.
+// so renderAudio() has a single unified control flow regardless of the flag.
+// Both helpers are hot-path: placed in SRAM alongside renderAudio().
 // ---------------------------------------------------------------------------
 
 // revApplyParams() — called at control rate (updateControl, 128 Hz).
@@ -709,18 +704,16 @@ revFeedDry(int32_t dryL, int32_t dryR)
 #endif
 }
 
-// M37b — thin audio render: delegate all DSP to SynthEngine, handle reverb
-// transport.  M63a: called kBlockFrames times per block by AudioDriver::pump()
-// instead of once per sample by Mozzi; the body is unchanged.
+// Thin audio render: delegates all DSP to SynthEngine and handles the reverb
+// transport.  Called kBlockFrames times per block by AudioDriver::pump().
 void __attribute__((section(".time_critical.renderAudio")))
 renderAudio(int32_t *pOutL, int32_t *pOutR)
 {
 #ifdef AUDIO_TEST_TONE
-    // M63a bring-up: 1 kHz sine straight out of the driver, bypassing the
-    // engine, the effects chain and the envelope entirely.  This is the bisect
-    // between "the I2S path is broken" and "the engine is producing silence" —
-    // if this is flat on a scope the fault is below renderAudio(), if it is
-    // clean the fault is in the synth's gate/envelope/level state.
+    // Bring-up aid: 1 kHz sine straight out of the driver, bypassing the
+    // engine, effects chain and envelope.  Bisects "the I2S path is broken"
+    // from "the engine is producing silence" — flat on a scope means the fault
+    // is below renderAudio(); clean means it is in gate/envelope/level state.
     // Build with: pio run -e alloyflux -a "-DAUDIO_TEST_TONE"
     {
         static float    sPhase = 0.0f;
@@ -760,19 +753,13 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
             gLedPeakR = aR;
     }
 
-    // M63a — CPU profiling moved out of here. This function now renders one
-    // frame of a block rather than one whole ISR call, and a single frame costs
-    // less than time_us_32()'s 1 µs resolution, so timing it reads as zero.
-    // AudioDriver times the whole block instead; updateControl() publishes it.
-
     *pOutL = outL;
     *pOutR = outR;
 }
 
-// M63a — the render loop.  pump() renders one block and blocks on the I2S DMA
-// until there is room to queue it, so the bit clock paces this loop and no
-// timer is involved.  updateControl() is invoked from inside pump() on block
-// boundaries, which keeps it in thread context as it was under Mozzi.
+// The render loop.  pump() queues one block whenever the I2S DMA has room, so
+// the bit clock paces this loop and no timer is involved.  updateControl() is
+// invoked from inside pump(), keeping it in thread context.
 void loop()
 { sAudioDriver.pump(); }
 

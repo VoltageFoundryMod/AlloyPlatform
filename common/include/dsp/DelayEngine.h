@@ -21,18 +21,22 @@
  *   mix       : 0.0 (dry only) … 1.0 (full wet)
  */
 
+// Defined here for every target rather than per-build-system, so hardware and
+// the VCV plugin cannot drift apart on the maximum delay time.
 #ifndef DELAY_MAX_MS
-#define DELAY_MAX_MS 300
+#define DELAY_MAX_MS 500
 #endif
 
 class DelayEngine
 {
   public:
-    // Buffer is sized at the hardware rate; the buffer, not DELAY_MAX_MS, is the
-    // real ceiling. A VCV host running faster than 32768 Hz therefore tops out
-    // below DELAY_MAX_MS in wall-clock terms — setParams() clamps to whatever
-    // the buffer actually holds at the current rate.
-    static constexpr uint32_t kNativeRate = 32768;
+    // Buffers are sized for this rate, and the buffer — not DELAY_MAX_MS — is
+    // the real ceiling: setParams() clamps to whatever it holds at the current
+    // rate.  Must therefore be the highest rate any target runs at, or that
+    // target silently gets a shorter maximum than the knob and CC 86 advertise.
+    // Costs 500 ms × 48000 × 4 bytes × 2 channels ≈ 187 KB of SRAM; lowering it
+    // is the obvious lever if SRAM gets tight.
+    static constexpr uint32_t kNativeRate = 48000;
     static constexpr uint32_t kMaxSamples
         = (uint32_t)((DELAY_MAX_MS / 1000.0f) * (float)kNativeRate + 0.5f);
 

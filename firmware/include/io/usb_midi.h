@@ -19,11 +19,11 @@
 #ifdef USE_TINYUSB
 
 /** Register the USB MIDI descriptor and set up MIDI callbacks.
- *  Call once in setup(), before startMozzi(). */
+ *  Call once in setup(), before the audio driver starts. */
 void usbMidi_init();
 
 /** Poll for incoming MIDI messages and dispatch them.
- *  Call from updateControl() — runs on Core 0 at MOZZI_CONTROL_RATE. */
+ *  Call from updateControl() — runs on Core 0 at the control rate. */
 void usbMidi_update();
 
 /** Send CC feedback for any parameters that changed since the last call.

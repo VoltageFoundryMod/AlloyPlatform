@@ -35,8 +35,8 @@ class SpaceEngine
     /**
      * Process one stereo sample pair.
      *
-     * @param inL   left input  sample (±32512 Mozzi range)
-     * @param inR   right input sample (±32512 Mozzi range)
+     * @param inL   left input  sample (±32512 signal-path range)
+     * @param inR   right input sample (±32512 signal-path range)
      * @param width stereo width 0.0–2.0 (1.0 = identity, 2.0 = maximum hyper-wide)
      * @param outL  processed left  sample (clamped to ±32512)
      * @param outR  processed right sample (clamped to ±32512)

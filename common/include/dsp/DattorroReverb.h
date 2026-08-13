@@ -39,7 +39,7 @@
  * Improvements from Plateau/Valley VCV Rack study (M26b revision):
  *   • 2 bipolar LFOs at 0.10/0.12 Hz on APF5/APF7 only (original Dattorro
  *     modulates only the entry APFs; bipolar removes net pitch drift).
- *   • Output tap positions scaled from 29761→32768 Hz for correct spectral char.
+ *   • Output tap positions derived from Dattorro's 29761 Hz ratios.
  *   • Output DC blockers (~10 Hz HP) — prevents tail DC offset at high decay.
  *   • Tank HP filter (~30 Hz) after each LPF — arrests bass accumulation.
  *   • Seventh output tap per channel completing Dattorro Table 1.
@@ -47,7 +47,7 @@
  *   • Modulation speed and depth parameters (M40).
  *
  * All delay lines are float (avoids Q15 quantization noise in long reverb tails).
- * Total buffer RAM: ~108 KB (static allocation, scaled from 29761→32768 Hz).
+ * Total buffer RAM: ~108 KB, statically allocated.
  *
  * Runs on Core 1 only. No shared mutable state with Core 0. Milestone 26b.
  */
@@ -152,7 +152,8 @@ struct OnePole
 
 // ---------------------------------------------------------------------------
 // One-pole high-pass filter — y[n] = R * (y[n-1] + x[n] - x[n-1])
-// R = 1 - 2π*fc/fs.  Default: R ≈ 0.99616 → fc ≈ 20 Hz at 32768 Hz.
+// R = 1 - 2π*fc/fs.  Coefficients are fixed, so the corner moves with the
+// sample rate — inaudible for a DC blocker, which is all these are used for.
 // ---------------------------------------------------------------------------
 
 struct OnePoleHP
@@ -169,16 +170,25 @@ struct OnePoleHP
 };
 
 // ---------------------------------------------------------------------------
-// Dattorro plate — delay line sizes scaled from 29761 → 32768 Hz
+// Dattorro plate — delay line lengths, in samples.
+//
+// These are FIXED sample counts, not durations: the plate's physical size and
+// its spectral character therefore scale with the sample rate. Both platforms
+// share the behaviour, so hardware and the VCV plugin agree at any given host
+// rate, and revSize compensates. Making the plate rate-independent would mean
+// rescaling every line and sizing the buffers for the highest supported rate —
+// roughly +50 KB of SRAM at 48 kHz over the ~108 KB these use.
+//
+// Ratios originate from Dattorro's 29761 Hz figures.
 // ---------------------------------------------------------------------------
 
-// Input diffuser APF lengths (samples at 32768 Hz)
+// Input diffuser APF lengths
 static constexpr uint32_t kAP1 = 156;
 static constexpr uint32_t kAP2 = 118;
 static constexpr uint32_t kAP3 = 417;
 static constexpr uint32_t kAP4 = 305;
 
-// Tank APF + delay lengths (samples at 32768 Hz)
+// Tank APF + delay lengths
 static constexpr uint32_t kAP5 = 740;  // left  — modulated (nominal)
 static constexpr uint32_t kD5  = 4903; // left  — long delay
 static constexpr uint32_t kAP6 = 1982; // left  — modulated (nominal)
@@ -199,11 +209,11 @@ static constexpr uint32_t kAP8_BUF = kAP8 + 12; // 2936
 // LFO parameters — 4 independent triangle oscillators, Plateau/Valley frequencies.
 // ~10× slower than the original 1 Hz; longer sweep period produces richer diffusion
 // without audible pitch wobble.  90° phase offsets cover the full cycle immediately.
-static constexpr float kLfoDepth = 8.0f; // ±8 samples nominal excursion
-static constexpr float kLfoRate1 = 0.100f / 32768.0f; // 0.10 Hz — ~10 s period
-static constexpr float kLfoRate2 = 0.150f / 32768.0f; // 0.15 Hz — ~6.7 s period
-static constexpr float kLfoRate3 = 0.120f / 32768.0f; // 0.12 Hz — ~8.3 s period
-static constexpr float kLfoRate4 = 0.180f / 32768.0f; // 0.18 Hz — ~5.6 s period
+static constexpr float kLfoDepth = 8.0f;   // ±8 samples nominal excursion
+static constexpr float kLfoHz1   = 0.100f; // ~10 s period
+static constexpr float kLfoHz2   = 0.150f; // ~6.7 s period
+static constexpr float kLfoHz3   = 0.120f; // ~8.3 s period
+static constexpr float kLfoHz4   = 0.180f; // ~5.6 s period
 
 class DattorroReverb final : public ReverbEngine
 {
@@ -220,15 +230,16 @@ class DattorroReverb final : public ReverbEngine
       _lfoPhase2(0.25f),
       _lfoPhase3(0.5f),
       _lfoPhase4(0.75f),
-      _lastProcessUs(0)
+      _lastProcessUs(0),
+      _sampleRate(48000.0f)
     {
         memset(_preDelay, 0, sizeof(_preDelay));
         // Tank HP: ~30 Hz removes bass accumulation in long tails.
-        // R = 1 - 2π*30/32768 ≈ 0.99425
+        // R = 1 - 2π*30/32768 ≈ 0.99425  (nominal ~30 Hz corner)
         _tankHPL.setR(0.99425f);
         _tankHPR.setR(0.99425f);
         // Output DC block: ~10 Hz removes true DC offset at high decay.
-        // R = 1 - 2π*10/32768 ≈ 0.99808
+        // R = 1 - 2π*10/32768 ≈ 0.99808  (nominal ~10 Hz corner)
         _dcBlockL.setR(0.99808f);
         _dcBlockR.setR(0.99808f);
     }
@@ -265,6 +276,18 @@ class DattorroReverb final : public ReverbEngine
     // speed: 0.1 (glacial, barely moving) … 4.0 (fast shimmer)
     // depth: 0.0 (static APFs, no pitch variation) … 1.0 (full ±8 sample swing)
     // -----------------------------------------------------------------------
+    /**
+     * Sample rate, used only by the LFO phase advance on the non-Arduino path
+     * (the firmware measures elapsed wall-clock time instead).  The plate's
+     * delay lines are fixed sample counts and are NOT rescaled — see the note
+     * above kAP1.
+     */
+    void setSampleRate(float sr)
+    {
+        if(sr > 0.0f)
+            _sampleRate = sr;
+    }
+
     void setModulation(float speed, float depth) override
     {
         _modSpeed = speed;
@@ -291,7 +314,7 @@ class DattorroReverb final : public ReverbEngine
 #endif
     void process(float inL, float inR, float *outL, float *outR) override
     {
-        // --- Pre-delay (30ms = ~983 samples at 32768 Hz) ---
+        // --- Pre-delay: fixed 983 samples (~20 ms at 48 kHz) ---
         const uint32_t preLen   = 983;
         _preDelay[_preDelayPos] = (inL + inR) * 0.5f;
         const uint32_t readPos  = (_preDelayPos + 1024 - preLen) % 1024;
@@ -323,20 +346,21 @@ class DattorroReverb final : public ReverbEngine
             // Cap elapsed to 1 ms to avoid a jump on first call or after reset.
             const float dtSec = (elapsedUs > 1000u ? 1000u : elapsedUs) * 1e-6f;
 #else
-            // VCV / non-Arduino: constant rate at nominal sample period.
-            constexpr float dtSec = 1.0f / 32768.0f;
+            // VCV / non-Arduino: nominal sample period at the host rate.
+            const float dtSec = 1.0f / _sampleRate;
 #endif
-            const float tick = _modSpeed * 32768.0f * dtSec;
-            _lfoPhase1 += kLfoRate1 * tick;
+            // Rates are in Hz, so phase advances in real time on both paths.
+            const float tick = _modSpeed * dtSec;
+            _lfoPhase1 += kLfoHz1 * tick;
             if(_lfoPhase1 >= 1.0f)
                 _lfoPhase1 -= 1.0f;
-            _lfoPhase2 += kLfoRate2 * tick;
+            _lfoPhase2 += kLfoHz2 * tick;
             if(_lfoPhase2 >= 1.0f)
                 _lfoPhase2 -= 1.0f;
-            _lfoPhase3 += kLfoRate3 * tick;
+            _lfoPhase3 += kLfoHz3 * tick;
             if(_lfoPhase3 >= 1.0f)
                 _lfoPhase3 -= 1.0f;
-            _lfoPhase4 += kLfoRate4 * tick;
+            _lfoPhase4 += kLfoHz4 * tick;
             if(_lfoPhase4 >= 1.0f)
                 _lfoPhase4 -= 1.0f;
         }
@@ -379,7 +403,7 @@ class DattorroReverb final : public ReverbEngine
         _tankDelayMR.write(ap8out);
 
         // --- Output taps (Dattorro Table 1, 7 taps per channel) ---
-        // Tap positions scaled from 29761 Hz → 32768 Hz (×1.10107) so that the
+        // Tap positions derived from Dattorro's 29761 Hz figures (×1.10107) so that the
         // comb/all-pass resonances match the original algorithm's spectral character.
         // Left — primary from right tank (D7/D8), cross-taps from left (D5/D6):
         float oL = _tankDelayR.read(293) + _tankDelayR.read(3274)
@@ -453,7 +477,7 @@ class DattorroReverb final : public ReverbEngine
     DLine<kD8>    _tankDelayMR;
     APF<kAP8_BUF> _apf8;
 
-    // Pre-delay (fixed 1024 samples; 30ms at 32768 Hz)
+    // Pre-delay ring (1024 samples)
     float    _preDelay[1024];
     uint32_t _preDelayPos;
 
@@ -465,8 +489,8 @@ class DattorroReverb final : public ReverbEngine
     OnePoleHP _tankHPR;  // tank R bass-cut HP (~30 Hz)
     OnePoleHP _dcBlockL; // output L DC block (~10 Hz)
     OnePoleHP _dcBlockR; // output R DC block (~10 Hz)
-    OnePole   _outLpfL; // output L gentle HF soft-roll (fc ≈ 8 kHz at 32768 Hz)
-    OnePole   _outLpfR; // output R gentle HF soft-roll
+    OnePole   _outLpfL;  // output L gentle HF soft-roll
+    OnePole   _outLpfR;  // output R gentle HF soft-roll
 
     // Core coefficients
     float _decay;
@@ -486,4 +510,5 @@ class DattorroReverb final : public ReverbEngine
     // phases by actual elapsed time rather than a fixed per-call increment, so
     // the LFO rate is stable regardless of irregular Core 1 call spacing.
     uint32_t _lastProcessUs;
+    float    _sampleRate;
 };

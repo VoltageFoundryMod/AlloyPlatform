@@ -39,6 +39,14 @@ export interface MidiStore {
    *  made, a hardware port appearing later has to be allowed to win over an
    *  earlier automatic pick.  See pickPort(). */
   userPickedOutput: boolean;
+  /** Bumped every time a fresh sync with the device is warranted — first
+   *  connection, reconnection, or a switch to a different output port.
+   *  Consumers depend on this rather than watching `deviceConnected` for a
+   *  false→true edge, because those edges are not reliably observable: a
+   *  re-enumeration that completes inside one microtask leaves the flag true
+   *  the whole time, and a reactive effect batching over it sees no change at
+   *  all.  A monotonic counter always changes. */
+  syncNonce: number;
   error: string | null;
   /** Bytes actually handed to a MIDIOutput. Compare against the counter in
    *  loopMIDI / your MIDI monitor: if this climbs and theirs does not, the
@@ -62,6 +70,7 @@ function createMidi() {
     selectedOutput: null,
     selectedInput: null,
     userPickedOutput: false,
+    syncNonce: 0,
     error: null,
     txBytes: 0,
     rxBytes: 0,
@@ -291,6 +300,10 @@ function createMidi() {
       const portAvailable = selectedOutput !== null;
       const connected = portAvailable ? true : false;
       const deviceConnected = connected;
+      // A fresh sync is warranted when we go from no usable port to having
+      // one, or when the port we would send on changes underneath us.
+      const needsSync =
+        (connected && !s.connected) || selectedOutput !== s.selectedOutput;
       return {
         ...s,
         scanned: true,
@@ -300,6 +313,7 @@ function createMidi() {
         selectedOutput,
         selectedInput,
         deviceConnected,
+        syncNonce: s.syncNonce + (needsSync ? 1 : 0),
       };
     });
     if (get(store).connected) subscribeInputs();
@@ -312,24 +326,21 @@ function createMidi() {
       access = await navigator.requestMIDIAccess({ sysex: true });
       access.onstatechange = (e: Event) => {
         refreshList();
-        // Force a deviceConnected false→true edge whenever an output port
-        // becomes available.  Without this, if Chrome never fires a
-        // 'disconnected' event for the port (fast re-enumeration after a
-        // firmware flash), deviceConnected stays true→true and the $effect
-        // in App.svelte never re-fires to request a fresh config dump.
+        // An output port appearing always warrants a fresh dump, even when
+        // refreshList() saw no change worth syncing — a fast re-enumeration
+        // after a firmware flash can return the same port id with the flags
+        // never observably dropping.  Bumping the nonce directly replaces the
+        // old trick of forcing a deviceConnected false→true edge across a
+        // microtask, which was unreliable: reactive batching could collapse
+        // the pair and the consumer would see no change at all.  That is why
+        // the page had to be reloaded to pick the module up.
         const portEvent = e as MIDIConnectionEvent;
         if (
           portEvent.port?.type === "output" &&
-          portEvent.port?.state === "connected"
+          portEvent.port?.state === "connected" &&
+          get(store).connected
         ) {
-          store.update((s) => ({ ...s, deviceConnected: false }));
-          // Next microtask: restore true so the $effect sees the edge.
-          Promise.resolve().then(() =>
-            store.update((s) => ({
-              ...s,
-              deviceConnected: get(store).connected,
-            })),
-          );
+          store.update((s) => ({ ...s, syncNonce: s.syncNonce + 1 }));
         }
       };
       refreshList();
@@ -448,6 +459,7 @@ function createMidi() {
         userPickedOutput: true,
         connected: true,
         deviceConnected: true,
+        syncNonce: s.syncNonce + 1,
         error: null,
       }));
       subscribeInputs();

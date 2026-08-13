@@ -168,13 +168,38 @@
   // ---------------------------------------------------------------------------
   $effect(() => {
     if (!$midi.deviceConnected) return;
-    // Small delay so the device has time to finish USB enumeration
-    const timer = setTimeout(() => midi.sendSysEx(SysexCmd.REQUEST, []), 300);
+    // Depend on syncNonce, not just deviceConnected: the store bumps it on
+    // every connection, reconnection and output-port switch, so this re-runs
+    // even when the connected flag itself never observably changed.
+    void $midi.syncNonce;
+
+    // Retry until the module answers.  Its MIDI port enumerates as soon as USB
+    // comes up, but the firmware does not service MIDI until setup() has
+    // finished loading flash config and generating wavetables and the main loop
+    // is running.  A single request fired into that window is simply dropped,
+    // and nothing ever asks again — which is why a freshly flashed module
+    // needed a page reload before the UI would populate.
+    let timer: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    let done = false;
+
+    const request = () => {
+      if (done) return;
+      midi.sendSysEx(SysexCmd.REQUEST, []);
+      if (++attempts < 8) timer = setTimeout(request, 800);
+    };
+    timer = setTimeout(request, 300);
+
     const unsubSysEx = midi.onSysEx((body: Uint8Array) => {
       const pairs = parseSysExBody(body);
-      if (pairs && pairs.length > 0) applyPatch(pairs, false);
+      if (pairs && pairs.length > 0) {
+        done = true;
+        clearTimeout(timer);
+        applyPatch(pairs, false);
+      }
     });
     return () => {
+      done = true;
       clearTimeout(timer);
       unsubSysEx();
     };
@@ -339,6 +364,22 @@
       return `±${Math.round(v * 25)} Hz`;
     })(),
   );
+  // ── Bottom dock sizing ───────────────────────────────────────────────────
+  // The dock is position:fixed, so it is out of flow and would otherwise cover
+  // whatever the page has scrolled to.  Track its height and reserve the same
+  // amount of space at the end of the content.
+  let dockEl = $state<HTMLElement | null>(null);
+  let dockHeight = $state(0);
+
+  $effect(() => {
+    if (!dockEl) return;
+    const ro = new ResizeObserver((entries) => {
+      dockHeight = entries[0].contentRect.height;
+    });
+    ro.observe(dockEl);
+    return () => ro.disconnect();
+  });
+
   // ── Serial console drawer ────────────────────────────────────────────────
   let serialLines = $state<string[]>([]);
   let consoleOpen = $state(false);
@@ -512,11 +553,18 @@
     >
   </div>
 
+  <!-- Reserves scroll space equal to the dock's current height so an open
+       drawer cannot sit on top of the last parameter categories (Delay,
+       Reverb…).  Measured rather than hardcoded because either drawer can be
+       open, and both change height when they are. -->
+  <div class="dock-spacer" style="height: {dockHeight}px" aria-hidden="true">
+  </div>
+
   <!-- Bottom dock — pinned to the viewport so both drawers stay reachable
        without scrolling to the end of the page.  They live in one fixed
        container rather than being individually fixed, so they stack instead
        of overlapping. -->
-  <div class="drawer-dock">
+  <div class="drawer-dock" bind:this={dockEl}>
   <MidiMonitor />
 
   <!-- Serial console drawer -->
@@ -571,6 +619,11 @@
     font-family: "Inter", system-ui, sans-serif;
     /* Clears the two collapsed drawer tabs pinned at the bottom. */
     padding-bottom: 3.6rem;
+  }
+  .dock-spacer {
+    flex: none;
+    width: 100%;
+    transition: height 0.15s ease;
   }
   .drawer-dock {
     position: fixed;

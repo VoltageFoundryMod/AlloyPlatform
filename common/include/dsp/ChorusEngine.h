@@ -15,7 +15,7 @@ enum class ChorusMode : uint8_t
 /**
  * ChorusEngine<SAMPLE_RATE> — BBD-inspired stereo chorus (Milestone 12)
  *
- * Designed to run INSIDE Core 0 updateAudio() ISR — no trig calls in process().
+ * Designed to run INSIDE Core 0 renderAudio() — no trig calls in process().
  * The LFOs use a quadrature-phasor recurrence (multiply-only per sample) so
  * there is no sinf/cosf in the hot path.  sinf/cosf are called only once each
  * at init() to seed the two phasors.
@@ -34,7 +34,7 @@ enum class ChorusMode : uint8_t
  *   depth=0.5 → 70% dry / 30% wet
  *   depth=1.0 → 40% dry / 60% wet
  *
- * Delay parameters (@ SAMPLE_RATE = 32768 Hz):
+ * Delay parameters (at the configured sample rate):
  *   Centre delay : 7 ms  = ~229 samples
  *   LFO mod depth: ±3 ms = ±98  samples  →  max read ~327 samples behind write
  *   Buffer size  : 1024 samples (power-of-2 for cheap masking)

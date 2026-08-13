@@ -12,7 +12,7 @@
  *
  * Naming convention:
  *   gXxx  goal values: written by serial console / knobs / MIDI in updateControl()
- *   sXxx  smoothed values: read by updateAudio(), one-pole LPF applied in updateControl()
+ *   sXxx  smoothed values: read by renderAudio(), one-pole LPF applied in updateControl()
  */
 
 // Voice pitch & colour
@@ -83,16 +83,15 @@ extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific chann
 extern PotTakeoverMode gPotTakeoverMode; // default: SCALE (soft pickup)
 
 // CPU profiling — defined in main.cpp, only present when CPU_PROFILE is set.
-// gAudioElapsedUs : µs spent inside the last updateAudio() call
-// gAudioOverruns  : calls that exceeded the 30µs audio budget
+// gAudioElapsedUs : µs spent rendering and queueing the last audio block
+// gAudioOverruns  : DMA underflows — blocks the hardware ran dry on, i.e.
+//                   audible dropouts
+// gAudioBudgetUs  : wall-clock µs one audio block represents; the budget
+//                   gAudioElapsedUs is measured against
 #ifdef CPU_PROFILE
-extern volatile bool
-    gPerformancePrintEnabled; // set by cmd_performance_print, read by updateAudio()
+extern volatile bool gPerformancePrintEnabled; // set by cmd_performance_print
 extern volatile uint32_t gAudioElapsedUs;
 extern volatile uint32_t gAudioOverruns;
-// gAudioBudgetUs : wall-clock µs one audio block represents — the budget that
-//                  gAudioElapsedUs is measured against (M63a; was a hardcoded
-//                  30 µs per sample under Mozzi)
 extern volatile uint32_t gAudioBudgetUs;
 #endif
 
@@ -153,7 +152,7 @@ extern float gDelayMix; // 0.0 (off) – 1.0 (full wet), default 0.0
 //
 // 4 independent voice slots — each carries its own MIDI note number, frequency,
 // and velocity.  Written by MIDI handlers inside usbMidi_update(), read by
-// updateControl() for freq/velocity and by updateAudio() ISR via sPolyEnvs[].
+// updateControl() for freq/velocity and by renderAudio() via sPolyEnvs[].
 // All fields accessed from a single core (Core 0), so no mutex is needed; 32-bit
 // aligned float writes are atomic on Cortex-M33.
 // ---------------------------------------------------------------------------
@@ -177,6 +176,6 @@ extern uint8_t sPolyRR;
 extern uint8_t sActiveNote;
 
 // Per-voice AR envelopes for POLY mode — defined in main.cpp.
-// setCurve() called in updateControl(); next() called in updateAudio() ISR.
-// EnvelopeEngine forward-declared above; concrete type AREnvelope<MOZZI_AUDIO_RATE>.
+// setCurve() called in updateControl(); next() called in renderAudio().
+// EnvelopeEngine forward-declared above; concrete type AREnvelope<>.
 extern EnvelopeEngine *sPolyEnvs[6]; // pointers so ISR can call virtual next()

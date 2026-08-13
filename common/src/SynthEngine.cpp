@@ -2,7 +2,7 @@
  * SynthEngine.cpp — AlloyFlux core DSP engine (M37b extraction).
  *
  * Extracted from src/main.cpp so the same synthesis code can be shared
- * between the hardware firmware (Mozzi / Raspberry Pi Pico 2) and the
+ * between the hardware firmware (Raspberry Pi Pico 2) and the
  * future VCV Rack plugin (M37c+).
  *
  * This file also provides the canonical definitions of the global pointers
@@ -68,7 +68,8 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
             _sineTable, _triTable, _sawTable, _squareTable, _narrowPulseTable);
         _subVoices[i].setTables(
             _sineTable, _triTable, _sawTable, _squareTable, _narrowPulseTable);
-        // Update sample rate (harmless at default 32768, required for VCV).
+        // Update sample rate. The template argument is only a default; this is
+        // what actually sets the rate on both platforms.
         _voices[i].setSampleRate(audioRate);
         _subVoices[i].setSampleRate(audioRate);
         // Fixed square shape for sub oscillators.
@@ -98,6 +99,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     gFilterInst     = &_svfFilter;
 
     // Reverb / delay
+    _dattorroReverb.setSampleRate((float)audioRate);
     reverb = &_dattorroReverb;
 
     // Initial voice frequencies
@@ -131,8 +133,11 @@ void SynthEngine::setSampleRate(uint32_t audioRate)
     // Delay converts ms → samples, so it needs the rate too; control() re-issues
     // setParams() every tick, which re-derives the length from the new rate.
     _delay.setSampleRate(audioRate);
-    // Wavetables and filter coefficients are sample-rate independent; no
-    // regeneration needed (filter coefficients are recomputed each tick anyway).
+    // Only feeds the reverb's LFO phase advance; its delay lines are fixed
+    // sample counts and do not rescale.
+    _dattorroReverb.setSampleRate((float)audioRate);
+    // Wavetables are sample-rate independent, and filter coefficients are
+    // recomputed from _audioRate on every control tick.
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +166,7 @@ void SynthEngine::control(const SynthParams  &p,
     // ------------------------------------------------------------------
     if(p.envelopeType == EnvelopeType::AR)
     {
-        static_cast<AREnvelope<32768u> *>(curveEng)->setCurve(_sCurve,
+        static_cast<AREnvelope<48000u> *>(curveEng)->setCurve(_sCurve,
                                                               _sCurveTime);
     }
     else
@@ -172,7 +177,7 @@ void SynthEngine::control(const SynthParams  &p,
         //   curve 0.5 → ×1.0   (knob values unchanged)
         //   curve 1.0 → ×4.0   (slow / pad-like)
         const float tScale = powf(4.0f, 2.0f * _sCurve - 1.0f);
-        static_cast<ADSREnvelope<32768u> *>(curveEng)->setADSR(
+        static_cast<ADSREnvelope<48000u> *>(curveEng)->setADSR(
             p.adsrAttack * tScale,
             p.adsrDecay * tScale,
             p.adsrSustain,
@@ -526,7 +531,8 @@ void SynthEngine::control(const SynthParams  &p,
     {
         _sFilterCutoff += (p.filterCutoff - _sFilterCutoff) * 0.1f;
         _sFilterRes += (p.filterRes - _sFilterRes) * 0.1f;
-        filterInst->setParams(_sFilterCutoff, _sFilterRes, p.filterMode);
+        filterInst->setParams(
+            _sFilterCutoff, _sFilterRes, p.filterMode, (float)_audioRate);
     }
 
     // ------------------------------------------------------------------
@@ -810,7 +816,7 @@ void SynthEngine::_generateWavetables()
 {
     static float buf[TABLE_CELLS]; // static: avoids 4 KB stack frame
     const int    N    = (int)TABLE_CELLS;
-    const int    maxH = ((int)_audioRate / 2) / 440; // 37 @ 32768 Hz
+    const int    maxH = ((int)_audioRate / 2) / 440; // 54 @ 48000 Hz
 
     // Sine
     for(int i = 0; i < N; i++)

@@ -18,10 +18,10 @@
  * main.cpp for the derivation of each table.
  *
  * setFreq() and setShape() are called at control rate (128 Hz) from updateControl().
- * next() is called at audio rate (32768 Hz) from updateAudio() — no float arithmetic
+ * next() is called at audio rate from renderAudio() — no float arithmetic
  * in the hot path; all float work is done in setShape().
  *
- * Output range: ≈ ±32512, compatible with the Mozzi 16-bit stereo pipeline.
+ * Output range: ≈ ±32512, matching the 16-bit stereo signal path.
  */
 
 template <uint16_t UPDATE_RATE>
@@ -143,7 +143,7 @@ class ShapeOsc
 
         // Linear interpolation within each table.
         // int16 range is ±32767; interpolate in 32-bit then shift down by 16
-        // to get output in ±32767 (compatible with Mozzi 16-bit pipeline).
+        // to get output in ±32767 (16-bit signal path).
         const int32_t s0 = a0 + (((b0 - a0) * frac) >> 16);
         const int32_t s1 = a1 + (((b1 - a1) * frac) >> 16);
 

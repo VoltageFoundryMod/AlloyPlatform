@@ -26,7 +26,7 @@ Want to integrate the module to your DAW or MIDI controller? The built-in USB MI
 | Jacks       | 10 — V/OCT, GATE, MIDI, REL CV, SHP CV, MTN CV, FM IN, SPC CV, L OUT, R OUT |
 | Buttons     | 2 — MODE + SHIFT                                                            |
 | LEDs        | 7× RGB (voice activity, motion layer, mode, shift/drone, heartbeat)         |
-| Audio       | Stereo 16-bit, 32768 Hz, PCM5102A I2S DAC                                   |
+| Audio       | Stereo 16-bit, 48000 Hz, PCM5102A I2S DAC                                   |
 | MIDI        | USB MIDI + TRS MIDI (simultaneous)                                          |
 
 ---

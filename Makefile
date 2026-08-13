@@ -2,7 +2,7 @@
 #
 # Three build targets share one DSP codebase (see AGENTS.md):
 #
-#   firmware  RP2350 / Pico 2, PlatformIO + Arduino-Pico + Mozzi  (./platformio.ini)
+#   firmware  RP2350 / Pico 2, PlatformIO + Arduino-Pico          (./platformio.ini)
 #   vcv       VCV Rack 2 plugin, Rack SDK                         (./vcv-plugin)
 #   web       Web Configurator, Svelte 5 + Vite                   (./web-configurator)
 #

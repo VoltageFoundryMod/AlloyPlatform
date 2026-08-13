@@ -45,7 +45,7 @@
  *
  * Signal levels
  * -------------
- * Input: ±32512 int32 (Mozzi pipeline scale) → normalised to ±1.0 internally.
+ * Input: ±32512 int32 (shared signal-path scale) → normalised to ±1.0 internally.
  * Output: ±32512 int32.  At high resonance the self-oscillation output
  * is a sine at ~0.7 amplitude — no output clipping added so the
  * oscillation sustains cleanly.
@@ -66,7 +66,7 @@ class OTALadder : public FilterEngine
     void setParams(float      cutoff_hz,
                    float      resonance,
                    FilterMode mode,
-                   float      sampleRate = 32768.0f) override
+                   float      sampleRate) override
     {
         // OTA ladder is LP4 only — anything non-OFF is treated as LP4
         _mode = (mode == FilterMode::OFF) ? FilterMode::OFF : FilterMode::LP4;

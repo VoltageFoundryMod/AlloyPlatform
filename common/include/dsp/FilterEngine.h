@@ -35,9 +35,9 @@ enum class FilterType : uint8_t
 // Concrete subclasses: SVFFilter, OTALadder.
 // Runtime selection: change gFilterInst pointer in main.cpp — no recompile.
 //
-// Input/output: ±32512 int32 (Mozzi pipeline scale).
+// Input/output: ±32512 int32 (shared signal-path scale).
 // setParams() : call at control rate (128 Hz); may contain tanf()/tanhf().
-// process()   : call at audio rate (32768 Hz ISR); must be trig-free.
+// process()   : call at audio rate; must be trig-free.
 // ---------------------------------------------------------------------------
 
 class FilterEngine
@@ -50,11 +50,14 @@ class FilterEngine
      * cutoff_hz : 20–16000 Hz
      * resonance : 0.0 (flat) – 1.0 (near/at self-oscillation)
      * mode      : LP / HP / BP / NOTCH / OFF / LP4
+     * sampleRate: deliberately has no default — the coefficient is
+     *             tanf(π·cutoff/sampleRate), so passing the wrong rate detunes
+     *             the filter by exactly that ratio.  Do not add one back.
      */
     virtual void setParams(float      cutoff_hz,
                            float      resonance,
                            FilterMode mode,
-                           float      sampleRate = 32768.0f) = 0;
+                           float      sampleRate) = 0;
 
     /**
      * process() — audio rate ISR.  No trig; integer I/O.

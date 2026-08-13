@@ -15,7 +15,7 @@
  *   Calls dsp_params_read() to get a consistent snapshot, then runs DSP
  *   engines (chorus, drift, etc.) using those values.
  *
- * Core 0  updateAudio()  ISR @ 32768 Hz:
+ * Core 0  renderAudio()  @ audio rate:
  *   MUST NOT acquire gDspMutex — ISRs must never block.
  *   Reads the Core-0-private smoothed statics (sWaveform, sVolume) directly;
  *   these are safe without a mutex because the ISR and updateControl() are
@@ -24,7 +24,7 @@
  *
  * CHORUS (Milestone 12)
  * ----------------------
- * ChorusEngine runs directly in Core 0 updateAudio() ISR using a phasor LFO
+ * ChorusEngine runs directly in Core 0 renderAudio() using a phasor LFO
  * (no trig calls in the hot path).  gChorusDepth (volatile float) is written
  * by updateControl() at 128 Hz and read atomically by the ISR.
  * No inter-core buffers or counters are needed.

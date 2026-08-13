@@ -1,7 +1,7 @@
 #pragma once
 
 // Arduino.h pulled in transitively via ButtonEngine.h (INPUT_PULLUP, digitalRead).
-// This header must only be compiled in the hardware (Mozzi / Arduino-Pico) build.
+// This header must only be compiled in the hardware (Arduino-Pico) build.
 #include "ButtonEngine.h"
 #include "dsp/DelayEngine.h" // DELAY_MAX_MS (SHIFT+DELAY normalisation)
 #include "io/Apa102.h"       // M30 — Dotstar chain driver

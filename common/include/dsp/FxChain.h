@@ -25,7 +25,7 @@
  *   filterPos=POST, delayPos=POST → Chorus→Filter→Reverb→Delay
  *
  * Each flag is a plain bool stored in gFx — written by updateControl() / commands,
- * read by updateAudio() ISR.  No mutex needed: 8-bit aligned bool reads are
+ * read by renderAudio().  No mutex needed: 8-bit aligned bool reads are
  * atomic on Cortex-M33.
  *
  * Designed for future web configurator control (one CC or websocket message per flag).

@@ -34,7 +34,7 @@ class SVFFilter : public FilterEngine
     void setParams(float      cutoff_hz,
                    float      resonance,
                    FilterMode mode,
-                   float      sampleRate = 32768.0f) override
+                   float      sampleRate) override
     {
         _mode = mode;
         if(mode == FilterMode::OFF)
