@@ -83,20 +83,3 @@ class ReverbEngine
     /** freeze() — M41: hold current reverb tail indefinitely. */
     virtual void freeze(bool /*frozen*/) {}
 };
-
-// ---------------------------------------------------------------------------
-// Null / pass-through implementation — M26 stub until DattorroReverb lands
-// ---------------------------------------------------------------------------
-
-class NullReverb final : public ReverbEngine
-{
-  public:
-    void setParams(float /*size*/, float /*damping*/) override {}
-    void
-    process(float /*inL*/, float /*inR*/, float *outL, float *outR) override
-    {
-        *outL = 0.0f;
-        *outR = 0.0f;
-    }
-    void reset() override {}
-};

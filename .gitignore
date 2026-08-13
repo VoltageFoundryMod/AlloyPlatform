@@ -6,3 +6,6 @@
 
 # Ignore backup files from KiCad PCB design software
 hardware/MainPCB/MainPCB-backups/
+
+# VS Code Local History extension — per-edit snapshots, never worth committing
+**/.history/

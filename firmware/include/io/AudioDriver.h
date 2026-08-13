@@ -85,10 +85,6 @@ class AudioDriver
         return _started;
     }
 
-    /// False when begin() failed — the PIO state machine never started, so
-    /// there is no bit clock on BCK/WS at all and the DAC sees nothing.
-    bool started() const { return _started; }
-
     /**
      * Renders and queues one block if the DMA has room for all of it;
      * otherwise returns immediately so the caller can try again.
@@ -132,9 +128,6 @@ class AudioDriver
             _control();
         }
     }
-
-    /// True when the DMA ran dry since the last call.
-    bool underflowed() { return _i2s.getUnderflow(); }
 
     /// Microseconds spent rendering and queueing the most recent block.
     uint32_t lastBlockUs() const { return _lastBlockUs; }

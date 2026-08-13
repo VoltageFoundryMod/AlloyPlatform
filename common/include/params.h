@@ -128,7 +128,7 @@ extern float gAdsrRelease; // seconds, 0.001–10.0
 extern bool
     gAdsrLoop; // loop mode: envelope restarts automatically after release
 
-// Reverb (M26b — active when gRevEnabled; NullReverb stub until DattorroReverb)
+// Reverb (M26b) — active when gRevEnabled
 extern volatile float
     gRevSize; // 0.0 (small room) – 1.0 (long plate), default 0.5
 extern volatile float

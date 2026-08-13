@@ -30,8 +30,6 @@ enum class VoiceMode : uint8_t
     POLY    = 5, // 4-voice polyphonic — independent per-voice envelopes (M2x)
 };
 
-static constexpr uint8_t kVoiceModeCount = 6;
-
 inline const char *voiceModeName(VoiceMode m)
 {
     switch(m)

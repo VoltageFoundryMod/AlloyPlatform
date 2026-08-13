@@ -21,7 +21,7 @@ enum class ChorusMode : uint8_t
  * at init() to seed the two phasors.
  *
  * Juno-60 inspired: modulated delay lines, stereo spread via offset LFO phases
- * and slightly detuned rates.  Depth driven by gChorusDepth (alias: sMotion).
+ * and slightly detuned rates.  Depth driven by MOTION.
  *
  * Chorus modes (ChorusMode enum):
  *   OFF  (0) — pass-through; phasors keep running for glitch-free re-enable

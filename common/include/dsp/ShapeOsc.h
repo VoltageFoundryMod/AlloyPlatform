@@ -125,11 +125,11 @@ class ShapeOsc
 
     // Returns the next interpolated, crossfaded sample ≈ ±32512.
     // Integer-only hot path: one table lookup + linear interpolation + crossfade.
-    // Index masking (& TABLE_CELLS-1) is REQUIRED — same as Osc16 — because
+    // Index masking (& TABLE_CELLS-1) is REQUIRED because
     // (phase >> 16) ranges 0..65535 while the table is only TABLE_CELLS cells.
     inline int16_t next()
     {
-        // Phase → masked table index + 16-bit fractional part (same as Osc16)
+        // Phase → masked table index + 16-bit fractional part
         const uint16_t mask = TABLE_CELLS - 1;
         const uint16_t idx  = (uint16_t)(_phase >> 16) & mask;
         const uint16_t nxt  = (idx + 1u) & mask;

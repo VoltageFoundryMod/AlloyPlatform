@@ -75,7 +75,6 @@ static constexpr uint8_t kPinI2sData = 18u;
 #include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
 #include "dsp/SVFFilter.h"
-#include "dsp_shared.h"
 #include "io/HardwarePicoIO.h" // M37d — IHardwareIO implementation for Pico
 #include "io/IOBridge.h"       // M37d — fillSynthParams()
 #include "io/LedEngine.h"      // M30/M37k — shared LED language
@@ -240,15 +239,6 @@ volatile uint32_t gAudioBudgetUs = 1;
 #endif
 
 // ---------------------------------------------------------------------------
-// Inter-core shared state (Milestone 9) — see include/dsp_shared.h
-// ---------------------------------------------------------------------------
-DspParams gDsp = {};
-mutex_t   gDspMutex;
-
-// Chorus depth — written by updateControl() at 128 Hz, read atomically by ISR.
-volatile float gChorusDepth = 0.0f;
-
-// ---------------------------------------------------------------------------
 // Audio driver and its two callbacks.
 //
 // renderAudio() produces one stereo frame; the driver calls it kBlockFrames
@@ -281,7 +271,6 @@ void setup()
     // Load persisted config from flash before audio starts so all gXxx
     // globals are at their saved values when the first updateControl() runs.
     configStore_load(); // silently uses compile-time defaults if no valid config found
-    mutex_init(&gDspMutex);
     // M37b: SynthEngine owns all DSP state; init() generates wavetables,
     // seeds all engines, and warms the powf/trig caches.
     // Must run before the driver starts so chorus delay buffers are filled.
@@ -531,17 +520,6 @@ void updateControl()
         }
 
         revApplyParams();
-
-        // Publish smoothed params for Core 1 DSP engines.
-        mutex_enter_blocking(&gDspMutex);
-        gDsp.freq1   = co.freq1;
-        gDsp.freq2   = co.freq2;
-        gDsp.shape   = co.shape;
-        gDsp.fatness = co.fatness;
-        gDsp.motion  = co.motion;
-        gDsp.curve   = co.curve;
-        gDsp.volume  = co.volume;
-        mutex_exit(&gDspMutex);
     }
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
@@ -582,6 +560,8 @@ void updateControl()
             Serial.print(headroom, 1);
             Serial.print(F("%  overruns "));
             Serial.print(gAudioOverruns);
+            Serial.print(F(" slow-blk "));
+            Serial.print(sAudioDriver.overruns());
             Serial.print(F(" (+"));
             Serial.print(delta);
             Serial.print(F("/5s)"));
