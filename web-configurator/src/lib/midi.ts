@@ -34,6 +34,11 @@ export interface MidiStore {
   inputs: MidiPortInfo[];
   selectedOutput: string | null;
   selectedInput: string | null;
+  /** True once the user has picked an output from the dropdown themselves.
+   *  Auto-selection must not override a deliberate choice — but until one is
+   *  made, a hardware port appearing later has to be allowed to win over an
+   *  earlier automatic pick.  See pickPort(). */
+  userPickedOutput: boolean;
   error: string | null;
   /** Bytes actually handed to a MIDIOutput. Compare against the counter in
    *  loopMIDI / your MIDI monitor: if this climbs and theirs does not, the
@@ -56,6 +61,7 @@ function createMidi() {
     inputs: [],
     selectedOutput: null,
     selectedInput: null,
+    userPickedOutput: false,
     error: null,
     txBytes: 0,
     rxBytes: 0,
@@ -223,11 +229,28 @@ function createMidi() {
   function pickPort(
     ports: MidiPortInfo[],
     current: string | null,
+    userPicked = false,
   ): string | null {
-    // Keep an existing selection as long as that port is still present.
-    if (current && ports.some((p) => p.id === current)) return current;
+    const present = (id: string | null) =>
+      !!id && ports.some((p) => p.id === id);
+
+    // A deliberate choice from the dropdown is never overridden.
+    if (userPicked && present(current)) return current;
+
+    // Hardware outranks a stale automatic pick.  Without this, the common
+    // startup order — page open with loopMIDI/IAC already present, module
+    // enumerating a second later — auto-selected the virtual port, and the
+    // sticky-selection rule below then kept it forever: the Alloy Flux port
+    // showed in the dropdown but could never be chosen, and only a browser
+    // restart (which clears selectedOutput) let the preference chain run
+    // again.  That was the "I have to close and reopen the browser" bug.
+    const alloy = ports.find((p) => NAME_ALLOY.test(p.name))?.id;
+    if (alloy) return alloy;
+
+    // Otherwise keep an existing selection as long as that port is present.
+    if (present(current)) return current;
+
     return (
-      ports.find((p) => NAME_ALLOY.test(p.name))?.id ??
       ports.find((p) => NAME_VIRTUAL.test(p.name))?.id ??
       ports.find((p) => !NAME_AVOID.test(p.name))?.id ??
       ports[0]?.id ??
@@ -254,7 +277,11 @@ function createMidi() {
     });
     store.update((s) => {
       // Keep existing selection if port still present; auto-select otherwise.
-      const selectedOutput = pickPort(outputs, s.selectedOutput);
+      const selectedOutput = pickPort(
+        outputs,
+        s.selectedOutput,
+        s.userPickedOutput,
+      );
       const selectedInput = pickPort(inputs, s.selectedInput);
       // Auto-connect: if a port is available, mark connected immediately.
       // No manual "Connect" click required — mirrors VCV behaviour where
@@ -324,6 +351,9 @@ function createMidi() {
       connected: true,
       deviceConnected: true,
       selectedOutput: id,
+      // An id passed in explicitly is a deliberate choice; falling back to the
+      // stored selection is not.
+      userPickedOutput: outputId !== undefined || s.userPickedOutput,
       error: null,
     }));
     subscribeInputs();
@@ -393,21 +423,10 @@ function createMidi() {
     sendCC(123, 0);
   }
 
-  function disconnect() {
-    // Keep access and port lists so the user can reconnect without rescanning.
-    store.update((s) => ({
-      ...s,
-      connected: false,
-      deviceConnected: false,
-      error: null,
-    }));
-  }
-
   return {
     subscribe: store.subscribe,
     scan,
     connect,
-    disconnect,
     setChannel,
     sendCC,
     sendNoteOn,
@@ -416,8 +435,23 @@ function createMidi() {
     sendSustain,
     sendPanic,
     sendSysEx,
-    selectOutput: (id: string) =>
-      store.update((s) => ({ ...s, selectedOutput: id })),
+    // Choosing a port from the dropdown is also the way back from ✕ — the
+    // disconnected branch of ConnectionBar offers only this select and Rescan,
+    // and Rescan just re-runs auto-selection.  Previously this set the id and
+    // nothing else, so after disconnecting there was no route back to a
+    // connected state at all.  Marks the choice explicit so auto-selection
+    // stops second-guessing it.
+    selectOutput: (id: string) => {
+      store.update((s) => ({
+        ...s,
+        selectedOutput: id,
+        userPickedOutput: true,
+        connected: true,
+        deviceConnected: true,
+        error: null,
+      }));
+      subscribeInputs();
+    },
     selectInput: (id: string) =>
       store.update((s) => ({ ...s, selectedInput: id })),
     onCC,

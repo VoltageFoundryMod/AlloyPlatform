@@ -33,25 +33,15 @@
     {:else if !$midi.scanned}
       <!-- Not yet scanned — only shown briefly before onMount scan completes -->
       <button onclick={scanMidi}>Scan for MIDI Devices</button>
-    {:else if !$midi.deviceConnected}
-      <!-- Scanned but no port available -->
-      {#if $midi.outputs.length === 0}
-        <span class="badge warn">No devices found</span>
-      {:else}
-        <!-- Ports exist but none currently connected (e.g. device just unplugged) -->
-        <select
-          value={$midi.selectedOutput}
-          onchange={(e) =>
-            midi.selectOutput((e.target as HTMLSelectElement).value)}
-        >
-          {#each $midi.outputs as port}
-            <option value={port.id}>{port.name}</option>
-          {/each}
-        </select>
-      {/if}
+    {:else if $midi.outputs.length === 0}
+      <span class="badge warn">No devices found</span>
       <button onclick={scanMidi} title="Refresh device list">Rescan</button>
     {:else}
-      <!-- Connected — show status + port switcher -->
+      <!-- Dropdown + Rescan, no disconnect.  There is nothing useful a manual
+           disconnect does here: the page is connected whenever a port exists,
+           and choosing where to send is the only real decision.  The ✕ used to
+           drop into a state whose only escape was Rescan, which just re-ran
+           auto-selection — so it could strand the user on the wrong port. -->
       <span class="badge ok">Connected</span>
       <select
         value={$midi.selectedOutput}
@@ -65,11 +55,7 @@
       </select>
       <!-- TX/RX byte counters live on the MIDI Monitor tab at the bottom of
            the page, next to the traffic they describe. -->
-      <button
-        class="btn-disconnect"
-        onclick={() => midi.disconnect()}
-        title="Disconnect MIDI">✕</button
-      >
+      <button onclick={scanMidi} title="Refresh device list">Rescan</button>
     {/if}
     {#if $midi.error}
       <span class="badge error">{$midi.error}</span>
