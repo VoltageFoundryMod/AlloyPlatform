@@ -1,6 +1,6 @@
 #pragma once
 
-#include "HardwareIO.h"
+#include "io/HardwareIO.h"
 #include "SynthEngine.h" // SynthParams
 #include "VoiceMode.h"
 

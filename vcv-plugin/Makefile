@@ -1,18 +1,27 @@
 RACK_DIR ?= ../../Rack-SDK
 
-# Expose the shared DSP headers and sources under common/include and common/src
-EXTRA_FLAGS += -I../common/include -I../common/src
+# Platform headers plus the active module's headers and VCV glue.
+EXTRA_FLAGS += -I../platform/include
+EXTRA_FLAGS += -I../modules/alloyflux/include
+EXTRA_FLAGS += -I../modules/alloyflux/vcv
+# -iquote, not -I: our plugin.hpp collides with Rack SDK's own include/plugin.hpp.
+# A quoted #include searches -iquote directories before any -I directory, so this
+# resolves "plugin.hpp" to ours while <plugin.hpp> still reaches Rack's. With a
+# plain -I the SDK path wins (it is prepended by plugin.mk) and module sources
+# compiled out-of-tree silently pick up the wrong header — which fails as
+# "expected class-name before '{'" on every struct deriving from Module.
+EXTRA_FLAGS += -iquote src
 
 # DELAY_MAX_MS is no longer set here: 500 ms is the default in DelayEngine.h
 # for every target as of M63g, so there is nothing left to keep in sync with
 # platformio.ini.
 
-# VCV plugin sources (compile.mk resolves these to build/src/*.o)
+# Plugin scaffold lives here; everything else belongs to a module and is added
+# as an explicit object below (compile.mk's patsubst would otherwise resolve
+# out-of-tree sources to vcv-plugin/src/*.o).
 SOURCES += src/plugin.cpp
-SOURCES += src/AlloyFlux.cpp
 
-# SynthEngine lives outside the plugin dir; add the object directly so
-# compile.mk's patsubst doesn't resolve it to vcv-plugin/src/*.o
+OBJECTS += build/AlloyFlux.cpp.o
 OBJECTS += build/SynthEngine.cpp.o
 
 # Add files to the ZIP package when running `make dist`
@@ -26,8 +35,12 @@ include $(RACK_DIR)/plugin.mk
 # Rack SDK injects a Clang-only warning flag that GCC (MSYS2 g++) does not recognize.
 CXXFLAGS := $(filter-out -Wno-vla-extension,$(CXXFLAGS))
 
-# Out-of-tree compile rule — uses CXXFLAGS fully expanded by compile.mk
-build/SynthEngine.cpp.o: ../common/src/SynthEngine.cpp
+# Out-of-tree compile rules — use CXXFLAGS fully expanded by compile.mk
+build/SynthEngine.cpp.o: ../modules/alloyflux/src/SynthEngine.cpp
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+build/AlloyFlux.cpp.o: ../modules/alloyflux/vcv/AlloyFlux.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
