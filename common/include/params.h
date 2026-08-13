@@ -90,6 +90,10 @@ extern volatile bool
     gPerformancePrintEnabled; // set by cmd_performance_print, read by updateAudio()
 extern volatile uint32_t gAudioElapsedUs;
 extern volatile uint32_t gAudioOverruns;
+// gAudioBudgetUs : wall-clock µs one audio block represents — the budget that
+//                  gAudioElapsedUs is measured against (M63a; was a hardcoded
+//                  30 µs per sample under Mozzi)
+extern volatile uint32_t gAudioBudgetUs;
 #endif
 
 // ---------------------------------------------------------------------------

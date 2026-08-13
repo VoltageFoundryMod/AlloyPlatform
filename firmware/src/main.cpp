@@ -2,21 +2,32 @@
  * AlloyFlux — Dual Relation Oscillator, Juno-inspired Eurorack voice
  * Hardware : Raspberry Pi Pico 2 (RP2350) + PCM5102A I2S DAC
  *
- * Audio: stereo I2S via PIO, 16-bit, 32768 Hz — see platformio.ini for pin assignments.
+ * Audio: stereo I2S via PIO, 16-bit in 32-bit frames, 32768 Hz.
  * Serial dev console active when SERIAL_CONTROL is defined (build flag).
  * See reference/AlloyFlux-module-reference.md for full design specification.
  */
 
 // ---------------------------------------------------------------------------
-// Mozzi configuration — must precede all Mozzi includes
+// Audio configuration (M63a — was Mozzi's MOZZI_* macros)
+//
+// These are firmware-local on purpose.  Nothing under common/ may depend on
+// them: the platform work (M63b+) makes sample rate a per-module property, and
+// a shared header that hardcodes one rate would defeat that.  SynthEngine
+// already takes both rates as init() arguments, so it needs no macro at all.
+//
+// I2S pin assignments — PCM5102A.  WS must be BCK+1; the PIO program derives it
+// and there is no way to place it elsewhere.
+//   GP16 → BCK (bit clock)     GP17 → LCK (word select, implicit BCK+1)
+//   GP18 → DIN (serial data)
+//   3V3  → VCC, XSMT           GND → FLT, DMP, SCL, FMT (I2S slave mode)
 // ---------------------------------------------------------------------------
-#include "MozziConfigValues.h"
+#include <stdint.h>
 
-#define MOZZI_AUDIO_MODE MOZZI_OUTPUT_I2S_DAC
-#define MOZZI_AUDIO_CHANNELS MOZZI_STEREO
-#define MOZZI_AUDIO_BITS 16
-#define MOZZI_AUDIO_RATE 32768
-#define MOZZI_CONTROL_RATE 128
+static constexpr uint32_t kAudioRate   = 32768u;
+static constexpr uint32_t kControlRate = 128u;
+
+static constexpr uint8_t kPinI2sBCK  = 16u;
+static constexpr uint8_t kPinI2sData = 18u;
 
 // Reverb isolation switch:
 // 1 = run reverb inline on Core 0 (single-core path, like VCV) to isolate
@@ -27,16 +38,16 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// Mozzi includes
+// Includes
 // ---------------------------------------------------------------------------
 #include "VoiceMode.h"
 #include "config_store.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/ShapeOsc.h"
 #include "dsp/SpaceEngine.h"
+#include "io/AudioDriver.h" // M63a — block I2S output, replaces Mozzi
 #include "io/ButtonEngine.h"
 #include "io/usb_midi.h"
-#include <Mozzi.h>
 #include <math.h>
 
 // ---------------------------------------------------------------------------
@@ -173,10 +184,21 @@ volatile uint32_t         gRevInDrops
 // Core 0 reads kRevReadDelay slots behind the write pointer, guaranteeing a
 // constant 2-sample wet latency regardless of Core 1 execution jitter.
 // Constant latency = constant comb = no shimmer.
+// M63a — resized for block rendering.  These were 8 / 3, sized for Mozzi's
+// steady one-frame-per-sample-period cadence where Core 0's read cursor and
+// Core 1's write cursor advanced in lockstep.  AudioDriver renders a whole
+// block back-to-back (32 frames in ~190 µs, then idle), so Core 0 now consumes
+// 32 slots in a burst — it wrapped an 8-slot ring four times inside one block
+// while Core 1 was still producing, scrambling the wet return into broadband
+// noise.  The ring must absorb a full block plus margin, and the read delay
+// must sit far enough behind the write cursor that a burst cannot catch it.
+// Latency rises from ~90 µs to ~1.5 ms; still *constant*, which is what keeps
+// the dry/wet comb fixed and the shimmer away, and 1.5 ms of wet pre-delay on
+// a reverb is musically free.
 static constexpr uint32_t kRevOutBufDepth
-    = 8u; // power-of-2; must be > kRevReadDelay
+    = 128u; // power-of-2; must exceed kRevReadDelay + AudioDriver::kBlockFrames
 static constexpr uint32_t kRevReadDelay
-    = 3u; // fixed wet latency in ISR ticks (~90 µs)
+    = 48u; // fixed wet latency in frames (~1.5 ms at 32768 Hz)
 volatile int32_t gRevOutBuf_L[kRevOutBufDepth] = {};
 volatile int32_t gRevOutBuf_R[kRevOutBufDepth] = {};
 // Pre-seeded to kRevReadDelay so slots [0..kRevReadDelay-1] are valid silence
@@ -211,6 +233,11 @@ float gDelayMix      = 0.0f;
 volatile bool     gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs          = 0;
 volatile uint32_t gAudioOverruns           = 0;
+// M63a — the budget is now one block's wall-clock period rather than a fixed
+// 30 µs per sample. Published from AudioDriver so the console prints the real
+// figure instead of a constant that only held at 32768 Hz with per-sample
+// rendering.
+volatile uint32_t gAudioBudgetUs = 1;
 #endif
 
 // ---------------------------------------------------------------------------
@@ -223,8 +250,17 @@ mutex_t   gDspMutex;
 volatile float gChorusDepth = 0.0f;
 
 // ---------------------------------------------------------------------------
-// Mozzi callbacks
+// Audio driver (M63a) and its two callbacks.
+//
+// renderAudio() replaces Mozzi's updateAudio() — same body, but it writes both
+// channels through pointers instead of returning a StereoOutput.
+// updateControl() keeps its name and its 128 Hz cadence; the driver counts
+// rendered frames and calls it on a block boundary, in thread context.
 // ---------------------------------------------------------------------------
+static AudioDriver sAudioDriver;
+
+void updateControl();
+void renderAudio(int32_t *outL, int32_t *outR);
 
 void setup()
 {
@@ -244,24 +280,35 @@ void setup()
     usbMidi_init();
 #endif
     serialConsole_init();
-    // Load persisted config from flash before Mozzi starts so all gXxx
+    // Load persisted config from flash before audio starts so all gXxx
     // globals are at their saved values when the first updateControl() runs.
     configStore_load(); // silently uses compile-time defaults if no valid config found
     mutex_init(&gDspMutex);
     // M37b: SynthEngine owns all DSP state; init() generates wavetables,
     // seeds all engines, and warms the powf/trig caches.
-    // Must run before startMozzi() so chorus delay buffers are filled.
-    gSynthEngine.init(MOZZI_AUDIO_RATE, MOZZI_CONTROL_RATE);
+    // Must run before the driver starts so chorus delay buffers are filled.
+    gSynthEngine.init(kAudioRate, kControlRate);
     gBtnMode.begin();
     gBtnShift.begin();
     // M30: claim the Dotstar GPIOs and blank the panel before audio starts, so
     // the LEDs are dark rather than showing whatever they powered up with.
     sHardwareIO.begin();
-    startMozzi();
+    const bool audioStarted = sAudioDriver.begin(kAudioRate,
+                                                 kControlRate,
+                                                 kPinI2sBCK,
+                                                 kPinI2sData,
+                                                 &renderAudio,
+                                                 &updateControl);
     serialConsole_ready();
+    // Reported after serialConsole_ready() so the line is not swallowed by the
+    // USB re-enumeration wait.  A failure here means the PIO state machine
+    // never started: no BCK/WS clocks at all, and the DAC sees nothing.
+    if(!audioStarted)
+        DLOGLN("AUDIO: I2S begin() FAILED — no bit clock, check PIO resources");
 #ifdef CPU_PROFILE
-    // Clear any overruns that occurred during Mozzi's startup DMA/PIO init —
+    // Clear any overruns that occurred during the driver's DMA/PIO init —
     // they are not representative of steady-state audio performance.
+    sAudioDriver.resetOverruns();
     gAudioOverruns = 0;
 #endif
 }
@@ -481,7 +528,7 @@ void updateControl()
             sig.shiftHeld             = gBtnShift.isDown();
             sig.gateHigh              = p.gateHigh;
 
-            sLedEngine.update(p, sig, 1.0f / (float)MOZZI_CONTROL_RATE);
+            sLedEngine.update(p, sig, 1.0f / (float)kControlRate);
             sLedEngine.writeTo(sHardwareIO);
         }
 
@@ -501,6 +548,15 @@ void updateControl()
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
     // Print audio ISR timing once every 5 s so it doesn't flood the console.
+    // M63a — republish the driver's block timings each control tick.
+    // gAudioOverruns now carries real DMA underflows (audible dropouts), not
+    // the old synthetic per-frame >30 µs count, which measured a single frame
+    // of a block against a whole sample period's budget and so fired
+    // constantly on harmless USB-ISR jitter.
+    gAudioElapsedUs = sAudioDriver.lastBlockUs();
+    gAudioOverruns  = sAudioDriver.underflows();
+    gAudioBudgetUs  = sAudioDriver.blockPeriodUs();
+
     static uint32_t lastCpuReport = 0;
     const uint32_t  now           = millis();
     if(now - lastCpuReport >= 5000)
@@ -521,10 +577,13 @@ void updateControl()
             const uint32_t  deltaRevDrops = gRevInDrops - lastRevDrops;
             lastRevDrops                  = gRevInDrops;
 #endif
-            float headroom = (30.0f - (float)us) / 30.0f * 100.0f;
+            const float budget   = (float)gAudioBudgetUs;
+            float       headroom = (budget - (float)us) / budget * 100.0f;
             Serial.print(F("[cpu] "));
             Serial.print(us);
-            Serial.print(F("us/30us  headroom "));
+            Serial.print(F("us/"));
+            Serial.print(gAudioBudgetUs);
+            Serial.print(F("us  headroom "));
             Serial.print(headroom, 1);
             Serial.print(F("%  overruns "));
             Serial.print(gAudioOverruns);
@@ -650,11 +709,31 @@ revFeedDry(int32_t dryL, int32_t dryR)
 #endif
 }
 
-// M37b — thin audio ISR: delegate all DSP to SynthEngine, handle reverb transport.
-AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
+// M37b — thin audio render: delegate all DSP to SynthEngine, handle reverb
+// transport.  M63a: called kBlockFrames times per block by AudioDriver::pump()
+// instead of once per sample by Mozzi; the body is unchanged.
+void __attribute__((section(".time_critical.renderAudio")))
+renderAudio(int32_t *pOutL, int32_t *pOutR)
 {
-#ifdef CPU_PROFILE
-    const uint32_t _t0 = time_us_32();
+#ifdef AUDIO_TEST_TONE
+    // M63a bring-up: 1 kHz sine straight out of the driver, bypassing the
+    // engine, the effects chain and the envelope entirely.  This is the bisect
+    // between "the I2S path is broken" and "the engine is producing silence" —
+    // if this is flat on a scope the fault is below renderAudio(), if it is
+    // clean the fault is in the synth's gate/envelope/level state.
+    // Build with: pio run -e alloyflux -a "-DAUDIO_TEST_TONE"
+    {
+        static float    sPhase = 0.0f;
+        constexpr float kTwoPi = 6.28318530718f;
+        constexpr float kInc   = kTwoPi * 1000.0f / (float)kAudioRate;
+        const int32_t   s = (int32_t)(sinf(sPhase) * 16000.0f); // ~ -6 dBFS
+        sPhase += kInc;
+        if(sPhase >= kTwoPi)
+            sPhase -= kTwoPi;
+        *pOutL = s;
+        *pOutR = s;
+        return;
+    }
 #endif
 
     static bool sPrevRevActive = false;
@@ -681,18 +760,21 @@ AudioOutput __attribute__((section(".time_critical.updateAudio"))) updateAudio()
             gLedPeakR = aR;
     }
 
-#ifdef CPU_PROFILE
-    const uint32_t elapsed = time_us_32() - _t0;
-    gAudioElapsedUs        = elapsed;
-    if(elapsed > 30)
-        gAudioOverruns++;
-#endif
+    // M63a — CPU profiling moved out of here. This function now renders one
+    // frame of a block rather than one whole ISR call, and a single frame costs
+    // less than time_us_32()'s 1 µs resolution, so timing it reads as zero.
+    // AudioDriver times the whole block instead; updateControl() publishes it.
 
-    return StereoOutput::from16Bit(outL, outR);
+    *pOutL = outL;
+    *pOutR = outR;
 }
 
+// M63a — the render loop.  pump() renders one block and blocks on the I2S DMA
+// until there is room to queue it, so the bit clock paces this loop and no
+// timer is involved.  updateControl() is invoked from inside pump() on block
+// boundaries, which keeps it in thread context as it was under Mozzi.
 void loop()
-{ audioHook(); }
+{ sAudioDriver.pump(); }
 
 // ---------------------------------------------------------------------------
 // Core 1 — reserved for future DSP offload (reverb, filter — M26+)

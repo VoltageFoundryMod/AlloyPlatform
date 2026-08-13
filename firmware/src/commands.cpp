@@ -440,9 +440,12 @@ static void cmd_performance_print(const char *args, Print &out)
 static void cmd_cpu(const char * /*args*/, Print &out)
 {
 #ifdef CPU_PROFILE
-    const uint32_t us       = gAudioElapsedUs;
-    const uint32_t over     = gAudioOverruns;
-    const float    headroom = (30.0f - (float)us) / 30.0f * 100.0f;
+    const uint32_t us     = gAudioElapsedUs;
+    const uint32_t over   = gAudioOverruns;
+    const float    budget = (float)gAudioBudgetUs;
+    // M63a — budget is one audio block's wall-clock period, published by
+    // AudioDriver, not the old fixed 30 µs per sample.
+    const float    headroom = (budget - (float)us) / budget * 100.0f;
     const uint32_t upSec    = millis() / 1000;
     // uptime mm:ss
     const uint32_t mm = upSec / 60;
@@ -452,9 +455,11 @@ static void cmd_cpu(const char * /*args*/, Print &out)
     static uint32_t lastOver = 0;
     const uint32_t  delta    = over - lastOver;
     lastOver                 = over;
-    out.print(F("audio ISR: "));
+    out.print(F("audio block: "));
     out.print(us);
-    out.print(F("us / 30us  headroom: "));
+    out.print(F("us / "));
+    out.print(gAudioBudgetUs);
+    out.print(F("us  headroom: "));
     out.print(headroom, 1);
     out.print(F("%  overruns: "));
     out.print(over);

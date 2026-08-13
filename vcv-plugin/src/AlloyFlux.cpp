@@ -23,6 +23,7 @@ volatile bool gGateHigh    = false;
 volatile bool     gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs          = 0;
 volatile uint32_t gAudioOverruns           = 0;
+volatile uint32_t gAudioBudgetUs           = 1;
 
 // ---------------------------------------------------------------------------
 // AlloyFlux VCV Rack module — M37e (all knobs + CV jacks)
