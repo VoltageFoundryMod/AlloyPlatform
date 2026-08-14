@@ -352,7 +352,7 @@ Hold **SHIFT** and turn a knob to access its secondary parameter. The L4 LED (ne
 | DELAY  | Delay wet mix                  | **DELAYTIME** — delay time (ms)     |
 | REVERB | Reverb wet mix                 | **REVERBSIZE** — virtual plate size |
 
-ROOT, RELATION, and FM have no shift function — full knob travel is needed for precision.
+ROOT, RELATION, and COLOR have no shift function — full knob travel is needed for precision.
 
 ---
 
@@ -489,10 +489,13 @@ The velocity on Note On messages is used to set the output volume of that note, 
 
 Map your MIDI controller to any of these parameters for expressive real-time control.
 
+> Ranges below are authoritative in `modules/alloyflux/params.json`, which generates both the firmware's CC table and the Web Configurator's parameter map. If a value here ever disagrees with the module, the JSON is right.
+
 #### Core Parameters
 
 | CC    | Parameter | Range | Description                                                             |
 | ----- | --------- | ----- | ----------------------------------------------------------------------- |
+| CC 16 | Root      | 0–127 | Root pitch, ±48 semitones around A4 (27.5 Hz – 7040 Hz, log)            |
 | CC 1  | Motion    | 0–127 | Drift + chorus depth (mod wheel)                                        |
 | CC 7  | Volume    | 0–127 | Master output level                                                     |
 | CC 8  | Space     | 0–127 | Stereo width (0–2× — 0=mono, 1=normal, 2=hyper wide)                    |
@@ -506,10 +509,10 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | CC     | Parameter            | Range                 | Description                                                                                                                                                                                 |
 | ------ | -------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | CC 5   | Glide Time           | 0–127                 | Portamento slide time (0–2 s)                                                                                                                                                               |
-| CC 64  | Sustain / Gate       | ≥64=on                | Hold voices sustained (drone toggle)                                                                                                                                                        |
+| CC 64  | Sustain              | ≥64=on / <64=off      | Standard sustain pedal — arms the gate and holds it high. Not drone: use CC 119 to release the gate                                                                                          |
 | CC 65  | Glide On/Off         | ≥64=on / <64=off      | Enable or disable portamento glide                                                                                                                                                          |
 | CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                                                                                                                                                              |
-| CC 72  | ADSR Release         | 0–127                 | ADSR release time (0.001–4 s)                                                                                                                                                               |
+| CC 72  | ADSR Release         | 0–127                 | ADSR release time (0.001–8 s)                                                                                                                                                               |
 | CC 73  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                                                                                                                                                                |
 | CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                                                                                                                                                         |
 | CC 82  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                                                                                                                                                                 |

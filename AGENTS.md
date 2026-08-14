@@ -109,7 +109,8 @@ Core 0 renderAudio() → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatil
 - **Do not commit** or run `git push` unless explicitly asked.
 - **Do not modify `/c/Users/carlosedp/Rack-SDK/`** — it is a shared external dependency.
 - **Do not increase `DELAY_MAX_MS`** without confirming SRAM budget (`platformio run` reports RAM usage after build).
-- **Shared DSP changes**: any edit to `common/include/dsp/` or `common/src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
+- **Adding or changing a parameter**: edit `modules/<module>/params.json` and run `make params`, then commit the regenerated files. That one row supplies the CC number, range, curve, default, label, category, unit and (for discrete params) the option bands to both `param_manifest.generated.h` and the web configurator's `paramMap.ts`. Do not hand-edit either generated file; `make params-check` is the CI gate. Only `config_store` and the VCV param list are still hand-maintained.
+- **Shared DSP changes**: any edit to `modules/<module>/include/dsp/` or `src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
 - **Windows VCV build**: run `make vcv` from the repo root — the root Makefile picks up the msys2 shell and toolchain itself, so no MinGW64 shell is needed.
 - **VCV warnings on GCC**: keep `vcv-plugin/Makefile` filtering out `-Wno-vla-extension` from `CXXFLAGS` (Clang-only flag from Rack SDK).
 - **Mark Milestones as done**: when a referenced task is complete, add an "x" to the checkbox in `references/Development_Milestones.md` (e.g. `- [x] 1. Sine wave out via PCM5102`).

@@ -57,17 +57,29 @@
         : value.toFixed(2)),
   );
 
+  // Last 7-bit value actually put on the wire, so a drag only sends when the
+  // CC changes. A range input fires `input` on every mousemove, but the slider
+  // is typically a few hundred pixels wide against 128 CC steps — so most of
+  // those events carry a value identical to the previous one. Sending them
+  // anyway floods the module's inbound queue with duplicates for no effect.
+  let lastSentCC: number | null = null;
+
   function handleInput(e: Event) {
     const pos = parseFloat((e.target as HTMLInputElement).value);
     const native = posToValue(pos);
     value = native;
     const cc7bit = floatToCC(param, native);
+    if (cc7bit === lastSentCC) return;
+    lastSentCC = cc7bit;
     midi.sendCC(param.cc, cc7bit);
   }
 
   // When we receive a CC message update the value externally
   function applyCC(ccVal: number) {
     value = ccToFloat(param, ccVal);
+    // Keep the send-dedupe in step with externally-driven changes, or the next
+    // local drag back to this value would be suppressed as a duplicate.
+    lastSentCC = ccVal;
   }
 
   // Expose applyCC so parent can push MIDI-in updates

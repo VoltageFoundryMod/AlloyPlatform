@@ -45,91 +45,44 @@ static constexpr uint8_t kSysExCmdPresetReset
 static constexpr uint8_t kSysExCmdSetMidiChannel
     = 0x07; // payload[0] = 0 (omni) or 1-16
 
-// Convert a float parameter value into a 7-bit CC value.
-static inline uint8_t
-sFloatToCC(float val, float minV, float maxV, bool logScale = false)
-{
-    if(maxV <= minV)
-        return 0;
-    float t;
-    if(logScale && minV > 0.0f)
-        t = logf(val / minV) / logf(maxV / minV);
-    else
-        t = (val - minV) / (maxV - minV);
-    const int v = (int)(127.0f * t + 0.5f);
-    return (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
-}
+// Upper bound on the (cc, value) pairs a patch dump can carry. The tables are
+// sized from params.json, so this must have room to spare — a dump that
+// overruns its buffer would corrupt whatever follows rather than fail visibly.
+// sBuildPatchPairs() stops at this limit regardless.
+static constexpr uint8_t kMaxPatchPairs = 56;
+static constexpr uint8_t kMaxPatchBytes = kMaxPatchPairs * 2;
 
 // Fill buf[] with (cc, value) pairs for all patchable parameters.
 // Returns the total number of bytes written (always even).
 static uint8_t sBuildPatchPairs(uint8_t *buf)
 {
     uint8_t n = 0;
-    // Continuous float params from the central CC table
-    for(uint8_t i = 0; i < kCCParamCount; i++)
+    // Drops a pair rather than overrunning. Nothing should ever reach the
+    // limit — kMaxPatchPairs has headroom over both generated tables — but the
+    // tables grow whenever params.json does, and an overrun would corrupt
+    // whatever follows instead of failing visibly.
+    auto add = [&](uint8_t cc, uint8_t value)
     {
-        const CCParam &p = kCCParams[i];
-        buf[n++]         = p.cc;
-        buf[n++] = sFloatToCC(*p.target, p.valMin, p.valMax, p.logScale);
-    }
-    // Special / select params not in kCCParams
-    // CC 16 — ROOT pitch as a ±4 V/Oct offset: 0 = −4 V, 64 ≈ 440 Hz, 127 = +4 V.
-    // Inverse of the CC 16 case in onControlChange().  Without this the ROOT
-    // knob is the one control whose position never reaches the configurator.
-    buf[n++] = 16;
-    {
-        const int v
-            = (int)((log2f(gBaseFreq / 440.0f) + 4.0f) / 8.0f * 127.0f + 0.5f);
-        buf[n++] = (uint8_t)(v < 0 ? 0 : (v > 127 ? 127 : v));
-    }
-    // CC 76 — filter mode: OFF=0, LP=26, HP=51, BP=77, NOTCH=102
-    buf[n++] = 76;
-    buf[n++] = (gFilterMode == FilterMode::OFF)  ? 0
-               : (gFilterMode == FilterMode::LP) ? 26
-               : (gFilterMode == FilterMode::HP) ? 51
-               : (gFilterMode == FilterMode::BP) ? 77
-                                                 : 102;
-    // CC 77 — filter type: SVF=0, LADDER=96
-    buf[n++] = 77;
-    buf[n++] = (gFilterType == FilterType::SVF) ? 0 : 96;
-    // CC 79 — fxorder filter pos: pre-chorus=0, post-chorus=96
-    buf[n++] = 79;
-    buf[n++] = gFxOrder.filterPostChorus ? 96 : 0;
-    // CC 80 — fxorder delay pos: pre-reverb=0, post-reverb=96
-    buf[n++] = 80;
-    buf[n++] = gFxOrder.delayPostReverb ? 96 : 0;
-    // CC 81 — envelope type: AR=0, ADSR=96
-    buf[n++] = 81;
-    buf[n++] = (gEnvelopeType == EnvelopeType::ADSR) ? 96 : 0;
-    // CC 93 — chorus mode: OFF=0, I=48, II=80, I+II=112
-    buf[n++] = 93;
-    buf[n++] = (gChorusMode == ChorusMode::OFF)  ? 0
-               : (gChorusMode == ChorusMode::I)  ? 48
-               : (gChorusMode == ChorusMode::II) ? 80
-                                                 : 112;
-    // CC 90 — sub octave: 1 oct below=0, 2 oct below=96
-    buf[n++] = 90;
-    buf[n++] = (gSubOctave >= 2) ? 96 : 0;
-    // CC 114 — reverb freeze
-    buf[n++] = 114;
-    buf[n++] = gRevFrozen ? 127 : 0;
-    // CC 115 — voice mode: 6 bands of 21: PAIR=10, CLOUD=31, CHORD=52, CASCADE=73, STRING=94, POLY=116
-    buf[n++] = 115;
-    buf[n++] = (gVoiceMode == VoiceMode::PAIR)      ? 10
-               : (gVoiceMode == VoiceMode::CLOUD)   ? 31
-               : (gVoiceMode == VoiceMode::CHORD)   ? 52
-               : (gVoiceMode == VoiceMode::CASCADE) ? 73
-               : (gVoiceMode == VoiceMode::STRING)  ? 94
-                                                    : 116; // POLY
-    // CC 103 — scale quantizer (M49): 0=chromatic (off), 1–14=scale index
-    buf[n++] = 103;
-    buf[n++] = (uint8_t)gQuantizeScale;
-    // CC 104 — transpose (M49): 0–48 encodes −24…+24 semitones (offset 24)
-    buf[n++] = 104;
-    buf[n++] = (uint8_t)constrain((int)gTranspose + 24, 0, 48);
-    // CC 110 — MIDI receive channel (0 = omni, 1–16 = specific channel)
-    buf[n++] = 110;
-    buf[n++] = gMidiChannel; // 0-16 fits in 7 bits
+        if(n + 2 > kMaxPatchBytes)
+            return;
+        buf[n++] = cc;
+        buf[n++] = value;
+    };
+
+    // Continuous params.
+    for(uint8_t i = 0; i < kParamCount; i++)
+        add(kParamTable[i].cc, kParamTable[i].toCC(*kParamTable[i].target));
+
+    // Discrete params. toCC() returns the low edge of the option's band, which
+    // the configurator resolves the same way as any other value in that band.
+    for(uint8_t i = 0; i < kEnumCount; i++)
+        add(kEnumTable[i].cc, kEnumTable[i].toCC(*kEnumTable[i].target));
+
+    // Not table parameters.
+    add(114, gRevFrozen ? 127 : 0); // reverb freeze
+    // Transpose: 0–48 encodes −24…+24 semitones (offset 24).
+    add(104, (uint8_t)constrain((int)gTranspose + 24, 0, 48));
+    add(110, gMidiChannel); // MIDI receive channel, 0 = omni
     return n;
 }
 
@@ -299,90 +252,15 @@ static void onControlChange(byte channel, byte cc, byte value)
     // Special cases: not simple float parameters.
     switch(cc)
     {
-        case 16:
-        { // Root pitch V/Oct offset — CC 0=−4V, 64≈0V=440Hz, 127=+4V
-            float volts = -4.0f + (value / 127.0f) * 8.0f;
-            gBaseFreq   = 440.0f * powf(2.0f, volts);
-            break;
-        }
         case 64: // Sustain pedal — arms gate; release only on pedal-up (value < 64)
             gGatePatched = true;
             gGateHigh    = (value >= 64);
-            break;
-        case 65: // Portamento On/Off — glide enable (>=64) / disable (<64)
-            gGlideEnabled = (value >= 64);
-            break;
-        case 76: // Filter mode — 5 options spread evenly across 0–127
-            if(value < 26)
-                gFilterMode = FilterMode::OFF;
-            else if(value < 51)
-                gFilterMode = FilterMode::LP;
-            else if(value < 77)
-                gFilterMode = FilterMode::HP;
-            else if(value < 102)
-                gFilterMode = FilterMode::BP;
-            else
-                gFilterMode = FilterMode::NOTCH;
-            break;
-        case 77: // Filter type — 0-63 = SVF, 64-127 = LADDER
-            gFilterType = (value < 64) ? FilterType::SVF : FilterType::LADDER;
-            break;
-        case 79: // FxOrder filter position — 0-63 = pre-chorus (default), 64-127 = post-chorus
-            gFxOrder.filterPostChorus = (value >= 64);
-            break;
-        case 80: // FxOrder delay position — 0-63 = pre-reverb (default), 64-127 = post-reverb
-            gFxOrder.delayPostReverb = (value >= 64);
-            break;
-        case 81: // Envelope type — 0-63 = AR, 64-127 = ADSR
-            gEnvelopeType
-                = (value < 64) ? EnvelopeType::AR : EnvelopeType::ADSR;
-            gCurveEng->reset();
-            break;
-        case 93: // Chorus mode — 0-31=OFF, 32-63=I, 64-95=II, 96-127=I+II
-            if(value < 32)
-                gChorusMode = ChorusMode::OFF;
-            else if(value < 64)
-                gChorusMode = ChorusMode::I;
-            else if(value < 96)
-                gChorusMode = ChorusMode::II;
-            else
-                gChorusMode = ChorusMode::I_II;
-            break;
-        case 90: // Sub octave — 0-63 = 1 oct below, 64-127 = 2 oct below
-            gSubOctave = (value >= 64) ? 2 : 1;
-            break;
-        case 102: // Velocity sensitivity — on (>=64) / off (<64)
-            gVelocitySensitive = (value >= 64);
-            if(!gVelocitySensitive)
-            {
-                gMidiVelocity
-                    = 1.0f; // immediately restore full volume for live notes
-            }
-            break;
-        case 103: // Scale quantizer (M49) — 0=chromatic (off), 1–14=scale index
-            gQuantizeScale = (value < (uint8_t)ScaleId::COUNT)
-                                 ? (ScaleId)value
-                                 : ScaleId::CHROMATIC;
             break;
         case 104: // Transpose (M49) — 0–48 encodes −24…+24 semitones
             gTranspose = (int8_t)constrain((int)value - 24, -24, 24);
             break;
         case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
             gRevFrozen = (value >= 64);
-            break;
-        case 115: // Voice Mode — 6 bands: 0-20=PAIR, 21-41=CLOUD, 42-62=CHORD, 63-83=CASCADE, 84-104=STRING, 105-127=POLY
-            if(value < 21)
-                gVoiceMode = VoiceMode::PAIR;
-            else if(value < 42)
-                gVoiceMode = VoiceMode::CLOUD;
-            else if(value < 63)
-                gVoiceMode = VoiceMode::CHORD;
-            else if(value < 84)
-                gVoiceMode = VoiceMode::CASCADE;
-            else if(value < 105)
-                gVoiceMode = VoiceMode::STRING;
-            else
-                gVoiceMode = VoiceMode::POLY;
             break;
         case 119: // Drone return — clears gGatePatched, module returns to continuous drone
             gGatePatched  = false;
@@ -421,8 +299,10 @@ static void onProgramChange(byte channel, byte program)
 // Must be placed after MIDI_CREATE_INSTANCE since it calls MidiUsb.sendSysEx.
 static void sSendPatchDump()
 {
-    // Header (4) + float params (25×2=50) + select/special (13×2=26) = 80; use 92.
-    static uint8_t sBuf[92];
+    // 4-byte header plus whatever sBuildPatchPairs() can emit. Sized from
+    // kMaxPatchBytes rather than a hand-counted total so it cannot fall behind
+    // params.json.
+    static uint8_t sBuf[4 + kMaxPatchBytes];
     sBuf[0]                 = kSysExMfr;
     sBuf[1]                 = kSysExDevA;
     sBuf[2]                 = kSysExDevF;
@@ -538,8 +418,24 @@ void usbMidi_init()
     }
 }
 
+// Drain the inbound queue, don't sip from it.
+//
+// MidiUsb.read() dispatches exactly one message per call. Called once per
+// control tick that caps inbound throughput at the control rate — 128
+// messages/second — which is below what a dragged slider in the Web
+// Configurator emits. The excess sits in the USB FIFO and plays out at 128/s,
+// so the lag grows for as long as you keep dragging and continues after you
+// let go.
+//
+// The bound exists so a misbehaving or malicious sender cannot hold the control
+// tick indefinitely. 64 messages is ~8000/s of headroom, far more than any real
+// controller produces, and costs well under 100 µs against a 7.8 ms tick.
+static constexpr uint8_t kMaxMidiPerTick = 64;
+
 void usbMidi_update()
-{ MidiUsb.read(); }
+{
+    for(uint8_t i = 0; i < kMaxMidiPerTick && MidiUsb.read(); i++) {}
+}
 
 // ---------------------------------------------------------------------------
 // CC feedback — emit changed parameters to the USB host at control rate.
@@ -553,7 +449,7 @@ void usbMidi_sendFeedback()
         sResetLastSentCC();
 
     // Build full snapshot into a temp buffer, then diff and send.
-    static uint8_t buf[128]; // max 64 CC pairs = 128 bytes
+    static uint8_t buf[kMaxPatchBytes];
     uint8_t        n = sBuildPatchPairs(buf);
     for(uint8_t i = 0; i + 1 < n; i += 2)
     {

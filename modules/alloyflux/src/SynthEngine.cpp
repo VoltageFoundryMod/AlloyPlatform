@@ -150,16 +150,17 @@ void SynthEngine::control(const SynthParams  &p,
     // ------------------------------------------------------------------
     // One-pole smoothing — eliminates zipper noise on parameter changes
     // ------------------------------------------------------------------
-    _sShape += (p.shape - _sShape) * 0.1f;
-    _sFatness += (p.fatness - _sFatness) * 0.1f;
-    _sMotion += (p.motion - _sMotion) * 0.05f; // slower: ramps drift/chorus
-    _sCurve += (p.curve - _sCurve) * 0.1f;
-    _sCurveTime += (p.curveTime - _sCurveTime) * 0.1f;
-    _sVolume += (p.volume - _sVolume) * 0.1f;
-    _sMidiVel += (p.midiVelocity - _sMidiVel) * 0.1f;
-    _sSpace += (p.space - _sSpace) * 0.1f;
-    _sRelation += (p.relation - _sRelation) * 0.1f;
-    _sColor += (p.color - _sColor) * 0.08f;
+    float smoothAlpha = 0.3f;
+    _sShape += (p.shape - _sShape) * smoothAlpha;
+    _sFatness += (p.fatness - _sFatness) * smoothAlpha;
+    _sMotion += (p.motion - _sMotion) * 0.15f; // slower smoothing for drift
+    _sCurve += (p.curve - _sCurve) * smoothAlpha;
+    _sCurveTime += (p.curveTime - _sCurveTime) * smoothAlpha;
+    _sVolume += (p.volume - _sVolume) * smoothAlpha;
+    _sMidiVel += (p.midiVelocity - _sMidiVel) * smoothAlpha;
+    _sSpace += (p.space - _sSpace) * smoothAlpha;
+    _sRelation += (p.relation - _sRelation) * smoothAlpha;
+    _sColor += (p.color - _sColor) * 0.2f;
 
     // ------------------------------------------------------------------
     // Envelope update — AR or ADSR
@@ -529,8 +530,8 @@ void SynthEngine::control(const SynthParams  &p,
         _prevFilterType = p.filterType;
     }
     {
-        _sFilterCutoff += (p.filterCutoff - _sFilterCutoff) * 0.1f;
-        _sFilterRes += (p.filterRes - _sFilterRes) * 0.1f;
+        _sFilterCutoff += (p.filterCutoff - _sFilterCutoff) * smoothAlpha;
+        _sFilterRes += (p.filterRes - _sFilterRes) * smoothAlpha;
         filterInst->setParams(
             _sFilterCutoff, _sFilterRes, p.filterMode, (float)_audioRate);
     }

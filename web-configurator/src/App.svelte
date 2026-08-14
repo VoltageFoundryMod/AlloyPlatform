@@ -58,12 +58,27 @@
   let sliderRefs: Record<number, { applyCC: (v: number) => void }> = {};
   let selectRefs: Record<number, { applyCC: (v: number) => void }> = {};
 
+  // ---------------------------------------------------------------------------
+  // Narrow reactive keys for the MIDI effects below.
+  //
+  // The traffic counters (txBytes / rxBytes) live in the same store as the
+  // connection state, and reading *any* field of a Svelte store subscribes to
+  // the whole thing. An effect that both reads $midi and sends MIDI therefore
+  // retriggers itself on its own traffic — which turned the one-shot dump
+  // request into a ~345 ms poll loop, re-requesting forever. Depending on a
+  // derived value instead means these only re-run when the value they actually
+  // care about changes.
+  // ---------------------------------------------------------------------------
+  const ccStreamOn = $derived($midi.connected);
+  const syncKey = $derived($midi.deviceConnected ? $midi.syncNonce : -1);
+  const serialOn = $derived($serial.connected);
+
   // Subscribe to incoming MIDI CC messages and route to the right component.
   // This is the live feedback path: the module emits a CC whenever a parameter
   // changes on its side — a panel knob being turned, a button combo, a preset
   // recall — so the UI follows the hardware within one feedback tick (250 ms).
   $effect(() => {
-    if (!$midi.connected) return;
+    if (!ccStreamOn) return;
     const unsubscribe = midi.onCC((cc: number, value: number) => {
       // Drop our own echo, and anything arriving mid-gesture for a control the
       // user is currently working. Full syncs go through applyPatch() instead.
@@ -167,11 +182,11 @@
   // Auto-sync on MIDI connect — send REQUEST_DUMP, apply PATCH_DUMP response
   // ---------------------------------------------------------------------------
   $effect(() => {
-    if (!$midi.deviceConnected) return;
-    // Depend on syncNonce, not just deviceConnected: the store bumps it on
-    // every connection, reconnection and output-port switch, so this re-runs
-    // even when the connected flag itself never observably changed.
-    void $midi.syncNonce;
+    // syncKey folds deviceConnected and syncNonce into one number: the store
+    // bumps the nonce on every connection, reconnection and output-port switch,
+    // so this still re-runs when the connected flag itself never observably
+    // changed — but not on unrelated store traffic.
+    if (syncKey < 0) return;
 
     // Retry until the module answers.  Its MIDI port enumerates as soon as USB
     // comes up, but the firmware does not service MIDI until setup() has
@@ -186,7 +201,17 @@
     const request = () => {
       if (done) return;
       midi.sendSysEx(SysexCmd.REQUEST, []);
-      if (++attempts < 8) timer = setTimeout(request, 800);
+      if (++attempts < 8) {
+        timer = setTimeout(request, 800);
+      } else {
+        // Eight requests over ~6 s with no answer means we are talking to a
+        // port that is not the module — typically a stale entry Chrome kept
+        // after a re-flash, which still reports as connected so the store's
+        // auto-rescan never fires. Re-enumerate; if that turns up a different
+        // port the store bumps syncNonce and this effect runs again from
+        // scratch. If nothing changes, no nonce bump and we stop here.
+        void midi.scan();
+      }
     };
     timer = setTimeout(request, 300);
 
@@ -209,7 +234,7 @@
   // Auto-sync on serial connect — send "dump", parse cc:N=V lines
   // ---------------------------------------------------------------------------
   $effect(() => {
-    if (!$serial.connected) return;
+    if (!serialOn) return;
     let dumpLines: string[] = [];
     let inDump = false;
     // Small delay mirrors the MIDI path (300 ms): hardware USB CDC needs a

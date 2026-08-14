@@ -1,6 +1,7 @@
 #include "SubMenuSlider.hpp"
 #include "SynthEngine.h"
-#include "VCVRackIO.h" // VCV-specific IHardwareIO implementation (M37d)
+#include "config_store.h" // kDefaultFilterCutoff — shared with the firmware
+#include "VCVRackIO.h"    // VCV-specific IHardwareIO implementation (M37d)
 #include "VoiceMode.h"
 #include "dsp/ChorusEngine.h" // ChorusMode enum
 #include "dsp/CurveEngine.h"  // EnvelopeType enum
@@ -220,7 +221,11 @@ struct AlloyFlux : Module
 
         // Context menu secondary params (hidden from panel, saved in patch)
         configParam(FATNESS_PARAM, 0.0f, 1.0f, 0.4f, "Fatness");
-        configParam(DRIFTSPEED_PARAM, 0.0f, 1.0f, 0.36f, "Drift speed");
+        // 0.394 normalised, not 0.36: IOBridge maps this knob to
+        // 0.001 + norm × 0.099, so this is what lands on gDriftSpeed's 0.04
+        // default. 0.36 gave 0.0366 and started the plugin slightly slower
+        // than the hardware.
+        configParam(DRIFTSPEED_PARAM, 0.0f, 1.0f, 0.394f, "Drift speed");
         configParam(VOL_PARAM, 0.0f, 1.0f, 1.0f, "Volume");
         configParam(CURVETIME_PARAM, 0.25f, 4.0f, 1.0f, "Curve time", "\u00d7");
 
@@ -316,8 +321,16 @@ struct AlloyFlux : Module
                      {"Off", "LP", "HP", "BP", "Notch", "LP4"});
         configSwitch(
             FILTER_TYPE_PARAM, 0.f, 1.f, 0.f, "Filter type", {"SVF", "Ladder"});
-        configParam(
-            FILTER_CUTOFF_PARAM, 20.f, 16000.f, 839.f, "Filter cutoff", " Hz");
+        // kDefaultFilterCutoff (983.2 Hz), not a separate literal: it is the
+        // nearest 7-bit-CC-representable value to 1 kHz on the log scale, and
+        // config_store defines it precisely so hardware and plugin boot on the
+        // same cutoff. A hardcoded 839 put the two an audible third apart.
+        configParam(FILTER_CUTOFF_PARAM,
+                    20.f,
+                    16000.f,
+                    kDefaultFilterCutoff,
+                    "Filter cutoff",
+                    " Hz");
         configParam(FILTER_RES_PARAM, 0.f, 1.f, 0.f, "Filter resonance");
         configParam(REV_MIX_PARAM, 0.f, 1.f, 0.f, "Reverb");
         configParam(REV_SIZE_PARAM, 0.f, 1.f, 0.5f, "Reverb size");
@@ -333,7 +346,10 @@ struct AlloyFlux : Module
                     100.f,
                     "Delay time",
                     " ms");
-        configParam(DELAY_FB_PARAM, 0.f, 0.99f, 0.5f, "Delay feedback");
+        // 0.95, not 0.99: that is where CC 87 tops out and where DelayEngine
+        // clamps internally, so a wider knob would have a dead top end that
+        // no CC could reach and the engine would silently limit anyway.
+        configParam(DELAY_FB_PARAM, 0.f, 0.95f, 0.5f, "Delay feedback");
         configSwitch(FX_FILTER_POS_PARAM,
                      0.f,
                      1.f,

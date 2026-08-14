@@ -201,7 +201,11 @@
     <!-- Panic / Drone -->
     <div class="misc-ctrl">
       <button class="panic-btn" onclick={() => midi.sendPanic()}>Panic</button>
-      <button onclick={() => midi.sendSustain(true)}>Drone</button>
+      <button
+        onclick={() => midi.sendDroneReturn()}
+        title="Release the gate and let the voices run continuously (CC 119)"
+        >Drone</button
+      >
     </div>
   </div>
 

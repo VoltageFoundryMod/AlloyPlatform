@@ -1,0 +1,800 @@
+{
+  "$comment": [
+    "Single source of truth for AlloyFlux's externally-controllable parameters.",
+    "",
+    "Generated consumers (run `make params` after editing, and commit the output",
+    "so a normal build never needs Python):",
+    "  include/param_manifest.generated.h  — C++ descriptor table",
+    "  ../../web-configurator/src/lib/paramMap.generated.ts  (slice 3)",
+    "",
+    "Fields:",
+    "  cc        MIDI CC number, also the identity used by SysEx patch dumps",
+    "  name      serial command name and web key — must stay stable, it is API",
+    "  label     human label for the web UI",
+    "  category  web UI grouping; order comes from `categories` below",
+    "  kind      float | enum | bool",
+    "  min/max   float only. `symbol` allows a C++ constant (e.g. DELAY_MAX_MS)",
+    "  scale     float only: linear | log",
+    "  target    C++ lvalue the dispatcher writes; must match `kind`",
+    "  options   enum only: labels in CC-band order, low to high",
+    "",
+    "Params NOT listed here are genuinely not parameters — CC 64 sustain,",
+    "CC 119 drone return and CC 123 panic are actions, and stay hand-written in",
+    "usb_midi.cpp. CC 16 (root pitch) is also special: it carries a V/Oct",
+    "encoding rather than a plain range."
+  ],
+  "$comment_includes": "Headers the generated C++ table needs for its `target` lvalues and any `symbol` bounds.",
+  "ts_output": "../../web-configurator/src/lib/paramMap.ts",
+  "cpp_includes": [
+    "params.h",
+    "dsp/ReverbEngine.h",
+    "dsp/DelayEngine.h",
+    "dsp/FxChain.h"
+  ],
+  "categories": [
+    "Voice",
+    "Oscillator",
+    "Animation",
+    "Envelope",
+    "Filter",
+    "FX Chain",
+    "Output",
+    "Chorus",
+    "Reverb",
+    "Delay"
+  ],
+  "params": [
+    {
+      "cc": 115,
+      "name": "mode",
+      "label": "Voice Mode",
+      "category": "Voice",
+      "kind": "enum",
+      "target": "gVoiceMode",
+      "default": 0,
+      "options": [
+        {
+          "label": "Pair",
+          "ccMin": 0,
+          "ccMax": 20,
+          "value": 0
+        },
+        {
+          "label": "Cloud",
+          "ccMin": 21,
+          "ccMax": 41,
+          "value": 1
+        },
+        {
+          "label": "Chord",
+          "ccMin": 42,
+          "ccMax": 62,
+          "value": 2
+        },
+        {
+          "label": "Cascade",
+          "ccMin": 63,
+          "ccMax": 83,
+          "value": 3
+        },
+        {
+          "label": "String",
+          "ccMin": 84,
+          "ccMax": 104,
+          "value": 4
+        },
+        {
+          "label": "Poly",
+          "ccMin": 105,
+          "ccMax": 127,
+          "value": 5
+        }
+      ]
+    },
+    {
+      "cc": 16,
+      "name": "root",
+      "label": "Root",
+      "category": "Oscillator",
+      "kind": "float",
+      "min": 27.5,
+      "max": 7040.0,
+      "default": 440.0,
+      "scale": "log",
+      "unit": "Hz",
+      "target": "gBaseFreq",
+      "$comment": "Was hand-coded as a ±4 V/Oct offset: freq = 440·2^(−4 + 8t). That is identical to a log sweep from 440·2⁻⁴ = 27.5 Hz to 440·2⁴ = 7040 Hz, so it needs no special case.",
+      "$comment_display": "27.5–7040 Hz is exactly 8 octaves centred on 440 Hz, so the same sweep reads as −48…+48 semitones with 0 at centre — the Plaits convention. Firmware still stores Hz; only the UI changes units, and the CC sent is identical either way.",
+      "display": {
+        "min": -48,
+        "max": 48,
+        "unit": "st",
+        "scale": "linear"
+      }
+    },
+    {
+      "cc": 78,
+      "name": "shape",
+      "label": "Shape",
+      "category": "Oscillator",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "scale": "linear",
+      "target": "gShape"
+    },
+    {
+      "cc": 84,
+      "name": "fat",
+      "label": "Fatness",
+      "category": "Oscillator",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.4,
+      "scale": "linear",
+      "target": "gFatness"
+    },
+    {
+      "cc": 92,
+      "name": "color",
+      "label": "Color",
+      "category": "Oscillator",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "scale": "linear",
+      "target": "gColor",
+      "step": 0.01
+    },
+    {
+      "cc": 94,
+      "name": "rel",
+      "label": "Relation",
+      "category": "Oscillator",
+      "kind": "float",
+      "min": 0.0,
+      "max": 24.0,
+      "default": 0.0,
+      "scale": "linear",
+      "unit": "st",
+      "target": "gRelation",
+      "step": 1
+    },
+    {
+      "cc": 90,
+      "name": "suboct",
+      "label": "Sub Octave",
+      "category": "Oscillator",
+      "kind": "enum",
+      "target": "gSubOctave",
+      "default": 1,
+      "$comment": "Stored value is the octave count (1 or 2), not the option index.",
+      "options": [
+        {
+          "label": "−1 Oct",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 1
+        },
+        {
+          "label": "−2 Oct",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 2
+        }
+      ]
+    },
+    {
+      "cc": 1,
+      "name": "motion",
+      "label": "Motion",
+      "category": "Animation",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "scale": "linear",
+      "target": "gMotion"
+    },
+    {
+      "cc": 89,
+      "name": "dspeed",
+      "label": "Drift Speed",
+      "category": "Animation",
+      "kind": "float",
+      "min": 0.001,
+      "max": 0.1,
+      "default": 0.04,
+      "scale": "linear",
+      "target": "gDriftSpeed"
+    },
+    {
+      "cc": 65,
+      "name": "glide",
+      "label": "Glide",
+      "category": "Animation",
+      "kind": "enum",
+      "target": "gGlideEnabled",
+      "default": 0,
+      "options": [
+        {
+          "label": "Off",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 0
+        },
+        {
+          "label": "On",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "cc": 5,
+      "name": "glidetime",
+      "label": "Glide Time",
+      "category": "Animation",
+      "kind": "float",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 0.0,
+      "scale": "linear",
+      "unit": "s",
+      "target": "gGlideTime",
+      "step": 0.01
+    },
+    {
+      "cc": 81,
+      "name": "envtype",
+      "label": "Type",
+      "category": "Envelope",
+      "kind": "enum",
+      "target": "gEnvelopeType",
+      "default": 0,
+      "onChange": "paramHook_envelopeTypeChanged",
+      "options": [
+        {
+          "label": "AR",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 0
+        },
+        {
+          "label": "ADSR",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "cc": 71,
+      "name": "curve",
+      "label": "Curve",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "scale": "linear",
+      "target": "gCurve"
+    },
+    {
+      "cc": 88,
+      "name": "curvetime",
+      "label": "Time Scale",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.25,
+      "max": 4.0,
+      "default": 1.0,
+      "scale": "linear",
+      "unit": "×",
+      "target": "gCurveTime"
+    },
+    {
+      "cc": 73,
+      "name": "adsrattack",
+      "label": "Attack",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.001,
+      "max": 4.0,
+      "default": 0.05,
+      "scale": "linear",
+      "unit": "s",
+      "target": "gAdsrAttack",
+      "step": 0.001,
+      "rowBreakBefore": true
+    },
+    {
+      "cc": 82,
+      "name": "adsrdecay",
+      "label": "Decay",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.001,
+      "max": 4.0,
+      "default": 0.1,
+      "scale": "linear",
+      "unit": "s",
+      "target": "gAdsrDecay",
+      "step": 0.001
+    },
+    {
+      "cc": 83,
+      "name": "adsrsustain",
+      "label": "Sustain",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.8,
+      "scale": "linear",
+      "target": "gAdsrSustain"
+    },
+    {
+      "cc": 72,
+      "name": "adsrrelease",
+      "label": "Release",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.001,
+      "max": 8.0,
+      "default": 0.3,
+      "scale": "linear",
+      "unit": "s",
+      "target": "gAdsrRelease",
+      "step": 0.001
+    },
+    {
+      "cc": 76,
+      "name": "filtermode",
+      "label": "Mode",
+      "category": "Filter",
+      "kind": "enum",
+      "target": "gFilterMode",
+      "default": 0,
+      "options": [
+        {
+          "label": "Off",
+          "ccMin": 0,
+          "ccMax": 25,
+          "value": 0
+        },
+        {
+          "label": "LP",
+          "ccMin": 26,
+          "ccMax": 50,
+          "value": 1
+        },
+        {
+          "label": "HP",
+          "ccMin": 51,
+          "ccMax": 76,
+          "value": 2
+        },
+        {
+          "label": "BP",
+          "ccMin": 77,
+          "ccMax": 101,
+          "value": 3
+        },
+        {
+          "label": "Notch",
+          "ccMin": 102,
+          "ccMax": 127,
+          "value": 4
+        }
+      ]
+    },
+    {
+      "cc": 77,
+      "name": "filtertype",
+      "label": "Algorithm",
+      "category": "Filter",
+      "kind": "enum",
+      "target": "gFilterType",
+      "default": 0,
+      "options": [
+        {
+          "label": "SVF",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 0
+        },
+        {
+          "label": "Ladder",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "cc": 74,
+      "name": "filtercutoff",
+      "label": "Cutoff",
+      "category": "Filter",
+      "kind": "float",
+      "min": 20.0,
+      "max": 16000.0,
+      "default": 983.2,
+      "scale": "log",
+      "unit": "Hz",
+      "target": "gFilterCutoff",
+      "step": 1
+    },
+    {
+      "cc": 75,
+      "name": "filterres",
+      "label": "Resonance",
+      "category": "Filter",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "scale": "linear",
+      "target": "gFilterRes"
+    },
+    {
+      "cc": 79,
+      "name": "fxfilterpos",
+      "label": "Filter Position",
+      "category": "FX Chain",
+      "kind": "enum",
+      "target": "gFxOrder.filterPostChorus",
+      "default": 0,
+      "options": [
+        {
+          "label": "Pre-Chorus",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 0
+        },
+        {
+          "label": "Post-Chorus",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "cc": 80,
+      "name": "fxdelaypos",
+      "label": "Delay Position",
+      "category": "FX Chain",
+      "kind": "enum",
+      "target": "gFxOrder.delayPostReverb",
+      "default": 0,
+      "options": [
+        {
+          "label": "Pre-Reverb",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 0
+        },
+        {
+          "label": "Post-Reverb",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "cc": 7,
+      "name": "vol",
+      "label": "Volume",
+      "category": "Output",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 1.0,
+      "scale": "linear",
+      "target": "gVolume"
+    },
+    {
+      "cc": 8,
+      "name": "space",
+      "label": "Space (Stereo Width)",
+      "category": "Output",
+      "kind": "float",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 1.0,
+      "scale": "linear",
+      "target": "gSpace"
+    },
+    {
+      "cc": 102,
+      "name": "veloc",
+      "label": "MIDI Velocity Response",
+      "category": "Envelope",
+      "kind": "enum",
+      "target": "gVelocitySensitive",
+      "default": 1,
+      "onChange": "paramHook_velocitySensitivityChanged",
+      "options": [
+        {
+          "label": "Fixed",
+          "ccMin": 0,
+          "ccMax": 63,
+          "value": 0
+        },
+        {
+          "label": "Velocity-sensitive",
+          "ccMin": 64,
+          "ccMax": 127,
+          "value": 1
+        }
+      ]
+    },
+    {
+      "cc": 103,
+      "name": "scale",
+      "label": "Input Quantization",
+      "category": "Voice",
+      "kind": "enum",
+      "target": "gQuantizeScale",
+      "default": 0,
+      "$comment": "One CC per scale index — anything outside the table falls back to Chromatic.",
+      "options": [
+        {
+          "label": "Chromatic (off)",
+          "ccMin": 0,
+          "ccMax": 0,
+          "value": 0
+        },
+        {
+          "label": "Major",
+          "ccMin": 1,
+          "ccMax": 1,
+          "value": 1
+        },
+        {
+          "label": "Natural Minor",
+          "ccMin": 2,
+          "ccMax": 2,
+          "value": 2
+        },
+        {
+          "label": "Harmonic Minor",
+          "ccMin": 3,
+          "ccMax": 3,
+          "value": 3
+        },
+        {
+          "label": "Melodic Minor",
+          "ccMin": 4,
+          "ccMax": 4,
+          "value": 4
+        },
+        {
+          "label": "Pentatonic Maj",
+          "ccMin": 5,
+          "ccMax": 5,
+          "value": 5
+        },
+        {
+          "label": "Pentatonic Min",
+          "ccMin": 6,
+          "ccMax": 6,
+          "value": 6
+        },
+        {
+          "label": "Blues",
+          "ccMin": 7,
+          "ccMax": 7,
+          "value": 7
+        },
+        {
+          "label": "Dorian",
+          "ccMin": 8,
+          "ccMax": 8,
+          "value": 8
+        },
+        {
+          "label": "Phrygian",
+          "ccMin": 9,
+          "ccMax": 9,
+          "value": 9
+        },
+        {
+          "label": "Lydian",
+          "ccMin": 10,
+          "ccMax": 10,
+          "value": 10
+        },
+        {
+          "label": "Mixolydian",
+          "ccMin": 11,
+          "ccMax": 11,
+          "value": 11
+        },
+        {
+          "label": "Locrian",
+          "ccMin": 12,
+          "ccMax": 12,
+          "value": 12
+        },
+        {
+          "label": "Whole Tone",
+          "ccMin": 13,
+          "ccMax": 13,
+          "value": 13
+        },
+        {
+          "label": "Diminished",
+          "ccMin": 14,
+          "ccMax": 14,
+          "value": 14
+        }
+      ]
+    },
+    {
+      "cc": 104,
+      "name": "transpose",
+      "label": "Transpose",
+      "category": "Voice",
+      "kind": "special",
+      "min": -24,
+      "max": 24,
+      "default": 0,
+      "unit": "st",
+      "step": 1,
+      "ccRange": {
+        "min": 0,
+        "max": 48
+      },
+      "$comment": "UI metadata only — the C++ side stays hand-written in usb_midi.cpp because the target is an int8_t on a 0–48 CC sub-range, which the float and enum descriptors do not model. Listed here so the web map stays generated end to end."
+    },
+    {
+      "cc": 93,
+      "name": "chorusmode",
+      "label": "Mode",
+      "category": "Chorus",
+      "kind": "enum",
+      "target": "gChorusMode",
+      "default": 3,
+      "options": [
+        {
+          "label": "Off",
+          "ccMin": 0,
+          "ccMax": 31,
+          "value": 0
+        },
+        {
+          "label": "I",
+          "ccMin": 32,
+          "ccMax": 63,
+          "value": 1
+        },
+        {
+          "label": "II",
+          "ccMin": 64,
+          "ccMax": 95,
+          "value": 2
+        },
+        {
+          "label": "I+II",
+          "ccMin": 96,
+          "ccMax": 127,
+          "value": 3
+        }
+      ]
+    },
+    {
+      "cc": 91,
+      "name": "revmix",
+      "label": "Mix",
+      "category": "Reverb",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "scale": "linear",
+      "target": "gRevMix",
+      "volatile": true
+    },
+    {
+      "cc": 117,
+      "name": "revsize",
+      "label": "Size",
+      "category": "Reverb",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "scale": "linear",
+      "target": "gRevSize",
+      "volatile": true
+    },
+    {
+      "cc": 118,
+      "name": "revdamping",
+      "label": "Damping",
+      "category": "Reverb",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.5,
+      "scale": "linear",
+      "target": "gRevDamping",
+      "volatile": true
+    },
+    {
+      "cc": 112,
+      "name": "revmodspeed",
+      "label": "Mod Speed",
+      "category": "Reverb",
+      "kind": "float",
+      "min": 0.1,
+      "max": 4.0,
+      "default": 1.0,
+      "scale": "linear",
+      "target": "gRevModSpeed",
+      "volatile": true
+    },
+    {
+      "cc": 113,
+      "name": "revmoddepth",
+      "label": "Mod Depth",
+      "category": "Reverb",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 1.0,
+      "scale": "linear",
+      "target": "gRevModDepth",
+      "volatile": true
+    },
+    {
+      "cc": 95,
+      "name": "delaymix",
+      "label": "Mix",
+      "category": "Delay",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 0.0,
+      "scale": "linear",
+      "target": "gDelayMix"
+    },
+    {
+      "cc": 86,
+      "name": "delaytime",
+      "label": "Time",
+      "category": "Delay",
+      "kind": "float",
+      "min": 10.0,
+      "max": {
+        "symbol": "DELAY_MAX_MS",
+        "value": 500
+      },
+      "default": 100.0,
+      "scale": "linear",
+      "unit": "ms",
+      "target": "gDelayTime",
+      "step": 1
+    },
+    {
+      "cc": 87,
+      "name": "delayfb",
+      "label": "Feedback",
+      "category": "Delay",
+      "kind": "float",
+      "min": 0.0,
+      "max": 0.95,
+      "default": 0.5,
+      "scale": "linear",
+      "target": "gDelayFeedback"
+    }
+  ]
+}

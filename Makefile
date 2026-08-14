@@ -101,6 +101,9 @@ endif
 endif
 
 PIO ?= pio
+# Only needed by `make params`; PlatformIO ships one, so fall back to that
+# rather than requiring a system Python.
+PYTHON ?= $(if $(shell command -v python 2>/dev/null),python,$(HOME)/.platformio/penv/Scripts/python.exe)
 ENV ?= alloyflux
 NPM ?= npm
 
@@ -155,9 +158,29 @@ help list:
 	@echo "    clean             all three clean targets"
 	@echo ""
 
+# ── Parameters ───────────────────────────────────────────────────────────────
+# A module declares its parameters once, in modules/<name>/params.json. This
+# regenerates every table derived from it. The output is committed, so an
+# ordinary build never needs Python — only editing params.json does.
+.PHONY: params params-check
+MODULE ?= alloyflux
+
+params:
+	$(PYTHON) tools/gen_params.py modules/$(MODULE)
+
+# CI gate: regenerates, then fails if that produced a diff — i.e. the committed
+# tables do not match params.json. On a clean checkout (CI) that is exactly the
+# staleness check. In a dirty working tree it will also fire on generated
+# changes you have made but not yet committed, which is the same instruction:
+# commit them alongside the params.json edit that caused them.
+params-check: params
+	@git diff --exit-code -- modules/$(MODULE)/include/param_manifest.generated.h \
+	                         web-configurator/src/lib/paramMap.ts \
+	  || { echo "Generated parameter tables differ from what is committed."; \
+	       echo "If you just edited params.json, commit the regenerated files too."; exit 1; }
+
 # ── Firmware ─────────────────────────────────────────────────────────────────
-# One PlatformIO environment: the RP2350 image. Sources are firmware/src plus
-# the shared common/ tree; see platformio.ini.
+# One PlatformIO environment per module: the RP2350 image. See platformio.ini.
 .PHONY: firmware upload upload-monitor monitor firmware-clean
 
 firmware:

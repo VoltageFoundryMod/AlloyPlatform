@@ -1297,25 +1297,15 @@ static void cmd_dump(const char * /*args*/, Print &out)
 {
     out.println(F("dump_begin"));
     // Continuous float params from the central CC table
-    for(uint8_t i = 0; i < kCCParamCount; i++)
+    for(uint8_t i = 0; i < kParamCount; i++)
     {
-        const CCParam &p = kCCParams[i];
-        float          t;
-        if(p.logScale && p.valMin > 0.0f)
-            t = logf(*p.target / p.valMin) / logf(p.valMax / p.valMin);
-        else
-            t = (*p.target - p.valMin) / (p.valMax - p.valMin);
-        int v = (int)(127.0f * t + 0.5f);
-        if(v < 0)
-            v = 0;
-        if(v > 127)
-            v = 127;
+        const ParamDescriptor &p = kParamTable[i];
         out.print(F("cc:"));
         out.print(p.cc);
         out.print('=');
-        out.println((uint8_t)v);
+        out.println(p.toCC(*p.target));
     }
-    // Special / select params not in kCCParams
+    // Special / select params not in the generated table
     // cc:16 = ROOT pitch as a ±4 V/Oct offset: 0 = −4 V, 64 ≈ 440 Hz, 127 = +4 V
     out.print(F("cc:16="));
     out.println((uint8_t)constrain(

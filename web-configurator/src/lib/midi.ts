@@ -316,7 +316,46 @@ function createMidi() {
         syncNonce: s.syncNonce + (needsSync ? 1 : 0),
       };
     });
-    if (get(store).connected) subscribeInputs();
+    if (get(store).connected) {
+      subscribeInputs();
+      stopAutoRescan();
+    } else {
+      startAutoRescan();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-rescan while there is nothing to talk to.
+  //
+  // Chrome does not reliably surface a MIDI device that disappears and comes
+  // back. After re-flashing the module, `onstatechange` often never fires for
+  // the returning port and `access.outputs` keeps serving the stale entry — so
+  // the page sits there believing it is connected to something that is gone,
+  // and only a reload (which builds a fresh MIDIAccess) recovers.
+  //
+  // Re-requesting access is precisely what a reload does, minus the reload. The
+  // permission is already granted so it neither prompts nor costs anything
+  // visible. This runs *only* while no usable port is present, so a healthy
+  // session generates no traffic whatsoever.
+  // ---------------------------------------------------------------------------
+  const kRescanIntervalMs = 2000;
+  let rescanTimer: ReturnType<typeof setInterval> | null = null;
+
+  function startAutoRescan() {
+    if (rescanTimer !== null) return;
+    rescanTimer = setInterval(() => {
+      if (get(store).connected) {
+        stopAutoRescan();
+        return;
+      }
+      void scan();
+    }, kRescanIntervalMs);
+  }
+
+  function stopAutoRescan() {
+    if (rescanTimer === null) return;
+    clearInterval(rescanTimer);
+    rescanTimer = null;
   }
 
   /** Request Web MIDI access and enumerate available ports. */
@@ -429,6 +468,18 @@ function createMidi() {
     sendCC(64, on ? 127 : 0);
   }
 
+  /**
+   * CC 119 — drone return: release the gate and let the voices run free.
+   *
+   * Not CC 64. Sustain is the standard "hold the gate high" pedal message, so
+   * on hardware it does the *opposite* of returning to drone — it latches the
+   * gate open. Both platforms already implement CC 119 as drone return, which
+   * is the message this actually means.
+   */
+  function sendDroneReturn() {
+    sendCC(119, 127);
+  }
+
   /** CC 123 — All Notes Off / panic */
   function sendPanic() {
     sendCC(123, 0);
@@ -444,6 +495,7 @@ function createMidi() {
     sendNoteOff,
     sendProgramChange,
     sendSustain,
+    sendDroneReturn,
     sendPanic,
     sendSysEx,
     // Choosing a port from the dropdown is also the way back from ✕ — the

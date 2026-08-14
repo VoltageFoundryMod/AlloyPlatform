@@ -214,7 +214,9 @@ static uint32_t sRevReadIdx
     = 0; // Core 1: ISR read cursor, advances +1 per ISR tick
 #endif
 
-volatile float gRevMix      = 0.35f;
+// 0.0 so a module with no saved config boots dry, matching both
+// configStore_applyDefaults() and the REVERB knob's fully-CCW hard bypass.
+volatile float gRevMix      = 0.0f;
 volatile bool  gRevEnabled  = false;
 volatile float gRevSize     = 0.5f;
 volatile float gRevDamping  = 0.5f;
