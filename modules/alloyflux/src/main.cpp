@@ -5,6 +5,19 @@
  * Audio: stereo I2S via PIO, 16-bit in 32-bit frames, 48000 Hz.
  * Serial dev console active when SERIAL_CONTROL is defined (build flag).
  * See reference/AlloyFlux-module-reference.md for full design specification.
+ *
+ * Core split (M63b2):
+ *   Core 1 — the whole audio path.  Owns the I2S driver and runs every DSP
+ *            engine, reverb included, inside renderAudio().
+ *   Core 0 — everything else: knobs, CV, buttons, LEDs, USB MIDI, serial
+ *            console, flash.  Paced by the driver's control-tick counter, so
+ *            the control rate stays derived from the audio clock.
+ *
+ * Control writes engine state that audio reads without a lock.  That is safe
+ * here because every such value is a single aligned word (atomic on the M33)
+ * and is smoothed at control rate, so the worst a torn multi-field update can
+ * produce is one sample computed from two adjacent parameter values.  Anything
+ * that resizes a buffer would not be safe, and there is none.
  */
 
 // ---------------------------------------------------------------------------
@@ -32,14 +45,6 @@ static constexpr uint32_t kControlRate = 128u;
 
 static constexpr uint8_t kPinI2sBCK  = 16u;
 static constexpr uint8_t kPinI2sData = 18u;
-
-// Reverb isolation switch:
-// 1 = run reverb inline on Core 0 (single-core path, like VCV) to isolate
-//     multicore transport/coherency effects.
-// 0 = normal Core 1 offload path.
-#ifndef REVERB_FORCE_CORE0
-#define REVERB_FORCE_CORE0 0
-#endif
 
 // ---------------------------------------------------------------------------
 // Includes
@@ -168,51 +173,13 @@ bool  gAdsrLoop    = false;
 // Effect ordering (M26a) — 2 bool flags → 4 chain orderings.
 FxOrder gFxOrder = {false, false}; // filter pre-chorus, delay pre-reverb
 
-// Reverb (M26b) — Dattorro plate algorithm runs on Core 1.
-// Core 0 ISR pushes pre-reverb frames into a small SPSC queue.
-// Core 1 pops them in order and publishes the latest wet frame back to Core 0.
-struct RevInFrame
-{
-    int32_t l;
-    int32_t r;
-};
-static constexpr uint32_t kRevInQueueSize              = 128;
-static constexpr uint32_t kRevInQueueMask              = kRevInQueueSize - 1;
-volatile RevInFrame       gRevInQueue[kRevInQueueSize] = {};
-volatile uint32_t         gRevInWriteIdx               = 0;
-volatile uint32_t         gRevInReadIdx                = 0;
-volatile uint32_t         gRevInDrops
-    = 0; // diagnostic: input frames dropped due to full queue
-// Fixed-delay output ring buffer — Core 1 writes wet frames here.
-// Core 0 reads kRevReadDelay slots behind the write pointer, guaranteeing a
-// constant 2-sample wet latency regardless of Core 1 execution jitter.
-// Constant latency = constant comb = no shimmer.
-// Core 0 consumes wet frames a whole block at a time (32 back-to-back in
-// ~190 µs, then idle), so the ring must absorb a full block plus margin and the
-// read delay must sit far enough behind the write cursor that a burst cannot
-// catch it.  Sizing these too tightly lets Core 0 wrap the ring inside a single
-// block while Core 1 is still producing, which scrambles the wet return into
-// broadband noise.  The latency it costs must stay *constant* — that is what
-// keeps the dry/wet comb fixed and the shimmer away.
-static constexpr uint32_t kRevOutBufDepth
-    = 128u; // power-of-2; must exceed kRevReadDelay + AudioDriver::kBlockFrames
-static constexpr uint32_t kRevReadDelay
-    = 48u; // fixed wet latency in frames (~1.0 ms at 48 kHz)
-volatile int32_t gRevOutBuf_L[kRevOutBufDepth] = {};
-volatile int32_t gRevOutBuf_R[kRevOutBufDepth] = {};
-// Pre-seeded to kRevReadDelay so slots [0..kRevReadDelay-1] are valid silence
-// when Core 0's read cursor starts at 0 on first reverb enable.
-volatile uint32_t gRevOutWriteIdx = kRevReadDelay;
-
-// Reverb transport state — file-scope so revGetWet/revFeedDry helpers can share them.
-#if REVERB_FORCE_CORE0
-static int32_t sRevPrevDryL
-    = 0; // Core 0 inline: previous dry frame fed back to reverb
-static int32_t sRevPrevDryR = 0;
-#else
-static uint32_t sRevReadIdx
-    = 0; // Core 1: ISR read cursor, advances +1 per ISR tick
-#endif
+// Reverb (M26b) — Dattorro plate, processed inline in renderAudio() alongside
+// the rest of the DSP.  Wet latency is one sample, constant by construction.
+//
+// It used to live on its own core behind a pair of ring buffers, which cost a
+// variable dry→wet delay — a swept comb, audible as shimmer — and had to be
+// re-tuned every time the audio cadence changed.  Now that the whole audio path
+// owns Core 1 there is nothing left to hand across.
 
 // 0.0 so a module with no saved config boots dry, matching both
 // configStore_applyDefaults() and the REVERB knob's fully-CCW hard bypass.
@@ -241,13 +208,28 @@ volatile uint32_t gAudioBudgetUs = 1;
 #endif
 
 // ---------------------------------------------------------------------------
-// Audio driver and its two callbacks.
+// Audio driver.  Started and pumped by Core 1; renderAudio() produces one
+// stereo frame and the driver calls it kBlockFrames times per block.
 //
-// renderAudio() produces one stereo frame; the driver calls it kBlockFrames
-// times per block.  updateControl() runs at 128 Hz — the driver counts rendered
-// frames and calls it on a block boundary, in thread context.
+// updateControl() runs on Core 0 at kControlRate, paced by the driver's
+// control-tick counter — see loop().
 // ---------------------------------------------------------------------------
 static AudioDriver sAudioDriver;
+
+// Core 0 → Core 1: set once Core 0 has finished bringing up the engine, config
+// and I/O.  Core 1 must not start the audio clock before this, or the first
+// blocks render against half-initialised wavetables and empty delay lines.
+//
+// Core 1 → Core 0: the outcome of AudioDriver::begin(), so Core 0 can report a
+// failed I2S start and fall back to pacing control from millis().
+enum AudioState : uint8_t
+{
+    kAudioStarting = 0,
+    kAudioRunning  = 1,
+    kAudioFailed   = 2
+};
+static volatile bool       sCore0Ready = false;
+static volatile AudioState sAudioState = kAudioStarting;
 
 void updateControl();
 void renderAudio(int32_t *outL, int32_t *outR);
@@ -263,6 +245,7 @@ void setup()
         fpscr |= (1u << 24); // FZ: Flush-to-Zero
         asm volatile("vmsr fpscr, %0" ::"r"(fpscr));
     }
+    // USB MIDI before the serial console, so both interfaces are claimed and
     // appear in the same USB descriptor on first host enumeration.
     // Adafruit_USBD_MIDI::begin() triggers a disconnect/reconnect; the
     // serialConsole_init() wait loop below catches that reconnect cleanly.
@@ -282,17 +265,20 @@ void setup()
     // M30: claim the Dotstar GPIOs and blank the panel before audio starts, so
     // the LEDs are dark rather than showing whatever they powered up with.
     sHardwareIO.begin();
-    const bool audioStarted = sAudioDriver.begin(kAudioRate,
-                                                 kControlRate,
-                                                 kPinI2sBCK,
-                                                 kPinI2sData,
-                                                 &renderAudio,
-                                                 &updateControl);
+
+    // Release Core 1: everything it renders from is now built.  The barrier
+    // orders the init stores above ahead of the flag, so Core 1 cannot observe
+    // the release before the state it guards.
+    __asm volatile("dmb" ::: "memory");
+    sCore0Ready = true;
+    while(sAudioState == kAudioStarting)
+        tight_loop_contents();
+
     serialConsole_ready();
     // Reported after serialConsole_ready() so the line is not swallowed by the
     // USB re-enumeration wait.  A failure here means the PIO state machine
     // never started: no BCK/WS clocks at all, and the DAC sees nothing.
-    if(!audioStarted)
+    if(sAudioState == kAudioFailed)
         DLOGLN("AUDIO: I2S begin() FAILED — no bit clock, check PIO resources");
 #ifdef CPU_PROFILE
     // Clear any overruns that occurred during the driver's DMA/PIO init —
@@ -301,11 +287,6 @@ void setup()
     gAudioOverruns = 0;
 #endif
 }
-
-// Forward declarations for reverb helpers defined before renderAudio().
-static void revApplyParams();
-static void revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive);
-static void revFeedDry(int32_t dryL, int32_t dryR);
 
 void updateControl()
 {
@@ -472,7 +453,7 @@ void updateControl()
         // DELAY and REVERB panel knobs via fillSynthParams() — HardwarePicoIO
         // reads them back out of the gXxx globals, so MIDI/serial writes still
         // reach the engine through the same path.
-        gRevEnabled     = p.revEnabled; // Core 1 loop reads the global
+        gRevEnabled     = p.revEnabled; // renderAudio() reads the global
         p.revDamping    = gRevDamping;
         p.revModSpeed   = gRevModSpeed;
         p.revModDepth   = gRevModDepth;
@@ -520,8 +501,6 @@ void updateControl()
             sLedEngine.update(p, sig, 1.0f / (float)kControlRate);
             sLedEngine.writeTo(sHardwareIO);
         }
-
-        revApplyParams();
     }
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
@@ -547,12 +526,7 @@ void updateControl()
             static uint32_t lastAutoOver = 0;
             const uint32_t  delta        = gAudioOverruns - lastAutoOver;
             lastAutoOver                 = gAudioOverruns;
-#if !REVERB_FORCE_CORE0
-            static uint32_t lastRevDrops  = 0;
-            const uint32_t  deltaRevDrops = gRevInDrops - lastRevDrops;
-            lastRevDrops                  = gRevInDrops;
-#endif
-            const float budget   = (float)gAudioBudgetUs;
+            const float budget           = (float)gAudioBudgetUs;
             float       headroom = (budget - (float)us) / budget * 100.0f;
             Serial.print(F("[cpu] "));
             Serial.print(us);
@@ -567,11 +541,6 @@ void updateControl()
             Serial.print(F(" (+"));
             Serial.print(delta);
             Serial.print(F("/5s)"));
-#if !REVERB_FORCE_CORE0
-            Serial.print(F("  revdrops +"));
-            Serial.print(deltaRevDrops);
-            Serial.print(F("/5s"));
-#endif
             Serial.print(F("  up "));
             if(mm < 10)
                 Serial.print('0');
@@ -585,109 +554,8 @@ void updateControl()
 #endif
 }
 
-// ---------------------------------------------------------------------------
-// Reverb transport helpers — hide the Core0-inline vs Core1-offload divergence
-// so renderAudio() has a single unified control flow regardless of the flag.
-// Both helpers are hot-path: placed in SRAM alongside renderAudio().
-// ---------------------------------------------------------------------------
-
-// revApplyParams() — called at control rate (updateControl, 128 Hz).
-// Core 0:  applies reverb params directly (same core that calls process()).
-// Core 1:  no-op — loop1() applies params there with the same deadbands.
-static void revApplyParams()
-{
-#if REVERB_FORCE_CORE0
-    static float sPrevSize = -1.0f, sPrevDamp = -1.0f;
-    static float sPrevModSpeed = -1.0f, sPrevModDepth = -1.0f;
-    static bool  sPrevFrozen = !false;
-    if(fabsf(gRevSize - sPrevSize) > 0.0025f
-       || fabsf(gRevDamping - sPrevDamp) > 0.0025f)
-    {
-        gSynthEngine.reverb->setParams(gRevSize, gRevDamping);
-        sPrevSize = gRevSize;
-        sPrevDamp = gRevDamping;
-    }
-    if(fabsf(gRevModSpeed - sPrevModSpeed) > 0.01f
-       || fabsf(gRevModDepth - sPrevModDepth) > 0.01f)
-    {
-        gSynthEngine.reverb->setModulation(gRevModSpeed, gRevModDepth);
-        sPrevModSpeed = gRevModSpeed;
-        sPrevModDepth = gRevModDepth;
-    }
-    if(gRevFrozen != sPrevFrozen)
-    {
-        gSynthEngine.reverb->freeze(gRevFrozen);
-        sPrevFrozen = gRevFrozen;
-    }
-#endif
-    // Core 1 path: loop1() handles param updates — nothing to do here.
-}
-
-// revGetWet() — ISR hot path, called only when gRevEnabled.
-// wasActive: true if reverb was also enabled on the previous ISR tick.
-// Core 0: run reverb inline on the previous dry frame (1-sample constant latency).
-// Core 1: read from the fixed-delay ring buffer (constant kRevReadDelay latency).
-static __attribute__((section(".time_critical.revGetWet"))) void
-revGetWet(int32_t *wetL, int32_t *wetR, bool wasActive)
-{
-#if REVERB_FORCE_CORE0
-    constexpr float kNorm = 1.0f / 32512.0f;
-    float           wL, wR;
-    gSynthEngine.reverb->process(
-        (float)sRevPrevDryL * kNorm, (float)sRevPrevDryR * kNorm, &wL, &wR);
-    if(wL > 1.0f)
-        wL = 1.0f;
-    if(wL < -1.0f)
-        wL = -1.0f;
-    if(wR > 1.0f)
-        wR = 1.0f;
-    if(wR < -1.0f)
-        wR = -1.0f;
-    *wetL = (int32_t)(wL * 32512.0f);
-    *wetR = (int32_t)(wR * 32512.0f);
-#else
-    // Re-anchor read cursor when reverb transitions from disabled→enabled so we
-    // don't replay stale slots from a previous session (Core 1 kept writing while
-    // reverb was off; sRevReadIdx was frozen at its last value).
-    if(!wasActive)
-        sRevReadIdx = gRevOutWriteIdx - kRevReadDelay;
-    __asm volatile("dmb" ::: "memory");
-    *wetL = gRevOutBuf_L[sRevReadIdx & (kRevOutBufDepth - 1u)];
-    *wetR = gRevOutBuf_R[sRevReadIdx & (kRevOutBufDepth - 1u)];
-    ++sRevReadIdx;
-#endif
-}
-
-// revFeedDry() — ISR hot path, called only when gRevEnabled.
-// Core 0: stash dry frame for next tick's inline reverb call.
-// Core 1: push dry frame into the SPSC input queue for loop1().
-static __attribute__((section(".time_critical.revFeedDry"))) void
-revFeedDry(int32_t dryL, int32_t dryR)
-{
-#if REVERB_FORCE_CORE0
-    sRevPrevDryL = dryL;
-    sRevPrevDryR = dryR;
-#else
-    const uint32_t writeIdx     = gRevInWriteIdx;
-    const bool     wasEmpty     = (writeIdx == gRevInReadIdx);
-    const uint32_t nextWriteIdx = (writeIdx + 1u) & kRevInQueueMask;
-    // Queue full: drop oldest so newest dry frame always reaches the reverb.
-    if(nextWriteIdx == gRevInReadIdx)
-    {
-        gRevInReadIdx = (gRevInReadIdx + 1u) & kRevInQueueMask;
-        gRevInDrops++;
-    }
-    gRevInQueue[writeIdx].l = dryL;
-    gRevInQueue[writeIdx].r = dryR;
-    __asm volatile("dmb" ::: "memory");
-    gRevInWriteIdx = nextWriteIdx;
-    if(wasEmpty)
-        __asm volatile("sev"); // wake Core 1 on empty→non-empty transition
-#endif
-}
-
-// Thin audio render: delegates all DSP to SynthEngine and handles the reverb
-// transport.  Called kBlockFrames times per block by AudioDriver::pump().
+// Thin audio render: delegates all DSP to SynthEngine and closes the reverb
+// loop.  Called kBlockFrames times per block by AudioDriver::pump() on Core 1.
 void __attribute__((section(".time_critical.renderAudio")))
 renderAudio(int32_t *pOutL, int32_t *pOutR)
 {
@@ -711,18 +579,45 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
     }
 #endif
 
-    static bool sPrevRevActive = false;
-    int32_t     revWetL = 0, revWetR = 0;
-    if(gRevEnabled)
-        revGetWet(&revWetL, &revWetR, sPrevRevActive);
-    sPrevRevActive = (bool)gRevEnabled;
+    // Sampled once: Core 0 can change either between statements, and the wet
+    // return must be mixed on the same terms it was fetched under.
+    const bool  revOn  = gRevEnabled;
+    const float revMix = gRevMix;
+
+    // Reverb runs one sample behind: this frame's dry has not been computed
+    // yet, so it processes the previous one.  A fixed one-sample offset keeps
+    // the dry/wet comb stationary, which is what stops it shimmering.
+    static int32_t sRevPrevDryL = 0;
+    static int32_t sRevPrevDryR = 0;
+    int32_t        revWetL = 0, revWetR = 0;
+    if(revOn)
+    {
+        constexpr float kNorm = 1.0f / 32512.0f;
+        float           wL, wR;
+        gSynthEngine.reverb->process(
+            (float)sRevPrevDryL * kNorm, (float)sRevPrevDryR * kNorm, &wL, &wR);
+        // Clamp before scaling back — algorithmic edge cases can spike past
+        // unity and wrapping the int conversion sounds like a gunshot.
+        if(wL > 1.0f)
+            wL = 1.0f;
+        else if(wL < -1.0f)
+            wL = -1.0f;
+        if(wR > 1.0f)
+            wR = 1.0f;
+        else if(wR < -1.0f)
+            wR = -1.0f;
+        revWetL = (int32_t)(wL * 32512.0f);
+        revWetR = (int32_t)(wR * 32512.0f);
+    }
 
     int32_t outL, outR, dryL, dryR;
     gSynthEngine.audio(
-        revWetL, revWetR, gRevMix, gRevEnabled, &outL, &outR, &dryL, &dryR);
+        revWetL, revWetR, revMix, revOn, &outL, &outR, &dryL, &dryR);
 
-    if(gRevEnabled)
-        revFeedDry(dryL, dryR);
+    // Kept current even while the reverb is bypassed, so re-enabling it feeds
+    // the frame that just played rather than one from the last time it was on.
+    sRevPrevDryL = dryL;
+    sRevPrevDryR = dryR;
 
     // M37k — LED metering. Integer peak-hold only (abs + compare, no FPU,
     // no allocation); updateControl() reads and clears it at 128 Hz.
@@ -739,135 +634,76 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
     *pOutR = outR;
 }
 
-// The render loop.  pump() queues one block whenever the I2S DMA has room, so
-// the bit clock paces this loop and no timer is involved.  updateControl() is
-// invoked from inside pump(), keeping it in thread context.
+// Core 0's loop — control only.  The audio clock paces it: pump() bumps a
+// counter once per control period on Core 1, and a change here means one is
+// due.  Deriving the rate from the audio clock rather than from millis() keeps
+// it exact, which matters because SynthEngine computes its smoothing and glide
+// coefficients from kControlRate.
+//
+// A missed tick is skipped, not made up.  Everything driven from here — one-pole
+// smoothing, drift, LED animation, button debounce — is a rate rather than a
+// queue, so running two ticks back to back would double-advance them; running
+// one late costs nothing anyone can hear.
 void loop()
-{ sAudioDriver.pump(); }
+{
+    if(sAudioState == kAudioFailed)
+    {
+        // No bit clock means no tick either.  Fall back to millis() so the
+        // console and USB MIDI still come up and the fault is diagnosable
+        // instead of presenting as a dead board.
+        static uint32_t sLastMs = 0;
+        const uint32_t  now     = millis();
+        if(now - sLastMs < (1000u / kControlRate))
+            return;
+        sLastMs = now;
+        updateControl();
+        return;
+    }
+
+    static uint32_t sLastTick = 0;
+    const uint32_t  tick      = sAudioDriver.controlTicks();
+    if(tick == sLastTick)
+    {
+        tight_loop_contents();
+        return;
+    }
+    sLastTick = tick;
+    updateControl();
+}
 
 // ---------------------------------------------------------------------------
-// Core 1 — reserved for future DSP offload (reverb, filter — M26+)
+// Core 1 — the audio path, in full.
 // ---------------------------------------------------------------------------
 
 void setup1()
 {
     // Enable Flush-to-Zero mode on Core 1's FPU.
-    // The reverb tail decays into denormal territory; without FTZ the FPU takes
-    // ~100x longer per operation, Core 1 falls behind Core 0, and crackle results.
+    // Reverb and filter tails decay into denormal territory; without FTZ the
+    // FPU takes ~100x longer per operation and the block overruns its budget.
     {
         uint32_t fpscr;
         asm volatile("vmrs %0, fpscr" : "=r"(fpscr));
         fpscr |= (1u << 24); // FZ: Flush-to-Zero
         asm volatile("vmsr fpscr, %0" ::"r"(fpscr));
     }
-    // Zero all reverb delay lines before audio starts.
-    // reverb is pre-set by SynthEngine's constructor so this is always safe,
-    // even if Core 1 reaches here before Core 0 calls init().
-    gSynthEngine.reverb->reset();
-    // Apply initial reverb params on Core 1 to keep all reverb state mutation
-    // on the same core that runs reverb->process().
-    gSynthEngine.reverb->setParams(gRevSize, gRevDamping);
-    gSynthEngine.reverb->setModulation(gRevModSpeed, gRevModDepth);
-    gSynthEngine.reverb->freeze(gRevFrozen);
+
+    // Core 1 is launched before setup() runs, so wait for Core 0 to finish
+    // building the engine before starting the clock that consumes it.
+    while(!sCore0Ready)
+        tight_loop_contents();
+    __asm volatile("dmb" ::: "memory");
+
+    // Started here, not in setup(): the I2S library enables DMA_IRQ_0 on the
+    // calling core, and its buffer bookkeeping assumes the DMA handler and the
+    // writer share one core.
+    const bool ok = sAudioDriver.begin(
+        kAudioRate, kControlRate, kPinI2sBCK, kPinI2sData, &renderAudio);
+    sAudioState = ok ? kAudioRunning : kAudioFailed;
 }
 
-// loop1 in SRAM: eliminates XIP-cache code-fetch jitter that would otherwise
-// add variable latency to Core 1's reverb processing and regenerate shimmer.
+// loop1 in SRAM: eliminates XIP-cache code-fetch jitter, which would otherwise
+// make block render time vary with the instruction cache rather than with the
+// work actually being done — and Core 0 evicts that cache whenever it touches
+// flash.
 void __attribute__((section(".time_critical.loop1"))) loop1()
-{
-#if REVERB_FORCE_CORE0
-    // Reverb runs on Core 0 in isolation mode.
-    __asm volatile("wfe");
-    return;
-#else
-    static float sPrevRevSize     = -1.0f;
-    static float sPrevRevDamp     = -1.0f;
-    static float sPrevRevModSpeed = -1.0f;
-    static float sPrevRevModDepth = -1.0f;
-    static bool  sPrevRevFrozen   = !false;
-
-    const float curRevSize     = gRevSize;
-    const float curRevDamp     = gRevDamping;
-    const float curRevModSpeed = gRevModSpeed;
-    const float curRevModDepth = gRevModDepth;
-    const bool  curRevFrozen   = gRevFrozen;
-
-    // Apply with deadbands to suppress ADC/control jitter churn.
-    // Exact float comparisons can retrigger at control rate (128 Hz), causing
-    // unnecessary reverb reconfiguration and inter-core contention.
-    if(fabsf(curRevSize - sPrevRevSize) > 0.0025f
-       || fabsf(curRevDamp - sPrevRevDamp) > 0.0025f)
-    {
-        gSynthEngine.reverb->setParams(curRevSize, curRevDamp);
-        sPrevRevSize = curRevSize;
-        sPrevRevDamp = curRevDamp;
-    }
-    if(fabsf(curRevModSpeed - sPrevRevModSpeed) > 0.01f
-       || fabsf(curRevModDepth - sPrevRevModDepth) > 0.01f)
-    {
-        gSynthEngine.reverb->setModulation(curRevModSpeed, curRevModDepth);
-        sPrevRevModSpeed = curRevModSpeed;
-        sPrevRevModDepth = curRevModDepth;
-    }
-    if(curRevFrozen != sPrevRevFrozen)
-    {
-        gSynthEngine.reverb->freeze(curRevFrozen);
-        sPrevRevFrozen = curRevFrozen;
-    }
-
-    // Reverb processing — Core 1 pops one dry frame per pass.
-    //
-    // NOTE: no WFE sleep here. WFE causes variable wake-from-sleep latency
-    // (pipeline flush + loop1 re-entry overhead) before process() runs.
-    // That jitter gives the reverb wet a variable group-delay relative to
-    // the dry signal. When Core 0 mixes them (dry + wet), the time-varying
-    // delay becomes a swept comb filter — audible as shimmer.
-    // In Core 0 inline mode the dry→wet latency is always exactly 1 sample
-    // (constant comb), which is why shimmer disappears there.
-    //
-    // Spin-polling gives Core 1 near-constant 1-sample wet latency.
-    // Core 1 burns all idle cycles here; acceptable on a dual-core MCU.
-    if(gRevEnabled)
-    {
-        if(gRevInReadIdx == gRevInWriteIdx)
-        {
-            return; // queue empty — spin-poll: SDK calls loop1() immediately
-        }
-
-        const uint32_t readIdx = gRevInReadIdx;
-        __asm volatile("dmb" ::: "memory");
-        const int32_t inL_i = gRevInQueue[readIdx].l;
-        const int32_t inR_i = gRevInQueue[readIdx].r;
-        gRevInReadIdx       = (readIdx + 1u) & kRevInQueueMask;
-
-        // Normalise ±32512 int32 → ±1.0f for the reverb algorithm.
-        const float inL = (float)inL_i * (1.0f / 32512.0f);
-        const float inR = (float)inR_i * (1.0f / 32512.0f);
-        float       revL, revR;
-        gSynthEngine.reverb->process(inL, inR, &revL, &revR);
-
-        // Clamp before converting back — algorithmic edge cases can spike.
-        if(revL > 1.0f)
-            revL = 1.0f;
-        if(revL < -1.0f)
-            revL = -1.0f;
-        if(revR > 1.0f)
-            revR = 1.0f;
-        if(revR < -1.0f)
-            revR = -1.0f;
-
-        {
-            const uint32_t wi = gRevOutWriteIdx & (kRevOutBufDepth - 1u);
-            gRevOutBuf_L[wi]  = (int32_t)(revL * 32512.0f);
-            gRevOutBuf_R[wi]  = (int32_t)(revR * 32512.0f);
-            __asm volatile("dmb" ::: "memory");
-            gRevOutWriteIdx++;
-        }
-    }
-    else
-    {
-        gRevInReadIdx = gRevInWriteIdx; // flush any stale queued dry frames
-        // Ring buffer not updated when disabled; Core 0 ignores it (gRevEnabled=false).
-    }
-#endif
-}
+{ sAudioDriver.pump(); }

@@ -3,9 +3,6 @@
 #include "ReverbEngine.h"
 #include <stdint.h>
 #include <string.h>
-#ifdef ARDUINO
-#include <hardware/timer.h> // time_us_32() on RP2350
-#endif
 
 /**
  * DattorroReverb — Plate reverb based on Jon Dattorro's 1997 algorithm.
@@ -49,7 +46,7 @@
  * All delay lines are float (avoids Q15 quantization noise in long reverb tails).
  * Total buffer RAM: ~108 KB, statically allocated.
  *
- * Runs on Core 1 only. No shared mutable state with Core 0. Milestone 26b.
+ * Milestone 26b.
  */
 
 // ---------------------------------------------------------------------------
@@ -230,7 +227,6 @@ class DattorroReverb final : public ReverbEngine
       _lfoPhase2(0.25f),
       _lfoPhase3(0.5f),
       _lfoPhase4(0.75f),
-      _lastProcessUs(0),
       _sampleRate(48000.0f)
     {
         memset(_preDelay, 0, sizeof(_preDelay));
@@ -245,7 +241,8 @@ class DattorroReverb final : public ReverbEngine
     }
 
     // -----------------------------------------------------------------------
-    // setParams() — call at control rate (128 Hz). Safe on Core 1.
+    // setParams() — call at control rate (128 Hz).  Scalar writes only, which
+    // is what makes it safe to call from the control core while audio runs.
     // size:    0.0–1.0 → decay 0.50–0.97, diffuser coeff 0.625–0.725
     // damping: 0.0–1.0 → tank LPF coeff 0.9995 (bright) … 0.005 (dark)
     // -----------------------------------------------------------------------
@@ -277,10 +274,9 @@ class DattorroReverb final : public ReverbEngine
     // depth: 0.0 (static APFs, no pitch variation) … 1.0 (full ±8 sample swing)
     // -----------------------------------------------------------------------
     /**
-     * Sample rate, used only by the LFO phase advance on the non-Arduino path
-     * (the firmware measures elapsed wall-clock time instead).  The plate's
-     * delay lines are fixed sample counts and are NOT rescaled — see the note
-     * above kAP1.
+     * Sample rate, used only by the LFO phase advance.  The plate's delay
+     * lines are fixed sample counts and are NOT rescaled — see the note above
+     * kAP1.
      */
     void setSampleRate(float sr)
     {
@@ -303,11 +299,11 @@ class DattorroReverb final : public ReverbEngine
     void freeze(bool frozen) override { _frozen = frozen; }
 
     // -----------------------------------------------------------------------
-    // process() — Core 1 hot path, one sample per call.
-    // Input/output: float ±1.0. Wet-only out; dry+wet mix done by Core 0.
-    // Placed in SRAM on Arduino/Pico builds to eliminate XIP cache-miss jitter
-    // that would otherwise make Core 1's execution time variable and reintroduce
-    // the variable-comb shimmer the ring-buffer transport was designed to prevent.
+    // process() — audio hot path, one sample per call.
+    // Input/output: float ±1.0. Wet-only out; the dry/wet mix is done by the
+    // caller.  Placed in SRAM on Arduino/Pico builds so its cost does not swing
+    // with the XIP cache — the control core evicts that cache whenever it
+    // touches flash, and this is the single most expensive call in the block.
     // -----------------------------------------------------------------------
 #ifdef ARDUINO
     __attribute__((section(".time_critical.DattorroProcess")))
@@ -335,22 +331,18 @@ class DattorroReverb final : public ReverbEngine
 
         // --- 4 independent triangle LFOs (Plateau frequencies, 90° apart) ---
         // Rates scaled by _modSpeed; amplitude scaled by _modDepth.
-        // Phase advances by wall-clock elapsed time so LFO rate stays accurate
-        // regardless of irregular Core 1 call spacing.
+        //
+        // Phase advances one sample period per call.  It used to advance by
+        // wall-clock elapsed time instead, because this ran on its own core at
+        // whatever rate the spin loop achieved.  Called once per frame from a
+        // block renderer that is exactly one call per sample, real time is both
+        // wrong and expensive: the 32 calls in a block land inside ~190 µs and
+        // then the next block's first call absorbs the whole idle gap, which
+        // stair-steps the modulation, and each call pays for a timer read.
         const float depth = _modDepth * kLfoDepth;
         {
-#ifdef ARDUINO
-            const uint32_t nowUs     = time_us_32();
-            const uint32_t elapsedUs = nowUs - _lastProcessUs;
-            _lastProcessUs           = nowUs;
-            // Cap elapsed to 1 ms to avoid a jump on first call or after reset.
-            const float dtSec = (elapsedUs > 1000u ? 1000u : elapsedUs) * 1e-6f;
-#else
-            // VCV / non-Arduino: nominal sample period at the host rate.
-            const float dtSec = 1.0f / _sampleRate;
-#endif
-            // Rates are in Hz, so phase advances in real time on both paths.
-            const float tick = _modSpeed * dtSec;
+            // Rates are in Hz, so phase advances in real time.
+            const float tick = _modSpeed * (1.0f / _sampleRate);
             _lfoPhase1 += kLfoHz1 * tick;
             if(_lfoPhase1 >= 1.0f)
                 _lfoPhase1 -= 1.0f;
@@ -450,12 +442,11 @@ class DattorroReverb final : public ReverbEngine
         _outLpfR.clear();
         _preDelayPos = 0;
         memset(_preDelay, 0, sizeof(_preDelay));
-        _lfoPhase1     = 0.0f;
-        _lfoPhase2     = 0.25f;
-        _lfoPhase3     = 0.5f;
-        _lfoPhase4     = 0.75f;
-        _frozen        = false;
-        _lastProcessUs = 0;
+        _lfoPhase1 = 0.0f;
+        _lfoPhase2 = 0.25f;
+        _lfoPhase3 = 0.5f;
+        _lfoPhase4 = 0.75f;
+        _frozen    = false;
     }
 
   private:
@@ -506,9 +497,5 @@ class DattorroReverb final : public ReverbEngine
 
     // 4 LFO phases — initialised 90° apart to immediately span the full cycle
     float _lfoPhase1, _lfoPhase2, _lfoPhase3, _lfoPhase4;
-    // Wall-clock timestamp of the last process() call (µs). Used to advance LFO
-    // phases by actual elapsed time rather than a fixed per-call increment, so
-    // the LFO rate is stable regardless of irregular Core 1 call spacing.
-    uint32_t _lastProcessUs;
-    float    _sampleRate;
+    float _sampleRate;
 };

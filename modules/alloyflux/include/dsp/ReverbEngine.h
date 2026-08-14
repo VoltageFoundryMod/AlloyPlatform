@@ -5,23 +5,9 @@
 /**
  * ReverbEngine — Abstract reverb interface for AlloyFlux M26b.
  *
- * Runs on Core 1 (loop1()) to offload CPU from the Core 0 audio ISR.
- * Core 0 ISR deposits dry stereo signal; Core 1 processes it and writes
- * the wet return; Core 0 ISR reads the return and mixes it in.
- *
- * INTER-CORE PROTOCOL (artifact-free by design)
- * ----------------------------------------------
- * gRevIn_L/R  : written by Core 0 ISR,  read by Core 1 loop
- * gRevOut_L/R : written by Core 1 loop, read by Core 0 ISR
- *
- * All four are volatile int32_t — 32-bit aligned atomic on Cortex-M33.
- * Core 0 never waits on Core 1; reading gRevOut gives the last computed
- * reverb sample (at most 1 audio frame = 30µs old — inaudible for a reverb
- * tail of 0.5–3 seconds).  No mutex, no spin-lock in the ISR path.
- *
- * This avoids the artifact problem that forced chorus back onto Core 0:
- * chorus is in-line (a blocked read would corrupt the sample); reverb is
- * additive (a 1-sample-old read is acoustically transparent).
+ * Processed inline in the audio path, one sample behind the dry signal so the
+ * dry/wet comb stays stationary.  On hardware that path owns Core 1; in VCV it
+ * is the host's audio thread.  Either way the engine sees a single caller.
  *
  * ALGORITHM SWAPPING
  * ------------------
@@ -29,23 +15,15 @@
  *   DattorroReverb  — lush plate, floating tails (M26b)
  *   (future)        — spring, hall, room, convolution IR
  *
- * To swap algorithm: change `gReverb` instantiation in main.cpp; the Core 1
- * loop and all command routing are algorithm-agnostic.
- *
- * Milestone 26b — Core 1 infrastructure present now; algorithm added in M26b.
+ * To swap algorithm: point SynthEngine::reverb at another instance; the render
+ * path and all command routing are algorithm-agnostic.
  */
 
 // ---------------------------------------------------------------------------
-// Inter-core shared state — defined in main.cpp
+// Wet-mix state — defined in main.cpp, written at control rate, read per frame
 // ---------------------------------------------------------------------------
-extern volatile int32_t gRevIn_L; // Core 0 writes, Core 1 reads
-extern volatile int32_t gRevIn_R;
-extern volatile int32_t gRevOut_L; // Core 1 writes, Core 0 reads
-extern volatile int32_t gRevOut_R;
-
-extern volatile float
-    gRevMix; // 0.0=dry, 1.0=full wet — written by Core 0 updateControl()
-extern volatile bool gRevEnabled; // false = Core 1 passes through zeros
+extern volatile float gRevMix;     // 0.0 = dry … 1.0 = full wet
+extern volatile bool  gRevEnabled; // false = reverb skipped entirely
 
 // ---------------------------------------------------------------------------
 // Abstract algorithm interface
@@ -57,8 +35,13 @@ class ReverbEngine
     virtual ~ReverbEngine() {}
 
     /**
-     * setParams() — call at control rate from Core 1 when parameters change.
-     * May contain expf/sqrtf — safe; Core 1 is not time-critical.
+     * setParams() — call at control rate when parameters change.  May contain
+     * expf/sqrtf; it is off the audio path.
+     *
+     * Implementations must confine themselves to scalar coefficient writes.
+     * Control runs on the other core from audio on hardware, so anything that
+     * resized a buffer here could be observed half-applied by a render in
+     * flight.
      *
      * size    : 0.0 (small room) … 1.0 (long plate)
      * damping : 0.0 (bright, no damping) … 1.0 (dark, heavy HF loss)
@@ -66,8 +49,8 @@ class ReverbEngine
     virtual void setParams(float size, float damping) = 0;
 
     /**
-     * process() — Core 1 hot path.  Called once per audio sample deposited
-     * by Core 0.  Must be float-only; no heavy allocation; no blocking.
+     * process() — audio hot path, once per frame.
+     * Must be float-only; no heavy allocation; no blocking.
      *
      * inL/inR   : normalised float ±1.0 input
      * outL/outR : normalised float ±1.0 wet output (dry NOT added here)

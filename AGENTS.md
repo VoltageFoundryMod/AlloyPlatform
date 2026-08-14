@@ -3,7 +3,7 @@
 AlloyFlux is a eurorack synthesizer module with three build targets that share a single DSP codebase:
 
 - **Firmware** — RP2350 (Pico 2), Arduino, PlatformIO
-- **VCV Rack plugin** — Rack SDK 2.6.6, shares `common/include/` + `common/src/SynthEngine.cpp`
+- **VCV Rack plugin** — Rack SDK 2.6.6, shares `platform/include/` + `modules/alloyflux/`
 - **Web Configurator** — Svelte 5 + TypeScript + Vite
 
 ---
@@ -38,7 +38,7 @@ around a Makefile target. `tools/env.ps1` is optional — source it (`. .\tools\
 only when you want msys2, `pio` and `clang-format` on `PATH` for the PowerShell
 session itself.
 
-Always run `make everything` after changing shared headers under `common/include/`
+Always run `make everything` after changing shared headers under `platform/include/` or `modules/alloyflux/include/`
 to confirm no regressions on either platform.
 
 ---
@@ -47,21 +47,24 @@ to confirm no regressions on either platform.
 
 ### Firmware (RP2350, dual-core)
 
-- **Core 0** — block audio render at 48000 Hz (`renderAudio()`, 32-frame blocks via `AudioDriver::pump()`), control loop at 128 Hz (`updateControl()`), all IO
-- **Core 1** — Reverb engine only (`DattorroReverb`). Disabled via `-DREVERB_FORCE_CORE0=1` for debugging.
+- **Core 1** — the entire audio path: owns the I2S driver (`AudioDriver::begin()` + `pump()` both run here) and renders 32-frame blocks at 48000 Hz through `renderAudio()`, reverb included
+- **Core 0** — everything else: knobs, CV, buttons, LEDs, USB MIDI, serial console, flash. `updateControl()` at 128 Hz, paced by `AudioDriver::controlTicks()` so the control rate stays derived from the audio clock
+
+Control writes engine state that audio reads with no lock. Safe only because every such value is a single aligned word and is smoothed at control rate — a torn multi-field update costs at most one sample computed from two adjacent parameter values. **Never add a `setParams()` that resizes a buffer or swaps a pointer the audio path dereferences.**
 
 Key files and directories:
 
-- [`firmware/src/main.cpp`](firmware/src/main.cpp) — thin platform shim; audio driver + control callbacks; inter-core ring buffer
-- [`common/include/SynthEngine.h`](common/include/SynthEngine.h) / [`common/src/SynthEngine.cpp`](common/src/SynthEngine.cpp) — all DSP, platform-independent
-- [`common/include/io/IOBridge.h`](common/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
-- [`common/include/dsp/`](common/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
+- [`modules/alloyflux/src/main.cpp`](modules/alloyflux/src/main.cpp) — thin platform shim; core split, `renderAudio()`, `updateControl()`
+- [`platform/include/io/AudioDriver.h`](platform/include/io/AudioDriver.h) — block I2S output; owns the audio clock and publishes the control tick
+- [`modules/alloyflux/include/SynthEngine.h`](modules/alloyflux/include/SynthEngine.h) / [`modules/alloyflux/src/SynthEngine.cpp`](modules/alloyflux/src/SynthEngine.cpp) — all DSP, platform-independent
+- [`modules/alloyflux/include/io/IOBridge.h`](modules/alloyflux/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
+- [`modules/alloyflux/include/dsp/`](modules/alloyflux/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
 
 ### Platform abstraction
 
-`IHardwareIO` (defined in [`common/include/io/HardwareIO.h`](common/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
+`IHardwareIO` (defined in [`platform/include/io/HardwareIO.h`](platform/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
 
-- **Firmware** — `HardwarePicoIO` in [`firmware/include/io/HardwarePicoIO.h`](firmware/include/io/HardwarePicoIO.h)
+- **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h)
 - **VCV** — `VCVRackIO` in [`vcv-plugin/src/VCVRackIO.h`](vcv-plugin/src/VCVRackIO.h)
 
 `#ifdef ARDUINO` guards exist in a few DSP headers for RP2350-specific timer calls; keep them when editing those files.
@@ -79,7 +82,7 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 ### Config/Flash
 
-[`firmware/include/config_store.h`](firmware/include/config_store.h) defines `AlloyConfig`. Rules:
+[`modules/alloyflux/include/config_store.h`](modules/alloyflux/include/config_store.h) defines `AlloyConfig`. Rules:
 
 - **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `6`.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
@@ -89,17 +92,14 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 ## Audio path safety (renderAudio)
 
-`renderAudio()` runs 32 times per block, 1500 blocks/sec at 48000 Hz. The render loop is driven from `loop()` by `AudioDriver::pump()`, which paces itself on the I2S DMA. The budget is one block's wall-clock period, ~667 µs, reported as `gAudioBudgetUs`. Violations cause audio dropouts or watchdog resets:
+`renderAudio()` runs 32 times per block, 1500 blocks/sec at 48000 Hz. The render loop is driven from `loop1()` by `AudioDriver::pump()`, which paces itself on the I2S DMA. The budget is one block's wall-clock period, ~667 µs, reported as `gAudioBudgetUs`. Violations cause audio dropouts or watchdog resets:
 
 - **Never** acquire a mutex inside `renderAudio()`
 - **Never** call `malloc`, `free`, `sqrt()`, `pow()`, or any blocking/File I/O function
 - **Never** trigger serial/USB output from `renderAudio()`
 - Hot render-path functions must be annotated `__attribute__((section(".time_critical")))` or wrapped via `IRAM_ATTR`
-- All `volatile` inter-core state (gate, reverb params, chorus depth) is single aligned `float`/`bool` — atomic on Cortex-M33; larger structs need `gDspMutex`
-
-### Inter-core reverb transport
-
-Core 0 renderAudio() → `gRevInQueue[]` (SPSC ring buffer, power-of-2, `volatile`) → Core 1 processes → `gRevOutBuf_L/R[]` (fixed-latency output ring, read `kRevReadDelay` frames behind the write cursor; must absorb a whole audio block). See [`firmware/include/dsp_shared.h`](firmware/include/dsp_shared.h).
+- All `volatile` cross-core state (gate, reverb params, chorus depth) is a single aligned `float`/`bool` — atomic on Cortex-M33. Nothing wider crosses cores; if something needs to, redesign rather than adding a mutex to the audio path
+- A flash write (`EEPROM.commit()`) parks Core 1 for its erase/program, i.e. stops audio for ~10 ms. Keep it off any periodic path
 
 ---
 
@@ -133,7 +133,7 @@ Hardware / Rack params
 IHardwareIO::readPot/readCV/isPatched   ← HardwarePicoIO (firmware) or VCVRackIO (VCV)
         │
         ▼
-fillSynthParams()  [common/include/io/IOBridge.h]
+fillSynthParams()  [modules/alloyflux/include/io/IOBridge.h]
         │ produces SynthParams snapshot
         ▼
 SynthEngine::control()  @ 128 Hz   ← smoothing, voice pitch, effect coefficients

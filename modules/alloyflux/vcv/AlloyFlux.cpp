@@ -1294,6 +1294,16 @@ struct AlloyFlux : Module
                                     (float)_prevDryR * kNorm,
                                     &wetL,
                                     &wetR);
+            // Clamp before scaling back — algorithmic edge cases can spike past
+            // unity and wrapping the int conversion sounds like a gunshot.
+            if(wetL > 1.0f)
+                wetL = 1.0f;
+            else if(wetL < -1.0f)
+                wetL = -1.0f;
+            if(wetR > 1.0f)
+                wetR = 1.0f;
+            else if(wetR < -1.0f)
+                wetR = -1.0f;
             revWetL = (int32_t)(wetL * 32512.0f);
             revWetR = (int32_t)(wetR * 32512.0f);
         }

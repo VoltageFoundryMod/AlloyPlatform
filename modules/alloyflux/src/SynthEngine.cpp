@@ -16,8 +16,8 @@
 #include <string.h> // memset
 
 // ---------------------------------------------------------------------------
-// SynthEngine constructor — pre-wires the reverb pointer so Core 1's setup1()
-// can safely call reverb->reset() before init() runs on Core 0.
+// SynthEngine constructor — pre-wires the reverb pointer so the object is
+// usable before init() runs.
 // ---------------------------------------------------------------------------
 SynthEngine::SynthEngine()
 { reverb = &_dattorroReverb; }
@@ -100,6 +100,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
 
     // Reverb / delay
     _dattorroReverb.setSampleRate((float)audioRate);
+    _dattorroReverb.reset();
     reverb = &_dattorroReverb;
 
     // Initial voice frequencies
@@ -563,17 +564,19 @@ void SynthEngine::control(const SynthParams  &p,
     // ------------------------------------------------------------------
     // Reverb params
     // ------------------------------------------------------------------
-    // Firmware (ARDUINO): reverb runs on Core 1, so parameter updates are
-    // applied in main.cpp::loop1() to avoid Core 0/Core 1 races inside the
-    // reverb object. VCV: single-threaded path keeps updates here.
-#if !defined(ARDUINO)
-    if(p.revSize != _prevRevSize || p.revDamping != _prevRevDamping)
+    // Deadbands rather than exact compares: revSize and revDamping arrive from
+    // an ADC, whose last bit dithers, and an exact test would reconfigure the
+    // plate on every one of the 128 ticks a second even with the knob at rest.
+    // The thresholds sit below what is audible on either control.
+    if(fabsf(p.revSize - _prevRevSize) > 0.0025f
+       || fabsf(p.revDamping - _prevRevDamping) > 0.0025f)
     {
         reverb->setParams(p.revSize, p.revDamping);
         _prevRevSize    = p.revSize;
         _prevRevDamping = p.revDamping;
     }
-    if(p.revModSpeed != _prevRevModSpeed || p.revModDepth != _prevRevModDepth)
+    if(fabsf(p.revModSpeed - _prevRevModSpeed) > 0.01f
+       || fabsf(p.revModDepth - _prevRevModDepth) > 0.01f)
     {
         reverb->setModulation(p.revModSpeed, p.revModDepth);
         _prevRevModSpeed = p.revModSpeed;
@@ -584,7 +587,6 @@ void SynthEngine::control(const SynthParams  &p,
         reverb->freeze(p.revFrozen);
         _prevRevFrozen = p.revFrozen;
     }
-#endif
 
     // ------------------------------------------------------------------
     // Fill output snapshot for Core 1 bookkeeping

@@ -201,13 +201,16 @@ sending 1 is a workaround."_ We ship a PCM5102A. Worth checking whether this alr
 AlloyFlux at digital silence (all knobs down, no gate) — it may be masked today by whatever
 Mozzi happens to emit.
 
-**Core split.** Move the whole audio loop to Core 1, leaving Core 0 entirely for
-controls/USB/MIDI/LED. This _removes_ the current inter-core reverb transport
-(`gRevInQueue`, the 8-sample fixed-latency return in `dsp_shared.h`) rather than
-reimplementing it.
+**Core split.** ✅ Done in M63b2. The whole audio loop moved to Core 1, leaving Core 0
+entirely for controls/USB/MIDI/LED, and the inter-core reverb transport was _removed_
+rather than reimplemented. One correction to the plan as written: the driver must also be
+**started** on Core 1, not merely pumped there — the I2S library enables `DMA_IRQ_0` on the
+calling core, so `begin()` on Core 0 would leave the DMA handler and the writer on opposite
+sides of the split.
 
-**Control tick.** Replace `updateControl()` at 128 Hz with a counter in the audio callback
-or a `repeating_timer`.
+**Control tick.** ✅ Done in M63b2, as the counter rather than a `repeating_timer`:
+`AudioDriver` publishes `controlTicks()` and Core 0 watches it for change, which keeps the
+control rate derived from the audio clock while running the work off the audio core.
 
 ---
 

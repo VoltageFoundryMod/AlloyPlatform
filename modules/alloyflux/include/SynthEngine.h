@@ -99,10 +99,9 @@ class SynthEngine
 {
   public:
     // -----------------------------------------------------------------------
-    // Constructor — pre-wires the reverb pointer so Core 1's setup1() can
-    // safely call reverb->reset() before init() is called on Core 0.
-    // _dattorroReverb is a concrete member so its address is fixed at
-    // object-construction time, even before init() runs.
+    // Constructor — pre-wires the reverb pointer so the object is usable
+    // before init() runs.  _dattorroReverb is a concrete member, so its
+    // address is fixed at object-construction time.
     // -----------------------------------------------------------------------
     SynthEngine();
 

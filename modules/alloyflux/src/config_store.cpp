@@ -202,7 +202,10 @@ ConfigSaveResult configStore_save(uint8_t slot)
     if(memcmp(&newCfg, &stored, kSlotBytes) == 0)
         return ConfigSaveResult::UNCHANGED;
 
-    // Write to EEPROM buffer then commit (pauses Core 1 for ~10 ms).
+    // Write to EEPROM buffer then commit.  commit() parks the other core for
+    // the erase/program — that is Core 1, the audio core — so a save costs a
+    // ~10 ms dropout.  The dirty check above is what keeps that off the
+    // periodic autosave path.
     EEPROM.put(slotAddr(slot), newCfg);
     EEPROM.commit();
     if(slot == 0)

@@ -7,8 +7,8 @@
 // AudioDriver — block-based I2S output over the arduino-pico I2S class.
 //
 // Owns the audio clock for the whole firmware: it renders frames in blocks,
-// queues them to the I2S DMA, and derives the control-rate tick from the frames
-// it has queued.  Driven from loop() via pump().
+// queues them to the I2S DMA, and counts off control periods as it goes.
+// Driven by repeated pump() calls from whichever core owns audio.
 //
 // Pacing: check availableForWrite(), then render and queue one block.
 //
@@ -19,9 +19,15 @@
 // the renderer free-run at full CPU speed and silently drop most of what it
 // produces.  Always gate on space first.
 //
-// The control callback runs in thread context, from inside pump().  It must
-// stay there — it does serial and USB work that cannot run from an interrupt.
-// That is the reason this polls rather than using i2s.onTransmit().
+// ⚠ begin() must be called from the same core that calls pump().  The I2S
+// library installs its DMA completion handler with irq_set_enabled(DMA_IRQ_0),
+// which is per-core, and its buffer bookkeeping is an SPSC pair between that
+// handler and the writer.  Starting it on one core and pumping from the other
+// puts the two halves on different cores and breaks that assumption.
+//
+// The control period is published as a counter rather than invoked as a
+// callback, so control work runs on the other core and never lands inside the
+// audio path.
 // ---------------------------------------------------------------------------
 
 class AudioDriver
@@ -39,11 +45,9 @@ class AudioDriver
     /// signal-path convention), converted to the wire format by the driver.
     using RenderFrameFn = void (*)(int32_t *outL, int32_t *outR);
 
-    /// Called once per controlRate ticks, in thread context.
-    using ControlTickFn = void (*)();
-
     /**
-     * Claims the I2S peripheral and starts the bit clock.
+     * Claims the I2S peripheral and starts the bit clock.  Call from the core
+     * that will pump().
      *
      * @param sampleRate  frames/sec — arbitrary, no power-of-two constraint
      * @param controlRate control ticks/sec.  Need not divide sampleRate evenly
@@ -60,11 +64,9 @@ class AudioDriver
                uint32_t      controlRate,
                uint8_t       pinBCK,
                uint8_t       pinData,
-               RenderFrameFn render,
-               ControlTickFn control)
+               RenderFrameFn render)
     {
         _render        = render;
-        _control       = control;
         _framesPerTick = sampleRate / controlRate;
         _frameCounter  = 0;
         // Wall-clock time one block represents; rendering must finish inside it
@@ -89,7 +91,7 @@ class AudioDriver
      * Renders and queues one block if the DMA has room for all of it;
      * otherwise returns immediately so the caller can try again.
      *
-     * Runs the control callback inline whenever a control period elapses.
+     * Bumps controlTicks() whenever a control period elapses.
      */
     void __attribute__((always_inline)) pump()
     {
@@ -112,8 +114,9 @@ class AudioDriver
 
         // Timed here rather than around the control tick below: that tick is
         // not part of the audio budget and runs on only a fraction of blocks.
-        _lastBlockUs = time_us_32() - t0;
-        if(_lastBlockUs > _blockPeriodUs)
+        const uint32_t elapsed = time_us_32() - t0;
+        _lastBlockUs           = elapsed;
+        if(elapsed > _blockPeriodUs)
             _overruns++;
 
         // A long block is only a headroom warning; the DMA actually running dry
@@ -125,9 +128,15 @@ class AudioDriver
         if(_frameCounter >= _framesPerTick)
         {
             _frameCounter -= _framesPerTick;
-            _control();
+            ++_controlTicks;
         }
     }
+
+    /// Control periods elapsed since begin().  Free-running; the control core
+    /// watches it for change rather than reading an absolute value, so wrap is
+    /// a non-event.  A consumer that falls behind should skip the missed ticks
+    /// rather than run several in a row — control work is a rate, not a queue.
+    uint32_t controlTicks() const { return _controlTicks; }
 
     /// Microseconds spent rendering and queueing the most recent block.
     uint32_t lastBlockUs() const { return _lastBlockUs; }
@@ -175,16 +184,20 @@ class AudioDriver
 
     I2S _i2s{OUTPUT};
 
-    RenderFrameFn _render  = nullptr;
-    ControlTickFn _control = nullptr;
+    RenderFrameFn _render = nullptr;
 
     bool     _started       = false;
     uint32_t _framesPerTick = 1;
     uint32_t _frameCounter  = 0;
     uint32_t _blockPeriodUs = 1;
-    uint32_t _lastBlockUs   = 0;
-    uint32_t _overruns      = 0;
-    uint32_t _underflows    = 0;
+
+    // volatile: written on the audio core, read on the control core.  Aligned
+    // 32-bit, so each is atomic on Cortex-M33 and needs no lock — but without
+    // volatile the reader's poll loop hoists the load out and never advances.
+    volatile uint32_t _controlTicks = 0;
+    volatile uint32_t _lastBlockUs  = 0;
+    volatile uint32_t _overruns     = 0;
+    volatile uint32_t _underflows   = 0;
 
     int32_t _block[kBlockFrames * 2u] = {};
 };
