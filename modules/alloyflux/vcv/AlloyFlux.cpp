@@ -1,6 +1,6 @@
 #include "SubMenuSlider.hpp"
 #include "SynthEngine.h"
-#include "config_store.h" // kDefaultFilterCutoff — shared with the firmware
+#include "alloy_config.h" // kDefaultFilterCutoff — shared with the firmware
 #include "VCVRackIO.h"    // VCV-specific IHardwareIO implementation (M37d)
 #include "VoiceMode.h"
 #include "dsp/ChorusEngine.h" // ChorusMode enum

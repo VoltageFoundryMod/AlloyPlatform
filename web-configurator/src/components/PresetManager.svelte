@@ -5,6 +5,7 @@
    */
   import { presets, type PresetSlot } from "../lib/presets";
   import { serial } from "../lib/serial";
+  import { ACTIVE_MODULE } from "../lib/activeModule";
   import { midi } from "../lib/midi";
   import {
     buildSyxBlob,
@@ -91,7 +92,7 @@
     const pairs = getPatchSnapshot();
     const blob = buildSyxBlob(pairs);
     const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-    downloadFile(blob, `alloyflux-patch-${ts}.syx`);
+    downloadFile(blob, `${ACTIVE_MODULE.id}-patch-${ts}.syx`);
   }
 
   // ── Patch file import ──────────────────────────────────────────────────────
@@ -111,7 +112,7 @@
       const buf = ev.target?.result as ArrayBuffer;
       const pairs = parseSyxBuffer(buf);
       if (!pairs || pairs.length === 0) {
-        importError = "Not a valid AlloyFlux .syx file";
+        importError = `Not a valid ${ACTIVE_MODULE.name} .syx file`;
         return;
       }
       importError = null;

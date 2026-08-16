@@ -34,10 +34,33 @@ struct ParamDescriptor
     const char *unit;   ///< display suffix, nullptr when unitless
     float      *target; ///< where a decoded value is written
 
-    /// CC 0–127 → parameter value, honouring scale.
+    /**
+     * Travel skew: control position is raised to this power before the range
+     * is applied. 1.0 is no skew and is what almost every parameter wants.
+     *
+     * This exists for the case where a range is honest but its *useful* part
+     * is bunched at one end, so most of the control does nothing audible.
+     * Audrey's feedback gain is the example: −60…+12 dB is the real range, but
+     * a feedback loop does not start ringing until roughly −15 dB, so with a
+     * plain linear mapping the bottom 62 % of the travel is dead.
+     *
+     *   skew < 1  value rises fast then slows — expands the TOP of the range
+     *             across the control. Use when the action is near max.
+     *   skew > 1  the mirror image — expands the BOTTOM.
+     *
+     * Note this is not a substitute for `scale`: Log handles ranges that are
+     * multiplicative (frequencies), and cannot be used at all where the range
+     * crosses or touches zero. Skew works on any range, including dB values
+     * that go negative.
+     */
+    float skew;
+
+    /// CC 0–127 → parameter value, honouring scale and skew.
     float fromCC(uint8_t v) const
     {
-        const float t = (float)v / 127.0f;
+        float t = (float)v / 127.0f;
+        if(skew != 1.0f && t > 0.0f)
+            t = powf(t, skew);
         if(scale == ParamScale::Log)
             return minVal * powf(maxVal / minVal, t);
         return minVal + t * (maxVal - minVal);
@@ -55,6 +78,8 @@ struct ParamDescriptor
             return 0;
         if(t >= 1.0f)
             return 127;
+        if(skew != 1.0f)
+            t = powf(t, 1.0f / skew);
         return (uint8_t)(t * 127.0f + 0.5f);
     }
 };

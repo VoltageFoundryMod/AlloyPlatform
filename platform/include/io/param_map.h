@@ -9,7 +9,7 @@
  * instead of keeping its own switch statement.
  *
  * The table itself is generated: declare a parameter once in
- * `modules/alloyflux/params.json`, run `make params`, and the CC number, range,
+ * the module's `params.json`, run `make params`, and the CC number, range,
  * curve, default, label, category and unit all follow from that one row.
  * Nothing here is hand-maintained.
  *
@@ -23,7 +23,7 @@
  * than a plain range.
  */
 
-/// All float parameters, ordered by CC. Generated from params.json.
+/// All float parameters, ordered by CC. Defined by the module, from its\n/// generated manifest.
 /// A pointer rather than an array so the generated table stays in one
 /// translation unit instead of being copied into every includer.
 extern const ParamDescriptor *const kParamTable;

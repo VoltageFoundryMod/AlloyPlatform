@@ -74,8 +74,7 @@ extern bool
 extern ScaleId gQuantizeScale; // CHROMATIC = bypass (default)
 extern int8_t  gTranspose;     // semitone offset: −24…+24, default 0
 
-// MIDI configuration
-extern uint8_t gMidiChannel; // 0 = omni (all channels), 1–16 = specific channel
+// MIDI receive channel is platform-owned — see platform/include/io/usb_midi.h
 
 // Knob takeover (M62) — how a physical pot regains control of a parameter that
 // was last set from the Web Configurator, MIDI, the serial console or a preset.
@@ -200,3 +199,20 @@ extern EnvelopeEngine *sPolyEnvs[6]; // pointers so ISR can call virtual next()
  * @return the slot claimed, 0–5
  */
 uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag);
+
+/**
+ * Fire a gate pulse of the given duration on the current voice mode.
+ * In POLY mode a free voice slot is allocated at gBaseFreq and released when
+ * the pulse expires; in all other modes it drives gGateHigh for the same
+ * duration.  Called from the SHIFT button handler and the `trig` command.
+ * Defined in commands.cpp.
+ */
+void doTrig(uint32_t durMs);
+
+/**
+ * Re-attach every knob to its parameter immediately, without waiting for it to
+ * be moved (M62).  Backs `pot sync`: the next control tick snaps all
+ * knob-owned parameters to the physical knob positions.  Defined in main.cpp,
+ * which owns the HardwarePicoIO instance.
+ */
+void potsReattach();

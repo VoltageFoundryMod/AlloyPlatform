@@ -38,7 +38,8 @@ static const float kReverbParams[8][4]
 
 static int DelayLineMaxSamples(float sr, float i_pitch_mod, int n);
 //static int InitDelayLine(dsy_reverbsc_dl *lp, int n);
-static int         DelayLineBytesAlloc(float sr, float i_pitch_mod, int n);
+// LOCAL PATCH: DelayLineBytesAlloc() removed — it was the source of the
+// byte/float units bug in Init() and had no other caller.
 static const float kOutputGain = 0.35;
 static const float kJpScale    = 0.25;
 
@@ -53,15 +54,26 @@ int ReverbSc::Init(float sr)
     damp_fact_     = 1.0;
     prv_lpfreq_    = 0.0;
     init_done_     = 1;
-    int i, n_bytes = 0;
-    n_bytes = 0;
-    for(i = 0; i < 8; i++)
+    // LOCAL PATCH (units bug). Upstream accumulated DelayLineBytesAlloc() —
+    // a byte count — and used it to offset `aux_`, which is float*. Pointer
+    // arithmetic scales by sizeof(float), so every line was placed four times
+    // further along than it needed to be and DSY_REVERBSC_MAX_SIZE had to be
+    // four times the real requirement to compensate. Nothing read the wasted
+    // space, so output is unaffected; it simply cost 4x the RAM.
+    //
+    // Accumulating samples instead makes the buffer 290 KiB smaller with
+    // bit-identical output. The bound check is also now done *before* the
+    // write rather than after, so an overflow returns an error instead of
+    // scribbling past the end of aux_ on the last line.
+    int pos = 0;
+    for(int i = 0; i < 8; i++)
     {
-        if(n_bytes > DSY_REVERBSC_MAX_SIZE)
+        const int need = DelayLineMaxSamples(sr, 1, i);
+        if(pos + need > DSY_REVERBSC_MAX_SIZE)
             return 1;
-        delay_lines_[i].buf = (aux_) + n_bytes;
+        delay_lines_[i].buf = aux_ + pos;
         InitDelayLine(&delay_lines_[i], i);
-        n_bytes += DelayLineBytesAlloc(sr, 1, i);
+        pos += need;
     }
     return 0;
 }
@@ -75,13 +87,6 @@ static int DelayLineMaxSamples(float sr, float i_pitch_mod, int n)
     return (int)(max_del * sr + 16.5);
 }
 
-static int DelayLineBytesAlloc(float sr, float i_pitch_mod, int n)
-{
-    int n_bytes = 0;
-
-    n_bytes += (DelayLineMaxSamples(sr, i_pitch_mod, n) * (int)sizeof(float));
-    return n_bytes;
-}
 
 void ReverbSc::NextRandomLineseg(ReverbScDl *lp, int n)
 {

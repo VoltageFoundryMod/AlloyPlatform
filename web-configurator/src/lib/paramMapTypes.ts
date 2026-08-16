@@ -26,6 +26,13 @@ export interface CCParam {
   unit?: string; // slider display suffix
   step?: number; // slider drag granularity (defaults to 0.001)
   scale?: "log"; // optional: logarithmic slider mapping
+  /**
+   * Travel skew — position^skew before the range is applied; 1 = none.
+   * Mirrors ParamDescriptor::skew. For a range whose useful part is bunched
+   * at one end: skew < 1 expands the top across the control, skew > 1 the
+   * bottom. Unlike `scale` it works on ranges that cross zero.
+   */
+  skew?: number;
   ccRange?: { min: number; max: number }; // map min…max onto a CC sub-range
   type?: ParamType; // defaults to "slider"
   options?: SelectOption[]; // select only
@@ -41,7 +48,9 @@ export interface CCParam {
 export function ccToFloat(param: CCParam, ccValue: number): number {
   const ccLo = param.ccRange?.min ?? 0;
   const ccHi = param.ccRange?.max ?? 127;
-  const t = (ccValue - ccLo) / (ccHi - ccLo);
+  let t = (ccValue - ccLo) / (ccHi - ccLo);
+  const skew = param.skew ?? 1;
+  if (skew !== 1 && t > 0) t = Math.pow(t, skew);
   if (param.scale === "log") {
     return param.min * Math.pow(param.max / param.min, t);
   }
@@ -52,13 +61,13 @@ export function ccToFloat(param: CCParam, ccValue: number): number {
 export function floatToCC(param: CCParam, value: number): number {
   const ccLo = param.ccRange?.min ?? 0;
   const ccHi = param.ccRange?.max ?? 127;
-  const t = (value - param.min) / (param.max - param.min);
-  if (param.scale === "log") {
-    return Math.round(
-      ccLo +
-        (Math.log(value / param.min) / Math.log(param.max / param.min)) *
-          (ccHi - ccLo),
-    );
-  }
+  const skew = param.skew ?? 1;
+  let t =
+    param.scale === "log"
+      ? Math.log(value / param.min) / Math.log(param.max / param.min)
+      : (value - param.min) / (param.max - param.min);
+  if (t <= 0) return ccLo;
+  if (t >= 1) return ccHi;
+  if (skew !== 1) t = Math.pow(t, 1 / skew);
   return Math.round(ccLo + t * (ccHi - ccLo));
 }

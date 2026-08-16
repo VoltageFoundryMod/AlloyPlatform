@@ -6,6 +6,7 @@
     ccToFloat,
     floatToCC,
   } from "./lib/paramMap";
+  import { ACTIVE_MODULE } from "./lib/activeModule";
   import { midi } from "./lib/midi";
   import { serial } from "./lib/serial";
   import {
@@ -389,6 +390,24 @@
       return `±${Math.round(v * 25)} Hz`;
     })(),
   );
+
+  // ── Per-slider overrides ─────────────────────────────────────────────────
+  // Both of the above encode AlloyFlux's voice-mode semantics, which mean
+  // nothing on another module. They used to be selected by raw CC number, so
+  // any module reusing those CCs silently inherited them — Audrey's revdecay
+  // is CC 92 and was showing COLOR's "FM depth" hint.
+  //
+  // Keyed by param *name* now, which params.json calls out as the stable API,
+  // and gated on the module as well so a future name collision cannot bring
+  // the bug back.
+  const isAlloyFlux = ACTIVE_MODULE.id === "alloyflux";
+
+  let sliderHints = $derived<Record<string, string | undefined>>(
+    isAlloyFlux ? { rel: relHint, color: colorHint } : {},
+  );
+  let sliderDisplays = $derived<Record<string, string | undefined>>(
+    isAlloyFlux ? { rel: relDisplayOverride, color: colorDisplayOverride } : {},
+  );
   // ── Bottom dock sizing ───────────────────────────────────────────────────
   // The dock is position:fixed, so it is out of flow and would otherwise cover
   // whatever the page has scrolled to.  Track its height and reserve the same
@@ -518,16 +537,8 @@
                   {param}
                   bind:value={paramValues[param.cc]}
                   bind:this={sliderRefs[param.cc]}
-                  hint={param.cc === 94
-                    ? relHint
-                    : param.cc === 92
-                      ? colorHint
-                      : undefined}
-                  displayOverride={param.cc === 94
-                    ? relDisplayOverride
-                    : param.cc === 92
-                      ? colorDisplayOverride
-                      : undefined}
+                  hint={sliderHints[param.name]}
+                  displayOverride={sliderDisplays[param.name]}
                 />
               {/each}
             </div>
@@ -574,7 +585,7 @@
   </main>
   <div class="footer cat-section">
     <small class="footer-label"
-      >Alloy Flux Web Configurator — Voltage Foundry Modular - ©2026</small
+      >Alloy Platform Web Configurator — Voltage Foundry Modular - ©2026</small
     >
   </div>
 
@@ -582,55 +593,61 @@
        drawer cannot sit on top of the last parameter categories (Delay,
        Reverb…).  Measured rather than hardcoded because either drawer can be
        open, and both change height when they are. -->
-  <div class="dock-spacer" style="height: {dockHeight}px" aria-hidden="true">
-  </div>
+  <div
+    class="dock-spacer"
+    style="height: {dockHeight}px"
+    aria-hidden="true"
+  ></div>
 
   <!-- Bottom dock — pinned to the viewport so both drawers stay reachable
        without scrolling to the end of the page.  They live in one fixed
        container rather than being individually fixed, so they stack instead
        of overlapping. -->
   <div class="drawer-dock" bind:this={dockEl}>
-  <MidiMonitor />
+    <MidiMonitor />
 
-  <!-- Serial console drawer -->
-  <div class="console-drawer" class:open={consoleOpen}>
-    <button class="console-tab" onclick={() => (consoleOpen = !consoleOpen)}>
-      <span class="console-conn-dot" class:connected={$serial.connected}></span>
-      Serial Console {consoleOpen ? "▼" : "▲"}
-    </button>
-    {#if consoleOpen}
-      <div class="console-body" bind:this={consoleBodyEl}>
-        {#each serialLines as line}
-          <div class="console-line">{line}</div>
-        {/each}
-        {#if serialLines.length === 0}
-          <div class="console-empty">No output yet.</div>
-        {/if}
-      </div>
-      <div class="console-input-row">
-        <input
-          class="console-input"
-          type="text"
-          placeholder={$serial.connected ? "Type a command…" : "Not connected"}
-          disabled={!$serial.connected}
-          bind:value={consoleInput}
-          onkeydown={handleConsoleKeydown}
-        />
-        <button
-          class="console-send"
-          disabled={!$serial.connected}
-          onclick={sendConsoleCommand}>Send</button
-        >
-        <button
-          class="console-send"
-          disabled={!$serial.connected}
-          onclick={() => {
-            serial.send("help");
-          }}>Help</button
-        >
-      </div>
-    {/if}
-  </div>
+    <!-- Serial console drawer -->
+    <div class="console-drawer" class:open={consoleOpen}>
+      <button class="console-tab" onclick={() => (consoleOpen = !consoleOpen)}>
+        <span class="console-conn-dot" class:connected={$serial.connected}
+        ></span>
+        Serial Console {consoleOpen ? "▼" : "▲"}
+      </button>
+      {#if consoleOpen}
+        <div class="console-body" bind:this={consoleBodyEl}>
+          {#each serialLines as line}
+            <div class="console-line">{line}</div>
+          {/each}
+          {#if serialLines.length === 0}
+            <div class="console-empty">No output yet.</div>
+          {/if}
+        </div>
+        <div class="console-input-row">
+          <input
+            class="console-input"
+            type="text"
+            placeholder={$serial.connected
+              ? "Type a command…"
+              : "Not connected"}
+            disabled={!$serial.connected}
+            bind:value={consoleInput}
+            onkeydown={handleConsoleKeydown}
+          />
+          <button
+            class="console-send"
+            disabled={!$serial.connected}
+            onclick={sendConsoleCommand}>Send</button
+          >
+          <button
+            class="console-send"
+            disabled={!$serial.connected}
+            onclick={() => {
+              serial.send("help");
+            }}>Help</button
+          >
+        </div>
+      {/if}
+    </div>
   </div>
 </div>
 

@@ -1,27 +1,22 @@
 #ifdef USE_TINYUSB
 
 #include "io/usb_midi.h"
+#include "ModuleHooks.h"
 #include "config_store.h"
-#include "dsp/ChorusEngine.h"
-#include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
-#include "params.h"
-#include "scale_quantizer.h"
 #include <Adafruit_TinyUSB.h>
 #include <MIDI.h>
-#include <math.h>
-
-// Scale quantizer globals (M49)
-ScaleId gQuantizeScale = ScaleId::CHROMATIC;
-int8_t  gTranspose     = 0;
+#include <string.h>
 
 // ---------------------------------------------------------------------------
-// SysEx patch dump — AlloyFlux protocol
+// SysEx patch dump — Alloy platform protocol
 //
 // Format (body between F0 and F7):
-//   7D 41 46 <cmd> [cc0 val0 cc1 val1 ...]
-//   7D = non-commercial manufacturer ID
-//   41 46 = 'A' 'F' (AlloyFlux device signature)
+//   7D <id0> <id1> <cmd> [cc0 val0 cc1 val1 ...]
+//   7D          = non-commercial manufacturer ID
+//   <id0><id1>  = the module's device signature (AlloyFlux: 'A' 'F'),
+//                 supplied by ModuleHooks so the Web Configurator can tell
+//                 which parameter map to load
 //   cmd:
 //     01 = REQUEST_DUMP  (host → device: request full patch dump)
 //     02 = PATCH_DUMP    (device → host: full patch as CC pairs)
@@ -31,8 +26,6 @@ int8_t  gTranspose     = 0;
 // ---------------------------------------------------------------------------
 
 static constexpr uint8_t kSysExMfr            = 0x7D; // non-commercial
-static constexpr uint8_t kSysExDevA           = 'A';
-static constexpr uint8_t kSysExDevF           = 'F';
 static constexpr uint8_t kSysExCmdRequestDump = 0x01;
 static constexpr uint8_t kSysExCmdPatchDump   = 0x02;
 static constexpr uint8_t kSysExCmdApplyPatch  = 0x03;
@@ -50,6 +43,8 @@ static constexpr uint8_t kSysExCmdSetMidiChannel
 // sBuildPatchPairs() stops at this limit regardless.
 static constexpr uint8_t kMaxPatchPairs = 56;
 static constexpr uint8_t kMaxPatchBytes = kMaxPatchPairs * 2;
+
+uint8_t gMidiChannel = 0; // 0 = omni
 
 // Fill buf[] with (cc, value) pairs for all patchable parameters.
 // Returns the total number of bytes written (always even).
@@ -77,11 +72,13 @@ static uint8_t sBuildPatchPairs(uint8_t *buf)
     for(uint8_t i = 0; i < kEnumCount; i++)
         add(kEnumTable[i].cc, kEnumTable[i].toCC(*kEnumTable[i].target));
 
-    // Not table parameters.
-    add(114, gRevFrozen ? 127 : 0); // reverb freeze
-    // Transpose: 0–48 encodes −24…+24 semitones (offset 24).
-    add(104, (uint8_t)constrain((int)gTranspose + 24, 0, 48));
-    add(110, gMidiChannel); // MIDI receive channel, 0 = omni
+    // MIDI channel is the platform's own, not a module parameter.
+    add(110, gMidiChannel);
+
+    // Anything the module encodes outside the tables.
+    if(n < kMaxPatchBytes)
+        n += moduleHook_extraPatchPairs(buf + n, (uint8_t)(kMaxPatchBytes - n));
+
     return n;
 }
 
@@ -114,22 +111,10 @@ static void sNoteHostCC(uint8_t cc, uint8_t value)
 static Adafruit_USBD_MIDI sUsbMidiTransport;
 MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, sUsbMidiTransport, MidiUsb);
 
-// ---------------------------------------------------------------------------
-// Internal state
-// ---------------------------------------------------------------------------
-
-uint8_t sActiveNote
-    = 255; // 255 = no note currently held (exported via params.h)
-
 // Returns true if an incoming message on `ch` should be processed.
 // gMidiChannel == 0 means omni (accept all); otherwise match exactly.
 static inline bool channelMatches(uint8_t ch)
 { return gMidiChannel == 0 || ch == gMidiChannel; }
-
-// Convert MIDI note number (0–127) to frequency in Hz.
-// Standard equal-temperament: A4 (note 69) = 440 Hz.
-static inline float midiNoteToHz(uint8_t note)
-{ return 440.0f * powf(2.0f, ((int8_t)note - 69) / 12.0f); }
 
 // ---------------------------------------------------------------------------
 // Message handlers
@@ -139,77 +124,19 @@ static void onNoteOn(byte channel, byte note, byte velocity)
 {
     if(!channelMatches(channel))
         return;
+    // NoteOn with velocity 0 is a NoteOff (running-status MIDI convention).
+    // Normalised here so no module has to know that.
     if(velocity == 0)
-    {
-        // NoteOn with velocity 0 is a NoteOff (running-status MIDI convention).
-        if(gVoiceMode == VoiceMode::POLY)
-        {
-            for(uint8_t i = 0; i < 6; i++)
-            {
-                if(sPolySlots[i].midiNote == note)
-                {
-                    sPolyEnvs[i]->setGate(false);
-                    sPolySlots[i].midiNote = 255;
-                }
-            }
-        }
-        else if(sActiveNote == note)
-        {
-            gGateHigh = false;
-            gCurveEng->setGate(false);
-            sActiveNote = 255;
-        }
-        return;
-    }
-
-    if(gVoiceMode == VoiceMode::POLY)
-    {
-        const float freq = constrain(
-            midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)),
-            20.0f,
-            8000.0f);
-        // subMult depends on voice sub-octave param — use 0.5 (default, -1 oct)
-        // as a safe approximation; control() will correct the sub freq next tick.
-        polyNoteOn(
-            freq, gVelocitySensitive ? (velocity / 127.0f) : 1.0f, 0.5f, note);
-        return;
-    }
-
-    sActiveNote = note;
-    gBaseFreq   = constrain(
-        midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)),
-        20.0f,
-        8000.0f);
-    gMidiVelocity = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
-    gGatePatched  = true; // arm envelope — MIDI is now the gate source
-    gGateHigh     = true;
-    gCurveEng->setGate(true); // arm attack immediately — closes ISR window
+        moduleHook_noteOff(note);
+    else
+        moduleHook_noteOn(note, velocity);
 }
 
 static void onNoteOff(byte channel, byte note, byte /*velocity*/)
 {
     if(!channelMatches(channel))
         return;
-    if(gVoiceMode == VoiceMode::POLY)
-    {
-        for(uint8_t i = 0; i < 6; i++)
-        {
-            if(sPolySlots[i].midiNote == note)
-            {
-                sPolyEnvs[i]->setGate(false);
-                sPolySlots[i].midiNote = 255;
-            }
-        }
-        return;
-    }
-    // Monophonic last-note priority: only release if this is the active note.
-    if(sActiveNote == note)
-    {
-        gGateHigh = false;
-        gCurveEng->setGate(
-            false); // arm release immediately — closes ISR window
-        sActiveNote = 255;
-    }
+    moduleHook_noteOff(note);
 }
 
 static void onControlChange(byte channel, byte cc, byte value)
@@ -221,67 +148,42 @@ static void onControlChange(byte channel, byte cc, byte value)
     // sends it straight back, and on log/wide-range params the 7-bit
     // round-trip can land a step off and visibly nudge the host's slider.
     sNoteHostCC(cc, value);
-    // Continuous parameters — delegated to the central CC map (param_map.cpp).
+
+    // Continuous and discrete parameters — the generated manifest owns these.
     if(paramMap_dispatchCC(cc, value))
         return;
 
-    // Special cases: not simple float parameters.
-    switch(cc)
+    // MIDI channel select is the platform's.
+    if(cc == 110)
     {
-        case 64: // Sustain pedal — arms gate; release only on pedal-up (value < 64)
-            gGatePatched = true;
-            gGateHigh    = (value >= 64);
-            break;
-        case 104: // Transpose (M49) — 0–48 encodes −24…+24 semitones
-            gTranspose = (int8_t)constrain((int)value - 24, -24, 24);
-            break;
-        case 114: // Reverb freeze — M41: ≥64 = freeze on, <64 = freeze off
-            gRevFrozen = (value >= 64);
-            break;
-        case 119: // Drone return — clears gGatePatched, module returns to continuous drone
-            gGatePatched  = false;
-            gGateHigh     = false;
-            gMidiVelocity = 1.0f; // restore full volume on return to drone/CV
-            sActiveNote   = 255;
-            break;
-        case 123: // All Notes Off / panic
-            gGateHigh   = false;
-            sActiveNote = 255;
-            for(uint8_t i = 0; i < 6; i++)
-            {
-                if(sPolyEnvs[i])
-                {
-                    sPolyEnvs[i]->setGate(false);
-                    sPolyEnvs[i]->reset();
-                }
-                sPolySlots[i].midiNote = 255;
-            }
-            sPolyRR = 0;
-            break;
-        default: break;
+        if(value <= 16)
+            gMidiChannel = value;
+        return;
     }
+
+    // Everything else is an action rather than a parameter, and belongs to the
+    // module. It cannot shadow a manifest CC — dispatchCC() already declined.
+    moduleHook_controlChange(cc, value);
 }
 
 static void onProgramChange(byte channel, byte program)
 {
     if(!channelMatches(channel))
         return;
-    // Programs 1–6 map to VoiceMode PAIR/CLOUD/CHORD/CASCADE/STRING/POLY.
-    if(program >= 1 && program <= 6)
-        gVoiceMode = static_cast<VoiceMode>(program - 1);
+    moduleHook_programChange(program);
 }
 
 // Build and transmit a PATCH_DUMP SysEx response.
 // Must be placed after MIDI_CREATE_INSTANCE since it calls MidiUsb.sendSysEx.
-static void sSendPatchDump()
+void usbMidi_sendPatchDump()
 {
     // 4-byte header plus whatever sBuildPatchPairs() can emit. Sized from
     // kMaxPatchBytes rather than a hand-counted total so it cannot fall behind
     // params.json.
     static uint8_t sBuf[4 + kMaxPatchBytes];
     sBuf[0]                 = kSysExMfr;
-    sBuf[1]                 = kSysExDevA;
-    sBuf[2]                 = kSysExDevF;
+    sBuf[1]                 = kSysExDevId0;
+    sBuf[2]                 = kSysExDevId1;
     sBuf[3]                 = kSysExCmdPatchDump;
     const uint8_t pairBytes = sBuildPatchPairs(sBuf + 4);
     MidiUsb.sendSysEx(4 + pairBytes, sBuf, false); // library adds F0/F7
@@ -292,7 +194,7 @@ static void sSendPatchDump()
         sNoteHostCC(sBuf[4 + i], sBuf[4 + i + 1]);
 }
 
-// SysEx handler — AlloyFlux patch dump protocol.
+// SysEx handler — Alloy platform patch dump protocol.
 // The Arduino MIDI Library v5 passes data[] with F0 at [0] and F7 at [length-1].
 // We skip boundaries so the body always starts at [1] and ends before F7.
 static void onSysEx(uint8_t *data, unsigned int length)
@@ -310,10 +212,11 @@ static void onSysEx(uint8_t *data, unsigned int length)
         bodyLen--;
     }
 
-    // Validate 3-byte header: 7D 41('A') 46('F') <cmd>
+    // Validate 3-byte header: 7D <id0> <id1> <cmd>
     if(bodyLen < 4)
         return;
-    if(body[0] != kSysExMfr || body[1] != kSysExDevA || body[2] != kSysExDevF)
+    if(body[0] != kSysExMfr || body[1] != kSysExDevId0
+       || body[2] != kSysExDevId1)
         return;
 
     const uint8_t cmd  = body[3];
@@ -321,7 +224,7 @@ static void onSysEx(uint8_t *data, unsigned int length)
 
     if(cmd == kSysExCmdRequestDump)
     {
-        sSendPatchDump();
+        usbMidi_sendPatchDump();
     }
     else if(cmd == kSysExCmdApplyPatch)
     {
@@ -340,7 +243,7 @@ static void onSysEx(uint8_t *data, unsigned int length)
     else if(cmd == kSysExCmdPresetLoad)
     {
         configStore_load(arg0);
-        sSendPatchDump(); // auto-refresh web UI after load
+        usbMidi_sendPatchDump(); // auto-refresh web UI after load
     }
     else if(cmd == kSysExCmdPresetReset)
     {
@@ -351,7 +254,7 @@ static void onSysEx(uint8_t *data, unsigned int length)
         if(arg0 == 0 || arg0 == 0x7F)
         {
             configStore_applyDefaults();
-            sSendPatchDump();
+            usbMidi_sendPatchDump();
         }
     }
     else if(cmd == kSysExCmdSetMidiChannel)
@@ -364,7 +267,7 @@ static void onSysEx(uint8_t *data, unsigned int length)
             configStore_save(
                 0); // persist; rate-limit may throttle but that's fine
         }
-        sSendPatchDump(); // echo back so UI confirms the new value
+        usbMidi_sendPatchDump(); // echo back so UI confirms the new value
     }
 }
 
@@ -374,9 +277,9 @@ static void onSysEx(uint8_t *data, unsigned int length)
 
 void usbMidi_init()
 {
-    TinyUSBDevice.setManufacturerDescriptor("Voltage Foundry Modular");
-    TinyUSBDevice.setProductDescriptor("Alloy Flux");
-    sUsbMidiTransport.setStringDescriptor("AlloyFlux MIDI");
+    TinyUSBDevice.setManufacturerDescriptor(kModuleManufacturer);
+    TinyUSBDevice.setProductDescriptor(kModuleProduct);
+    sUsbMidiTransport.setStringDescriptor(kModuleMidiName);
     MidiUsb.begin(MIDI_CHANNEL_OMNI);
     MidiUsb.setHandleNoteOn(onNoteOn);
     MidiUsb.setHandleNoteOff(onNoteOff);

@@ -1,10 +1,12 @@
+import { ACTIVE_MODULE } from "./activeModule";
+
 /**
- * Patch sync — AlloyFlux SysEx / serial dump protocol.
+ * Patch sync — Alloy platform SysEx / serial dump protocol.
  *
  * SysEx format  (body between F0 and F7, all bytes 7-bit safe):
  *   7D 41 46 <cmd> [cc0 val0 cc1 val1 ...]
  *   7D      = non-commercial manufacturer ID
- *   41 46   = 'A' 'F' (AlloyFlux device signature)
+ *   41 46   = the module's device signature ('A','F' AlloyFlux; 'A','U' Audrey)
  *   cmd:
  *     0x01  REQUEST_DUMP  — host → device: please send your current patch
  *     0x02  PATCH_DUMP    — device → host: here are all the CC pairs
@@ -24,8 +26,10 @@
  */
 
 export const SYSEX_MFR = 0x7d as const; // non-commercial manufacturer ID
-export const SYSEX_DEVA = 0x41 as const; // 'A'
-export const SYSEX_DEVF = 0x46 as const; // 'F'
+
+// Device signature of the module this build targets — see activeModule.ts.
+export const SYSEX_DEVA = ACTIVE_MODULE.sysexDev[0];
+export const SYSEX_DEVF = ACTIVE_MODULE.sysexDev[1];
 
 export const SysexCmd = {
   REQUEST: 0x01, // host → device: send current patch
@@ -61,7 +65,7 @@ export function buildSysExBody(cmd: number, pairs: CCPair[]): number[] {
 /**
  * Parse a SysEx body (without F0/F7) into CCPairs.
  * Accepts both DUMP (0x02) and APPLY (0x03) command types.
- * Returns null if the header doesn't match AlloyFlux format.
+ * Returns null if the header is not this module's.
  */
 export function parseSysExBody(data: Uint8Array): CCPair[] | null {
   if (data.length < 5) return null;

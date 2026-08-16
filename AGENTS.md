@@ -26,7 +26,8 @@ lists every target.
 | Web        | `make web`               | production build into `web-configurator/dist`                          |
 |            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc     |
 | Everything | `make everything`        | firmware + VCV + web                                                   |
-| Audrey     | `make audrey-host`       | host-compiles + runs the vendored Audrey engine; prints its footprint  |
+| Audrey     | `make firmware ENV=audrey` | Audrey II firmware; `make web MODULE=audrey` for its configurator     |
+|            | `make audrey-host`       | host-compiles + runs the vendored Audrey engine; prints its footprint  |
 | Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate |
 
 `RACK_DIR` defaults to a `Rack-SDK` checkout beside this repository. Override it
@@ -82,16 +83,18 @@ There is **no engine singleton**. The firmware owns one `SynthEngine` at file sc
 
 [`web-configurator/src/`](web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
 
-- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46`)
+- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46` for AlloyFlux, `0x41 0x55` for Audrey)
 - **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md)
 
 Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
+
+Which module the build targets is a **build-time** choice: `src/lib/activeModule.ts` reads `VITE_MODULE` (`make web MODULE=audrey`) and selects both the generated parameter map and the SysEx signature. It fails closed — an AlloyFlux build will not connect to an Audrey module rather than showing the wrong controls. Runtime auto-detection is possible (the signature is in every message) but means making `PARAM_MAP` reactive throughout the UI.
 
 **Requirement**: Chrome or Edge only — Web Serial and Web MIDI APIs are not supported in Firefox/Safari.
 
 ### Config/Flash
 
-[`modules/alloyflux/include/config_store.h`](modules/alloyflux/include/config_store.h) defines `AlloyConfig`. Rules:
+[`modules/alloyflux/include/alloy_config.h`](modules/alloyflux/include/alloy_config.h) defines `AlloyConfig`. Rules:
 
 - **Always bump `kEngineVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `7`.
 - A slot is `{magic, engineId, engineVersion, blob[192]}` — the container belongs to the platform ([`platform/include/ConfigSlot.h`](platform/include/ConfigSlot.h)), the blob to the module. `engineId` (`0x4146` for AlloyFlux) means another module's preset in the same slot is skipped rather than reinterpreted as AlloyFlux floats.
@@ -119,7 +122,7 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 - **Do not commit** or run `git push` unless explicitly asked.
 - **Do not modify `/c/Users/carlosedp/Rack-SDK/`** — it is a shared external dependency.
 - **Do not increase `DELAY_MAX_MS`** without confirming SRAM budget (`platformio run` reports RAM usage after build).
-- **Adding or changing a parameter**: edit `modules/<module>/params.json` and run `make params`, then commit the regenerated files. That one row supplies the CC number, range, curve, default, label, category, unit and (for discrete params) the option bands to both `param_manifest.generated.h` and the web configurator's `paramMap.ts`. Do not hand-edit either generated file; `make params-check` is the CI gate. Only `config_store` and the VCV param list are still hand-maintained.
+- **Adding or changing a parameter**: edit `modules/<module>/params.json` and run `make params`, then commit the regenerated files. That one row supplies the CC number, range, curve, default, label, category, unit and (for discrete params) the option bands to both `param_manifest.generated.h` and the web configurator's `paramMap<Module>.ts` (`paramMap.ts` itself is a hand-written shim that picks between them). Do not hand-edit a generated file; `make params-check` is the CI gate. Only the module's config pack/apply and the VCV param list are still hand-maintained.
 - **Shared DSP changes**: any edit to `modules/<module>/include/dsp/` or `src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
 - **Windows VCV build**: run `make vcv` from the repo root — the root Makefile picks up the msys2 shell and toolchain itself, so no MinGW64 shell is needed.
 - **VCV warnings on GCC**: keep `vcv-plugin/Makefile` filtering out `-Wno-vla-extension` from `CXXFLAGS` (Clang-only flag from Rack SDK).

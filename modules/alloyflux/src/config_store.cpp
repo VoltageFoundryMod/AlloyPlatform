@@ -1,62 +1,15 @@
-#include "config_store.h"
+#include "alloy_config.h"
+#include "io/usb_midi.h" // gMidiChannel
 #include "params.h"
 #include <Arduino.h>
-#include <EEPROM.h>
-#include <string.h> // memcmp, memcpy
+#include <string.h> // memset
 
-// ---------------------------------------------------------------------------
-// Flash layout
-//
-// The Earle Philhower EEPROM library maps a RAM buffer onto one or more
-// 4 KB flash pages at the top of flash, with a circular-buffer scheme that
-// distributes erase cycles across all pages.
-//
-// We reserve kEepromBytes for our buffer — enough for kMaxPresets slots.
-// kEepromBytes must be <= the RP2350 EEPROM emulation size (default 4096).
-// ---------------------------------------------------------------------------
-static constexpr int kSlotBytes   = sizeof(ConfigSlot);
-static constexpr int kEepromBytes = kMaxPresets * kSlotBytes;
+// AlloyFlux's preset payload: the pack/apply half of flash persistence.
+// The slot container, EEPROM mechanics, dirty check and rate limit are the
+// platform's — see platform/src/config_store.cpp. This file only knows how to
+// turn the gXxx globals into an AlloyConfig and back.
 
-// Minimum milliseconds between flash commits.
-// Flash is rated ~100,000 erase cycles; at 10 s minimum that's >27 years of
-// continuous saving.  Adjust only if there is a concrete need.
-static constexpr uint32_t kMinSaveIntervalMs = 10000;
-
-static uint32_t sLastSaveMs  = 0;
-static bool     sEepromReady = false;
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-static void ensureEeprom()
-{
-    if(!sEepromReady)
-    {
-        EEPROM.begin(kEepromBytes);
-        sEepromReady = true;
-    }
-}
-
-static int slotAddr(uint8_t slot)
-{ return (int)slot * kSlotBytes; }
-
-// Wrap a packed payload in a slot, tagged as ours.
-// Zero-initialised: the blob's unused tail and any padding inside AlloyConfig
-// would otherwise be indeterminate, and the dirty check below is a memcmp over
-// the whole slot — stack garbage there would report a change on every save and
-// burn a flash cycle for nothing.
-static void makeSlot(ConfigSlot &slot, const AlloyConfig &cfg)
-{
-    memset(&slot, 0, sizeof(slot));
-    slot.magic         = kSlotMagic;
-    slot.engineId      = kEngineId;
-    slot.engineVersion = kEngineVersion;
-    memcpy(slot.blob, &cfg, sizeof(cfg));
-}
-
-// Pack all current gXxx globals into a config struct.
-static void packConfig(AlloyConfig &cfg)
+void packAlloyConfig(AlloyConfig &cfg)
 {
     memset(&cfg, 0, sizeof(cfg));
     cfg.baseFreq    = gBaseFreq;
@@ -113,8 +66,7 @@ static void packConfig(AlloyConfig &cfg)
     cfg.potTakeover = (uint8_t)gPotTakeoverMode;
 }
 
-// Apply a validated config struct to all gXxx globals.
-static void applyConfig(const AlloyConfig &cfg)
+void applyAlloyConfig(const AlloyConfig &cfg)
 {
     gBaseFreq    = cfg.baseFreq;
     gColor       = cfg.color;
@@ -174,88 +126,7 @@ static void applyConfig(const AlloyConfig &cfg)
                            : PotTakeoverMode::SCALE;
 }
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-bool configStore_load(uint8_t slot)
-{
-    if(slot >= kMaxPresets)
-        slot = 0;
-    ensureEeprom();
-    ConfigSlot stored;
-    EEPROM.get(slotAddr(slot), stored);
-    // Three gates, in widening order of specificity: is this a slot at all, was
-    // it written by AlloyFlux, and does its payload match the layout this build
-    // understands.  Any failure leaves the compile-time defaults in place —
-    // notably, a slot holding another engine's preset is skipped rather than
-    // reinterpreted as AlloyFlux floats.
-    if(stored.magic != kSlotMagic || stored.engineId != kEngineId
-       || stored.engineVersion != kEngineVersion)
-        return false;
-    AlloyConfig cfg;
-    memcpy(&cfg, stored.blob, sizeof(cfg));
-    applyConfig(cfg);
-    return true;
-}
-
-ConfigSaveResult configStore_save(uint8_t slot)
-{
-    if(slot >= kMaxPresets)
-        slot = 0;
-    const uint32_t now = millis();
-
-    // Rate limit applies only to the auto-save slot (slot 0) to protect flash.
-    // Explicit preset saves (slots 1–9) bypass the rate limit.
-    if(slot == 0 && sLastSaveMs > 0 && (now - sLastSaveMs) < kMinSaveIntervalMs)
-        return ConfigSaveResult::THROTTLED;
-
-    ensureEeprom();
-
-    // Pack current parameters into a tagged slot.
-    AlloyConfig newCfg;
-    packConfig(newCfg);
-    ConfigSlot newSlot;
-    makeSlot(newSlot, newCfg);
-
-    // Dirty check: skip erase/program cycle if contents are identical.
-    ConfigSlot stored;
-    EEPROM.get(slotAddr(slot), stored);
-    if(memcmp(&newSlot, &stored, kSlotBytes) == 0)
-        return ConfigSaveResult::UNCHANGED;
-
-    // Write to EEPROM buffer then commit.  commit() parks the other core for
-    // the erase/program — that is Core 1, the audio core — so a save costs a
-    // ~10 ms dropout.  The dirty check above is what keeps that off the
-    // periodic autosave path.
-    EEPROM.put(slotAddr(slot), newSlot);
-    EEPROM.commit();
-    if(slot == 0)
-        sLastSaveMs = now;
-    return ConfigSaveResult::SAVED;
-}
-
-void configStore_reset(uint8_t slot)
-{
-    ensureEeprom();
-    uint32_t zero = 0;
-    if(slot == 255)
-    {
-        // Wipe all slots.
-        for(uint8_t i = 0; i < kMaxPresets; i++)
-            EEPROM.put(slotAddr(i), zero);
-    }
-    else
-    {
-        if(slot >= kMaxPresets)
-            slot = 0;
-        EEPROM.put(slotAddr(slot), zero);
-    }
-    EEPROM.commit();
-    sLastSaveMs = 0;
-}
-
-void configStore_applyDefaults()
+void applyAlloyDefaults()
 {
     AlloyConfig d        = {};
     d.baseFreq           = 440.0f;
@@ -301,5 +172,5 @@ void configStore_applyDefaults()
     d.quantizeScale      = (uint8_t)ScaleId::CHROMATIC;
     d.transpose          = 0;
     d.potTakeover        = (uint8_t)PotTakeoverMode::SCALE;
-    applyConfig(d);
+    applyAlloyConfig(d);
 }

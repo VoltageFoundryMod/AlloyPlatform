@@ -54,14 +54,35 @@ Ten lines, as surveyed in M63e planning, and all of it mechanical:
 - `<daisysp.h>` umbrella → the specific vendored headers, so nothing drags in a
   DaisySP module the engine never touches.
 
-## Status: does not fit yet
+## Status: it fits
 
-`make audrey-host` compiles the engine against nothing but the vendored DaisySP
-subset and the standard library, runs it for 10 s at unity feedback gain with
-echo feedback above 1.0, and prints the static footprint. It is stable — no
-NaNs, no DC drift, self-sustaining — and it is **far too big**:
+At the default build — echo 4 s, decimated ÷4, `int16` storage — the engine is
+**443.3 KiB**, against a measured budget of roughly **466 KiB**. See "Making it
+fit" below for how that was arrived at and what the levers are.
 
+```text
+  build: echo 4 s, decimation /4, int16 storage, shaping on
+  EchoDelay<4s>      x2 =   192384 B  (  187.9 KiB)
+  daisysp::ReverbSc     =    99624 B  (   97.3 KiB)
+  DelayLine<f,12000> x2 =    96048 B  (   93.8 KiB)
+  KarplusString      x2 =    65744 B  (   64.2 KiB)
+  sizeof(Engine)        =   453960 B  (  443.3 KiB)
+  10 s @ 48000 Hz: peak 1.3360  DC L -0.000030  R +0.000047  non-finite 0
 ```
+
+## Making it fit
+
+### The budget
+
+AlloyFlux's firmware links at 356 664 B of RAM, of which `sizeof(SynthEngine)`
+is 325 792 B — so everything else the platform needs (USB, serial console,
+LEDs, config, I²S DMA buffers, parameter tables, globals) is **30 872 B**.
+Audrey's image needs the same infrastructure. Allowing ~16 KB for stacks and
+headroom on a 524 288 B part leaves roughly **466 KiB for the engine**.
+
+### Where it started
+
+```text
   EchoDelay<5s>      x2 =  1920192 B  ( 1875.2 KiB)
   daisysp::ReverbSc     =   396168 B  (  386.9 KiB)
   DelayLine<f,12000> x2 =    96048 B  (   93.8 KiB)
@@ -69,26 +90,101 @@ NaNs, no DC drift, self-sustaining — and it is **far too big**:
   sizeof(Engine)        =  2478312 B  ( 2420.2 KiB)
 ```
 
-2.36 MiB against a 520 KB chip — **4.8× the whole part**, before any platform
-overhead. That is not a surprise and not a defect: upstream runs on a Daisy
-Seed, which pushes exactly these three members into 64 MiB of external SDRAM, so
-nothing upstream ever had to be small.
+2.36 MiB against a 520 KB part — 4.8× the whole chip. Not a defect: upstream
+runs on a Daisy Seed, which pushes all three big members into 64 MiB of
+external SDRAM, so nothing upstream ever had to be small.
 
-Shrinking it is M63f's job, and the numbers above say where the work is:
+### Reduction 1 — `reverbsc`, 386.9 → 97.3 KiB, free
 
-| Member | Now | Plan | After |
-| ------ | --- | ---- | ----- |
-| Echo ×2 | 1875 KiB | decimate ÷4 to 12 kHz, store `int16` | ~234 KiB |
-| `ReverbSc` | 387 KiB | resize `aux_[98936]` → 25 600 floats | ~100 KiB |
-| Feedback delay ×2 | 94 KiB | keep | 94 KiB |
-| `KarplusString` ×2 | 64 KiB | keep | 64 KiB |
+This turned out not to be a trade-off at all but an upstream **units bug**:
+`Init()` accumulated a byte count and used it to offset a `float*`, striding 4×
+too far and forcing `DSY_REVERBSC_MAX_SIZE` to be 4× the real requirement.
+Output is bit-identical after the fix — the harness reports the same peak and
+DC to every digit it prints. Details in
+[`vendor/daisysp/README.md`](../../vendor/daisysp/README.md).
 
-≈ 492 KiB, which is still over budget once the platform's own ~60 KB is counted
-— so M63f will need one more lever, and the cheapest is the echo's maximum time:
-4.0 s instead of 5.0 s takes another ~47 KiB off, and 3.0 s takes ~94 KiB.
+### Reduction 2 — echo decimation and `int16`, 1875 → 188 KiB
 
-Note also that the ÷4 decimation and the `int16` storage are the two changes
-that carry real DSP risk (anti-alias filtering on the echo send, and Q15
-quantization noise regenerating at feedback > 1.0). Both are meant to be
-A/B-tested in VCV before the firmware is built, which is why M63f says to expose
-them as compile-time switches.
+The real trade-off. `EchoDelay` now runs its loop at `fs/N` (default ÷4, so
+12 kHz) and stores samples as Q15. Three compile-time switches, so the
+trade-offs can be compared by ear rather than argued about:
+
+| Switch | Default | Effect |
+| ------ | ------- | ------ |
+| `AUDREY_ECHO_DECIMATION` | 4 | echo loop rate = `fs / N` |
+| `AUDREY_ECHO_Q15` | 1 | `int16` storage; 0 = float |
+| `AUDREY_ECHO_NOISE_SHAPE` | 1 | first-order error feedback on the quantiser |
+| `AUDREY_ECHO_MAX_S` | 4 | maximum echo time, seconds |
+
+`-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0` restores upstream behaviour
+exactly.
+
+Both reductions carry real DSP risk, and the mitigations are the substance:
+
+- **Aliasing.** The send is tapped *post-reverb* and is full-bandwidth — the
+  feedback loop's own LPF sits at 18 kHz — so decimating it raw would fold
+  6–18 kHz down into the audible band. Some of that lands *low* (11 kHz folds
+  to 1 kHz) where the echo's 800 Hz bandpass cannot help. A 24 dB/oct LPF at
+  0.35 × the decimated rate now sits ahead of the decimator, and the return is
+  linearly interpolated back up.
+- **Quantisation noise.** Feedback is deliberately allowed past unity here, so
+  anything the quantiser adds is recirculated and amplified rather than
+  decaying. The value is clamped before quantising (`SoftClip` bounds the loop
+  output, but `out * feedback + in` is a sum of two unbounded terms); samples
+  are converted to float *before* interpolation; and the quantiser carries its
+  error forward.
+
+### The remaining lever
+
+Echo maximum time, at ~11.7 KiB per second of stereo echo:
+
+| `AUDREY_ECHO_MAX_S` | `sizeof(Engine)` | Margin vs ~466 KiB |
+| ------------------- | ---------------- | ------------------ |
+| 5 | 490.2 KiB | **−24 KiB — does not fit** |
+| **4 (default)** | **443.3 KiB** | **+23 KiB** |
+| 3 | 396.4 KiB | +70 KiB |
+| 2 | 349.6 KiB | +116 KiB |
+
+4 s is the default because it keeps most of upstream's range while leaving real
+margin. Drop to 3 s if the firmware build comes in tighter than the estimate.
+
+### What the host harness does and does not prove
+
+`make audrey-host` runs 10 s at unity feedback gain with echo feedback at 1.05
+and checks for NaN, silence and DC drift. All four switch combinations pass,
+with peaks within 0.6 % of each other — so decimation and quantisation are not
+changing gross behaviour or destabilising the loop.
+
+It does **not** discriminate noise shaping on from off: the two produce
+identical peak and DC figures, because shaping moves quantisation noise in
+frequency without changing the signal's peak or mean, and the difference sits
+around −90 dBFS — below what a 4-decimal peak and a 6-decimal DC mean can
+resolve. Confirming the shaping does what it should needs a spectrum, which is
+the VCV A/B the milestone schedules before firmware bring-up. The same goes for
+the anti-alias filter: a swept sine into a spectrum analyser is the test, and
+this harness is not it.
+
+## Original footprint, for reference
+
+| Member | Vendored (M63e) | Now |
+| ------ | --------------- | --- |
+| `EchoDelay` ×2 | 1875.2 KiB | 187.9 KiB |
+| `daisysp::ReverbSc` | 386.9 KiB | 97.3 KiB |
+| `DelayLine<float,12000>` ×2 | 93.8 KiB | 93.8 KiB |
+| `KarplusString` ×2 | 64.2 KiB | 64.2 KiB |
+| **`sizeof(Engine)`** | **2420.2 KiB** | **443.3 KiB** |
+
+The feedback delay lines and the Karplus-Strong strings are untouched: they sit
+inside the resonator loop and are the core of the sound, so they stay float and
+full-rate.
+
+## Still to do
+
+- **Integration** — a `modules/audrey/src/main.cpp`, a `params.json` manifest to
+  replace `FeedbackSynthControls`, a second PlatformIO env.
+- **VCV A/B before firmware** — the anti-alias filter wants a swept sine into a
+  spectrum analyser, and the Q15 path wants a noise-floor comparison against
+  `-DAUDREY_ECHO_Q15=0`. Neither is something the host harness can answer.
+- **Confirm the budget against a real link.** 466 KiB is inferred from
+  AlloyFlux's overhead, not measured on an Audrey image. If it comes in tighter,
+  `-DAUDREY_ECHO_MAX_S=3` is the lever.

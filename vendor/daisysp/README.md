@@ -41,8 +41,42 @@ which is not defined here, so it is not vendored.
 
 ## Local patches
 
-None yet. Record every one here as it lands, so re-vendoring from a newer
-upstream is a matter of re-applying a known list rather than a diff hunt.
+Record every one here as it lands, so re-vendoring from a newer upstream is a
+matter of re-applying a known list rather than a diff hunt.
+
+### 1. `reverbsc` — byte/float units bug in `Init()` (M63f)
+
+Upstream accumulates `DelayLineBytesAlloc()`, a **byte** count, and uses it to
+offset `aux_`, which is `float*`:
+
+```c
+delay_lines_[i].buf = (aux_) + n_bytes;      // strides by n_bytes FLOATS
+n_bytes += DelayLineBytesAlloc(sr, 1, i);    // returns samples * sizeof(float)
+```
+
+Pointer arithmetic scales by `sizeof(float)`, so every delay line was placed
+four times further along the pool than it needed to be, and
+`DSY_REVERBSC_MAX_SIZE` had to be four times the real requirement to
+compensate. Nothing ever read the wasted space, so **output is unaffected** —
+it simply cost 4× the RAM.
+
+Fixed to accumulate samples, and `DSY_REVERBSC_MAX_SIZE` reduced from 98936 to
+**24800 floats**. The eight lines need 24 726 samples at 48 kHz
+(2543 + 2842 + 3325 + 3605 + 3977 + 4202 + 2251 + 1981, from
+`DelayLineMaxSamples`), so this leaves a little headroom.
+
+**386.9 KiB → 97.3 KiB, with bit-identical output** — confirmed by the host
+harness reporting the same peak (1.4019) and DC (+0.000108 / −0.000090) before
+and after.
+
+The bound check also moved *before* the write rather than after it, so an
+overflow now returns 1 instead of scribbling past the end of `aux_` on the last
+line. That matters more at the new size: the pool scales with sample rate and
+overflows above roughly 48.1 kHz, where before there was 4× of accidental slack
+hiding the problem.
+
+`DelayLineBytesAlloc()` was removed — it had no other caller and was the source
+of the confusion.
 
 ## Licensing
 

@@ -35,12 +35,12 @@
 
 /// Identifies AlloyFlux as the engine that wrote a slot — 'A','F'.  Any other
 /// module on this platform must pick a different value.
-static constexpr uint16_t kEngineId = 0x4146;
+static constexpr uint16_t kAlloyFluxEngineId = 0x4146;
 
 /// Layout version of the AlloyConfig payload.  Continues the old
 /// kConfigVersion sequence (which reached 6) rather than restarting, so no
 /// stale slot from a pre-M63d build can ever match by coincidence.
-static constexpr uint16_t kEngineVersion = 7;
+static constexpr uint16_t kAlloyFluxEngineVersion = 7;
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
 // on the log 20–16000 Hz scale.  CC 74 → 20 × (16000/20)^(74/127) ≈ 983.2 Hz.
@@ -117,36 +117,15 @@ static_assert(sizeof(AlloyConfig) <= kSlotBlobBytes,
               "AlloyConfig outgrew the platform slot blob — raise "
               "kSlotBlobBytes in platform/include/ConfigSlot.h");
 
-enum class ConfigSaveResult : uint8_t
-{
-    SAVED,     // parameters written + committed to flash
-    UNCHANGED, // stored data matched — no write performed (flash protected)
-    THROTTLED, // too soon since last save — rate limit enforced
-};
+// The save/load/reset API itself is the platform's — see
+// platform/include/config_store.h. These three are AlloyFlux's half of it,
+// called through ModuleHooks; nothing outside this module should use them.
 
-/**
- * Load config from flash into gXxx globals.
- * slot 0 = auto-save (called at startup); slots 1–9 = user presets.
- * Returns true when a valid config was found and applied; false = using defaults.
- */
-bool configStore_load(uint8_t slot = 0);
+/** Serialise the current gXxx globals into a config struct. */
+void packAlloyConfig(AlloyConfig &cfg);
 
-/**
- * Save current gXxx globals to flash.
- * slot 0 = auto-save (dirty-check + 10 s rate limit enforced).
- * slots 1–9 = explicit user preset saves (rate limit bypassed, dirty-check still applied).
- * Note: a successful commit() pauses audio for ~10 ms (Core 1 halted for flash erase).
- */
-ConfigSaveResult configStore_save(uint8_t slot = 0);
+/** Write a config struct back into the gXxx globals. */
+void applyAlloyConfig(const AlloyConfig &cfg);
 
-/**
- * Invalidate stored configs.  slot 0 = wipe live slot only; slot 255 = wipe all slots.
- * Next boot (slot 0 wiped) falls back to compile-time defaults.
- */
-void configStore_reset(uint8_t slot = 0);
-
-/**
- * Apply compile-time factory defaults to all gXxx globals immediately.
- * Does not touch flash — call configStore_reset() separately to wipe flash.
- */
-void configStore_applyDefaults();
+/** Reset every gXxx global to its compile-time default. Touches no flash. */
+void applyAlloyDefaults();

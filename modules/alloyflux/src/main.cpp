@@ -50,7 +50,8 @@ static constexpr uint8_t kPinI2sData = 18u;
 // Includes
 // ---------------------------------------------------------------------------
 #include "VoiceMode.h"
-#include "config_store.h"
+#include "alloy_config.h"
+#include "config_store.h" // platform: save/load/reset
 #include "dsp/ChorusEngine.h"
 #include "dsp/ShapeOsc.h"
 #include "dsp/SpaceEngine.h"
@@ -112,9 +113,8 @@ bool gVelocitySensitive
 float gGlideTime    = 0.0f; // portamento slide time: 0.0 = instant, 0.001–2.0 s
 bool  gGlideEnabled = false; // portamento on/off (CC 65)
 ChorusMode gChorusMode
-    = ChorusMode::I_II;      // default: Juno I+II (maximum stereo spread)
-float   gSpace       = 1.0f; // stereo width: 0.0 = mono, 1.0 = full stereo
-uint8_t gMidiChannel = 0;    // 0 = omni, 1–16 = specific MIDI channel
+    = ChorusMode::I_II; // default: Juno I+II (maximum stereo spread)
+float gSpace = 1.0f;    // stereo width: 0.0 = mono, 1.0 = full stereo
 // M62 — knob takeover. SCALE (soft pickup) by default: a knob moved after the
 // web/MIDI changed a parameter steers it proportionally toward the end of
 // travel, so there is neither an audible jump nor a dead knob.

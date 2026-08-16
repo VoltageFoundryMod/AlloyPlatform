@@ -24,7 +24,7 @@
     "encoding rather than a plain range."
   ],
   "$comment_includes": "Headers the generated C++ table needs for its `target` lvalues and any `symbol` bounds.",
-  "ts_output": "../../web-configurator/src/lib/paramMap.ts",
+  "ts_output": "../../web-configurator/src/lib/paramMapAlloyFlux.ts",
   "cpp_includes": [
     "params.h",
     "dsp/ReverbEngine.h",

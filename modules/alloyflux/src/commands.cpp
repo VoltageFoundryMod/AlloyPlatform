@@ -1,5 +1,6 @@
 #include "io/commands.h"
-#include "config_store.h"
+#include "alloy_config.h"
+#include "config_store.h" // platform: save/load/reset
 #include "dsp/CurveEngine.h"
 #include "dsp/DelayEngine.h" // DELAY_MAX_MS
 #include "dsp/FilterEngine.h"
@@ -7,6 +8,7 @@
 #include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
+#include "io/usb_midi.h" // gMidiChannel
 #include "params.h"
 #include "scale_quantizer.h"
 #include <Arduino.h>
@@ -1394,40 +1396,5 @@ const uint8_t kCommandCount
 // Public API
 // ---------------------------------------------------------------------------
 
-void commands_printHelp(Print &out)
-{
-    out.println(F("Commands:"));
-    for(uint8_t i = 0; i < kCommandCount; i++)
-    {
-        out.print(F("  "));
-        out.print(kCommands[i].name);
-        out.print(' ');
-        out.println(kCommands[i].help);
-    }
-}
-
 static void cmd_help(const char * /*args*/, Print &out)
 { commands_printHelp(out); }
-
-void commands_dispatch(const char *cmd, Print &out)
-{
-    // Skip leading whitespace
-    while(*cmd == ' ')
-        cmd++;
-
-    for(uint8_t i = 0; i < kCommandCount; i++)
-    {
-        const char  *name = kCommands[i].name;
-        const size_t nlen = strlen(name);
-        if(strncmp(cmd, name, nlen) == 0
-           && (cmd[nlen] == ' ' || cmd[nlen] == '\0'))
-        {
-            const char *args = (cmd[nlen] == ' ') ? cmd + nlen + 1 : "";
-            kCommands[i].handler(args, out);
-            return;
-        }
-    }
-    out.print(F("unknown: "));
-    out.println(cmd);
-    commands_printHelp(out);
-}

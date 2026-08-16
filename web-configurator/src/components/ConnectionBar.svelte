@@ -3,6 +3,7 @@
    * ConnectionBar — shows MIDI + Serial connection status and port selectors.
    */
   import { onMount } from "svelte";
+  import { ACTIVE_MODULE } from "../lib/activeModule";
   import { midi } from "../lib/midi";
   import { serial } from "../lib/serial";
 
@@ -24,7 +25,20 @@
 
 <header class="connection-bar">
   <img src="/AlloyFlux_Logo.svg" alt="Logo" class="logo-img" width="50px" />
-  <div class="conn-title">Alloy Flux Web Configurator</div>
+  <!-- The module is a build-time choice (VITE_MODULE), and a mismatched build
+       fails closed — it simply will not connect rather than showing the wrong
+       controls. Naming it here is what turns that from a puzzle into a
+       one-glance check. -->
+  <div class="conn-title">{ACTIVE_MODULE.name} Web Configurator</div>
+  <span class="module-badge" title="Build target: VITE_MODULE={ACTIVE_MODULE.id}
+SysEx signature: {ACTIVE_MODULE.sysexDev
+      .map((b) => b.toString(16).toUpperCase())
+      .join(' ')}
+
+Selected when the page is built (make web MODULE={ACTIVE_MODULE.id}).
+A build for one module will not connect to another.">
+    {ACTIVE_MODULE.name}
+  </span>
   <!-- MIDI -->
   <div class="conn-section">
     <span class="conn-label">MIDI</span>
@@ -104,6 +118,21 @@
     text-transform: uppercase;
     color: #888;
     min-width: 3rem;
+  }
+  /* Deliberately loud. It marks which firmware this page can talk to at all,
+     so it has to survive a glance rather than blend into the bar. */
+  .module-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid #4a7fb5;
+    background: #1b2c3e;
+    color: #8fc0f0;
+    white-space: nowrap;
+    cursor: help;
   }
   .conn-label {
     font-size: 0.75rem;

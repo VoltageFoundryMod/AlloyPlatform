@@ -2,7 +2,16 @@
 #ifndef DSYSP_REVERBSC_H
 #define DSYSP_REVERBSC_H
 
-#define DSY_REVERBSC_MAX_SIZE 98936
+// LOCAL PATCH. Now a count of FLOATS, which is what it was always used as —
+// see the units bug fixed in reverbsc.cpp's Init(). The eight delay lines need
+// 24 726 samples at 48 kHz (2543 + 2842 + 3325 + 3605 + 3977 + 4202 + 2251 +
+// 1981, from DelayLineMaxSamples), so this leaves a little headroom without
+// paying for the 4x that the byte/float mix-up used to demand.
+//
+// It scales with sample rate: raising the rate past ~48.1 kHz overflows, and
+// Init() now returns 1 rather than running off the end of aux_. Raise this if
+// a module ever runs the reverb faster.
+#define DSY_REVERBSC_MAX_SIZE 24800
 
 namespace daisysp
 {

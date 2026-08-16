@@ -1,3 +1,4 @@
+import { SYSEX_MFR, SYSEX_DEVA, SYSEX_DEVF } from "./patchSync";
 /**
  * MIDI connection layer — Web MIDI API wrapper.
  *
@@ -210,7 +211,7 @@ function createMidi() {
   function sendSysEx(cmd: number, payload: number[]): void {
     // Full message: F0 7D 41 46 <cmd> [payload] F7
     sendRaw(
-      new Uint8Array([0xf0, 0x7d, 0x41, 0x46, cmd & 0x7f, ...payload, 0xf7]),
+      new Uint8Array([0xf0, SYSEX_MFR, SYSEX_DEVA, SYSEX_DEVF, cmd & 0x7f, ...payload, 0xf7]),
     );
   }
 

@@ -48,7 +48,8 @@ def gen_cpp(spec, src):
         addr = f"const_cast<float *>(&{target})" if p.get("volatile") else f"&{target}"
         out.append(
             "    {{ {cc:3}, {name:<16}, {label:<26}, {cat:<14}, "
-            "{mn:>22}, {mx:>26}, {df:>10}, {scale:<16}, {unit:<6}, {addr} }},\n".format(
+            "{mn:>22}, {mx:>26}, {df:>10}, {scale:<16}, {unit:<6}, {addr}, "
+            "{skew} }},\n".format(
                 cc=p["cc"],
                 name=cstr(p["name"]),
                 label=cstr(p["label"]),
@@ -59,6 +60,7 @@ def gen_cpp(spec, src):
                 scale="ParamScale::Log" if p.get("scale") == "log" else "ParamScale::Linear",
                 unit=cstr(p.get("unit", "")),
                 addr=addr,
+                skew=fmt_float(p.get("skew", 1.0)),
             )
         )
     out.append("};\n")
@@ -86,6 +88,19 @@ def gen_cpp(spec, src):
                 )
             )
         out.append("};\n")
+    if not enums:
+        # A module may have no discrete parameters at all. `T x[] = {}` is a
+        # GCC extension, not ISO C++, so emit a null pointer instead — the
+        # consuming code only ever indexes it under `i < count`, and count is
+        # zero. Same shape as the array case, so nothing downstream branches.
+        out.append(
+            "\n// No discrete parameters in this module.\n"
+            "static const EnumParamDescriptor *const kEnumManifest = nullptr;\n"
+        )
+        out.append("// clang-format on\n\n")
+        out.append("static const uint8_t kEnumManifestCount = 0;\n")
+        return "".join(out)
+
     out.append("\nstatic const EnumParamDescriptor kEnumManifest[] = {\n")
     for p in enums:
         out.append(
@@ -157,6 +172,8 @@ def gen_ts(spec, src):
                 out.append(f'    unit: "{d["unit"]}",\n')
             if d.get("scale") == "log":
                 out.append('    scale: "log",\n')
+            if d.get("skew") is not None and float(d["skew"]) != 1.0:
+                out.append(f'    skew: {num(d["skew"])},\n')
             if d.get("step") is not None:
                 out.append(f'    step: {d["step"]},\n')
             if d.get("ccRange"):

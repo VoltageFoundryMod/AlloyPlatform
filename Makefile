@@ -238,19 +238,30 @@ endif
 # flashed board.
 .PHONY: audrey-host audrey-host-clean
 
-AUDREY_BIN  := $(BUILD_TMP)/audrey_host$(EXE)
+AUDREY_BIN := $(BUILD_TMP)/audrey_host$(EXE)
+
+# The three engine sources, named rather than globbed. modules/audrey/src/ also
+# holds the firmware integration (main, hooks, commands, config, param_map),
+# which needs Arduino and the platform headers and has no business in a host
+# build — this harness exercises the DSP, not the module.
 AUDREY_SRCS := modules/audrey/test/host_build.cpp \
-               $(wildcard modules/audrey/src/*.cpp) \
+               modules/audrey/src/FeedbackSynthEngine.cpp \
+               modules/audrey/src/KarplusString.cpp \
+               modules/audrey/src/BiquadFilters.cpp \
                vendor/daisysp/dcblock.cpp \
                vendor/daisysp/tone.cpp \
                vendor/daisysp/crossfade.cpp \
                vendor/daisysp/overdrive.cpp \
                vendor/daisysp/reverbsc.cpp
 
+# HOST_EXTRA passes build switches through, which is how the size/quality
+# trade-offs get compared rather than argued about:
+#   make audrey-host HOST_EXTRA="-DAUDREY_ECHO_MAX_S=3"
+#   make audrey-host HOST_EXTRA="-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0"
 audrey-host:
 	@mkdir -p $(BUILD_TMP)
 	$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
-	  -Ivendor/daisysp -Imodules/audrey/include \
+	  -Ivendor/daisysp -Imodules/audrey/include $(HOST_EXTRA) \
 	  $(AUDREY_SRCS) -o $(AUDREY_BIN)
 	@$(AUDREY_BIN)
 
@@ -297,11 +308,13 @@ $(WEB)/node_modules:
 web-deps:
 	cd $(WEB) && $(NPM) install
 
+# MODULE selects which module''s parameter map and SysEx signature the build
+# targets — `make web MODULE=audrey`. See web-configurator/src/lib/activeModule.ts.
 web: $(WEB)/node_modules
-	cd $(WEB) && $(NPM) run build
+	cd $(WEB) && VITE_MODULE=$(MODULE) $(NPM) run build
 
 web-dev: $(WEB)/node_modules
-	cd $(WEB) && $(NPM) run dev
+	cd $(WEB) && VITE_MODULE=$(MODULE) $(NPM) run dev
 
 web-check: $(WEB)/node_modules
 	cd $(WEB) && $(NPM) run check
