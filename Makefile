@@ -73,7 +73,7 @@ endif
 # means one clear message instead of plugin.mk's "SLUG could not be found in
 # manifest", which names neither the missing tool nor the wrong shell.
 ifdef WINDOWS
-ifneq ($(filter vcv vcv-% everything,$(or $(MAKECMDGOALS),all)),)
+ifneq ($(filter vcv vcv-% audrey-host everything,$(or $(MAKECMDGOALS),all)),)
   WIN_MISSING :=
   ifeq ($(WIN_SH),)
     WIN_MISSING += msys2($(MSYS)/usr/bin/sh.exe)
@@ -101,6 +101,19 @@ endif
 endif
 
 PIO ?= pio
+
+# Host C++ compiler, used only by `make audrey-host`. On Windows the reliable
+# one is msys2's — the same requirement the Rack plugin already has — so reuse
+# the path probed above rather than hoping g++ is on PATH.
+ifdef WINDOWS
+  HOST_CXX ?= $(if $(WIN_GXX),$(WIN_GXX),g++)
+  EXE      := .exe
+else
+  HOST_CXX ?= g++
+  EXE      :=
+endif
+BUILD_TMP ?= .build
+
 # Only needed by `make params`; PlatformIO ships one, so fall back to that
 # rather than requiring a system Python.
 PYTHON ?= $(if $(shell command -v python 2>/dev/null),python,$(HOME)/.platformio/penv/Scripts/python.exe)
@@ -213,10 +226,41 @@ else
 	$(PIO) test -e $(ENV)
 endif
 
+# ── Audrey engine, host build ────────────────────────────────────────────────
+# Compiles the vendored Audrey engine (M63e) against nothing but the vendored
+# DaisySP subset and the standard library — no Daisy headers, no SDRAM
+# allocator, no heap. Then runs it for 10 s at maximum feedback and echo
+# feedback above unity, checking for NaN, silence and DC drift, and prints the
+# static footprint of each big member.
+#
+# That footprint is the point: it is what decides whether the engine can fit a
+# 520 KB RP2350 at all, and it costs nothing to learn here rather than on a
+# flashed board.
+.PHONY: audrey-host audrey-host-clean
+
+AUDREY_BIN  := $(BUILD_TMP)/audrey_host$(EXE)
+AUDREY_SRCS := modules/audrey/test/host_build.cpp \
+               $(wildcard modules/audrey/src/*.cpp) \
+               vendor/daisysp/dcblock.cpp \
+               vendor/daisysp/tone.cpp \
+               vendor/daisysp/crossfade.cpp \
+               vendor/daisysp/overdrive.cpp \
+               vendor/daisysp/reverbsc.cpp
+
+audrey-host:
+	@mkdir -p $(BUILD_TMP)
+	$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
+	  -Ivendor/daisysp -Imodules/audrey/include \
+	  $(AUDREY_SRCS) -o $(AUDREY_BIN)
+	@$(AUDREY_BIN)
+
+audrey-host-clean:
+	rm -f $(AUDREY_BIN)
+
 # ── VCV Rack plugin ──────────────────────────────────────────────────────────
 # PlatformIO does NOT compile vcv-plugin/, so `make firmware` passing says
-# nothing about the Rack port. Any edit under common/include/ or
-# common/src/SynthEngine.cpp has to be checked here too.
+# nothing about the Rack port. Any edit under modules/alloyflux/ or
+# platform/include/ has to be checked here too.
 #
 # install / dist come from Rack's plugin.mk, which vcv-plugin/Makefile includes.
 .PHONY: vcv vcv-install vcv-dist vcv-clean print-plugins-dir
@@ -279,8 +323,14 @@ CLANG_FORMAT ?= $(firstword \
 # --others --exclude-standard so a newly added file is covered before its first
 # commit; plain `git ls-files` sees only tracked files and would silently skip
 # it. Ignored paths (.pio/, node_modules/) stay excluded either way.
+#
+# Vendored trees are excluded on purpose. Both carry a recorded upstream commit
+# and are expected to be re-vendored against a newer one; restyling them would
+# turn every future diff against upstream into noise and bury the handful of
+# lines we actually changed. Their own style is upstream's business.
 FORMAT_FILES = git ls-files --cached --others --exclude-standard \
-    "*.h" "*.hpp" "*.c" "*.cc" "*.cpp"
+    "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" \
+    ":(exclude)vendor/" ":(exclude)modules/audrey/"
 
 .PHONY: format format-check
 

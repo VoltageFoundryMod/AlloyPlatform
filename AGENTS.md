@@ -26,6 +26,7 @@ lists every target.
 | Web        | `make web`               | production build into `web-configurator/dist`                          |
 |            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc     |
 | Everything | `make everything`        | firmware + VCV + web                                                   |
+| Audrey     | `make audrey-host`       | host-compiles + runs the vendored Audrey engine; prints its footprint  |
 | Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate |
 
 `RACK_DIR` defaults to a `Rack-SDK` checkout beside this repository. Override it
@@ -40,6 +41,8 @@ session itself.
 
 Always run `make everything` after changing shared headers under `platform/include/` or `modules/alloyflux/include/`
 to confirm no regressions on either platform.
+
+**Vendored trees** — [`vendor/daisysp/`](vendor/daisysp/) and [`modules/audrey/`](modules/audrey/) — each carry a recorded upstream commit in their README and are excluded from `make format`. Don't restyle them; record any local patch in the README so re-vendoring stays a matter of re-applying a known list.
 
 ---
 
