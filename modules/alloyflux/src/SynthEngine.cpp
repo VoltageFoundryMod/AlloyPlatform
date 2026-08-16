@@ -23,13 +23,11 @@ SynthEngine::SynthEngine()
 { reverb = &_dattorroReverb; }
 
 // ---------------------------------------------------------------------------
-// Global instance
-// ---------------------------------------------------------------------------
-SynthEngine gSynthEngine;
-
-// ---------------------------------------------------------------------------
 // Global pointer/array definitions that params.h declares extern.
-// These point into gSynthEngine's concrete member objects; set in init().
+//
+// These point into whichever SynthEngine instance called init() — the firmware
+// keeps one in main.cpp, VCV keeps one per Module — so they are "the running
+// engine's", not any particular object's.  Set in init().
 // ---------------------------------------------------------------------------
 FilterEngine   *gFilterInst = nullptr;
 EnvelopeEngine *gCurveEng   = nullptr;

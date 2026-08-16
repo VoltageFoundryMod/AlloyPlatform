@@ -23,10 +23,10 @@
 // ---------------------------------------------------------------------------
 // Audio configuration
 //
-// Firmware-local on purpose: nothing under common/ may depend on these.  The
-// sample rate is a property of the module, not of the platform, and a shared
-// header hardcoding one rate would defeat that.  SynthEngine takes both rates
-// as init() arguments.
+// Module-local on purpose: nothing under platform/ may depend on these.  The
+// sample rate is a property of the module — it is what lets Audrey run at a
+// different one — and a shared header hardcoding a value would defeat that.
+// SynthEngine takes both rates as init() arguments.
 //
 // 48 kHz is exactly representable at the default 150 MHz system clock: the bit
 // clock is 48000 × 32 bits × 2 channels = 3.072 MHz, and 150/3.072 = 48.828125,
@@ -69,7 +69,7 @@ static constexpr uint8_t kPinI2sData = 18u;
 // ---------------------------------------------------------------------------
 // Module includes
 // ---------------------------------------------------------------------------
-#include "SynthEngine.h" // M37b: SynthParams, SynthEngine, gSynthEngine
+#include "SynthEngine.h" // M37b: SynthParams, SynthEngine
 #include "debug.h"
 #include "dsp/CurveEngine.h"
 #include "dsp/DattorroReverb.h"
@@ -127,6 +127,10 @@ uint32_t sTrigReleaseAt = 0;
 // Poly voice slot claimed by a trig pulse; 255 = not set (non-poly or no active trig).
 uint8_t sTrigPolySlot = 255;
 
+// The firmware's engine instance.  File-scope, not a shared global: nothing
+// outside this file needs to know the engine exists (M63d).
+static SynthEngine gSynthEngine;
+
 // Button engines (Milestone 31) — polled at 128 Hz in updateControl().
 static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
 static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
@@ -136,6 +140,33 @@ static HardwarePicoIO sHardwareIO(gBtnMode, gBtnShift);
 // which has no visibility of sHardwareIO).
 void potsReattach()
 { sHardwareIO.reattachPots(); }
+
+// M63d — the one entry point into the engine for anything that starts a note.
+// Declared in params.h; defined here because this is where the engine lives.
+// usb_midi.cpp and commands.cpp used to hold identical copies of this allocator
+// and each reached into gSynthEngine directly to finish the job.
+uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag)
+{
+    uint8_t slot = 255;
+    for(uint8_t i = 0; i < 6; i++)
+    {
+        const uint8_t idx = (sPolyRR + i) % 6;
+        if(sPolySlots[idx].midiNote == 255)
+        {
+            slot = idx;
+            break;
+        }
+    }
+    if(slot == 255)
+        slot = sPolyRR % 6; // all busy — steal the oldest
+    sPolyRR = (sPolyRR + 1) % 6;
+
+    sPolySlots[slot].freq     = freq;
+    sPolySlots[slot].velocity = velocity;
+    sPolySlots[slot].midiNote = noteTag;
+    gSynthEngine.polyRetrigger(slot, freq, subMult);
+    return slot;
+}
 // M30/M37k — LED language. Platform-independent colour logic shared with the
 // VCV build; writeTo() pushes the result through sHardwareIO, which shifts it
 // out to the APA102 chain on GP6/GP7.
@@ -232,7 +263,7 @@ static volatile bool       sCore0Ready = false;
 static volatile AudioState sAudioState = kAudioStarting;
 
 void updateControl();
-void renderAudio(int32_t *outL, int32_t *outR);
+void renderAudio(float *outL, float *outR);
 
 void setup()
 {
@@ -489,14 +520,13 @@ void updateControl()
             else if(gSynthEngine.curveEng)
                 sig.envLevel = gSynthEngine.curveEng->level();
 
-            constexpr float kPeakNorm = 1.0f / 32512.0f;
-            sig.peakL                 = (float)gLedPeakL * kPeakNorm;
-            sig.peakR                 = (float)gLedPeakR * kPeakNorm;
-            gLedPeakL                 = 0;
-            gLedPeakR                 = 0;
-            sig.droneMode             = !p.gatePatched;
-            sig.shiftHeld             = gBtnShift.isDown();
-            sig.gateHigh              = p.gateHigh;
+            sig.peakL     = (float)gLedPeakL * kSignalToFloat;
+            sig.peakR     = (float)gLedPeakR * kSignalToFloat;
+            gLedPeakL     = 0;
+            gLedPeakR     = 0;
+            sig.droneMode = !p.gatePatched;
+            sig.shiftHeld = gBtnShift.isDown();
+            sig.gateHigh  = p.gateHigh;
 
             sLedEngine.update(p, sig, 1.0f / (float)kControlRate);
             sLedEngine.writeTo(sHardwareIO);
@@ -557,7 +587,7 @@ void updateControl()
 // Thin audio render: delegates all DSP to SynthEngine and closes the reverb
 // loop.  Called kBlockFrames times per block by AudioDriver::pump() on Core 1.
 void __attribute__((section(".time_critical.renderAudio")))
-renderAudio(int32_t *pOutL, int32_t *pOutR)
+renderAudio(float *pOutL, float *pOutR)
 {
 #ifdef AUDIO_TEST_TONE
     // Bring-up aid: 1 kHz sine straight out of the driver, bypassing the
@@ -569,7 +599,7 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
         static float    sPhase = 0.0f;
         constexpr float kTwoPi = 6.28318530718f;
         constexpr float kInc   = kTwoPi * 1000.0f / (float)kAudioRate;
-        const int32_t   s = (int32_t)(sinf(sPhase) * 16000.0f); // ~ -6 dBFS
+        const float     s      = sinf(sPhase) * 0.5f; // −6 dBFS
         sPhase += kInc;
         if(sPhase >= kTwoPi)
             sPhase -= kTwoPi;
@@ -592,10 +622,11 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
     int32_t        revWetL = 0, revWetR = 0;
     if(revOn)
     {
-        constexpr float kNorm = 1.0f / 32512.0f;
-        float           wL, wR;
-        gSynthEngine.reverb->process(
-            (float)sRevPrevDryL * kNorm, (float)sRevPrevDryR * kNorm, &wL, &wR);
+        float wL, wR;
+        gSynthEngine.reverb->process((float)sRevPrevDryL * kSignalToFloat,
+                                     (float)sRevPrevDryR * kSignalToFloat,
+                                     &wL,
+                                     &wR);
         // Clamp before scaling back — algorithmic edge cases can spike past
         // unity and wrapping the int conversion sounds like a gunshot.
         if(wL > 1.0f)
@@ -606,8 +637,8 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
             wR = 1.0f;
         else if(wR < -1.0f)
             wR = -1.0f;
-        revWetL = (int32_t)(wL * 32512.0f);
-        revWetR = (int32_t)(wR * 32512.0f);
+        revWetL = (int32_t)(wL * kFloatToSignal);
+        revWetR = (int32_t)(wR * kFloatToSignal);
     }
 
     int32_t outL, outR, dryL, dryR;
@@ -630,8 +661,11 @@ renderAudio(int32_t *pOutL, int32_t *pOutR)
             gLedPeakR = aR;
     }
 
-    *pOutL = outL;
-    *pOutR = outR;
+    // The module's edge: internal signal convention → the platform's float
+    // ±1.0.  kSignalFullScale maps to 1.0, so this is 0.07 dB louder than the
+    // pre-M63d path, which mapped it to 32512/32767 of full scale.
+    *pOutL = (float)outL * kSignalToFloat;
+    *pOutR = (float)outR * kSignalToFloat;
 }
 
 // Core 0's loop — control only.  The audio clock paces it: pump() bumps a

@@ -179,3 +179,24 @@ extern uint8_t sActiveNote;
 // setCurve() called in updateControl(); next() called in renderAudio().
 // EnvelopeEngine forward-declared above; concrete type AREnvelope<>.
 extern EnvelopeEngine *sPolyEnvs[6]; // pointers so ISR can call virtual next()
+
+/**
+ * Claim a POLY voice slot and start a note on it.  Implemented in main.cpp,
+ * which owns the engine instance.
+ *
+ * This is the seam that keeps the engine out of the generic mechanisms: both
+ * MIDI Note On and the `trig` console command need a voice, and neither should
+ * have to know what a SynthEngine is — or duplicate the allocator, which is
+ * what they did before.
+ *
+ * Picks the first free slot from the round-robin cursor, stealing the oldest
+ * when all six are busy.
+ *
+ * @param freq     voice frequency in Hz
+ * @param velocity 0.0–1.0 output scale
+ * @param subMult  sub-oscillator multiplier (0.5 = −1 oct, 0.25 = −2 oct)
+ * @param noteTag  MIDI note number, for Note Off matching; 254 = owned by a
+ *                 trig pulse rather than a held note; 255 is reserved for free
+ * @return the slot claimed, 0–5
+ */
+uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag);

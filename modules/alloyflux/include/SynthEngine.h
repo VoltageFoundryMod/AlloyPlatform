@@ -18,6 +18,20 @@
 #include "params.h" // PolySlot, EnvelopeType, FilterType, FilterMode, ChorusMode
 
 // ---------------------------------------------------------------------------
+// AlloyFlux's internal signal convention.
+//
+// int32 with ±kSignalFullScale as nominal full scale — chosen long before the
+// platform existed and voiced by ear against it, so it stays.  It is a *module*
+// convention, not a platform one: the platform's audio boundary is float ±1.0
+// and Rack's is volts, and the conversion happens once, at the module's own
+// edge, in a single multiply per sample.  Nothing outside this module should
+// ever see a ±32512 integer.
+// ---------------------------------------------------------------------------
+static constexpr int32_t kSignalFullScale = 32512;
+static constexpr float   kSignalToFloat   = 1.0f / (float)kSignalFullScale;
+static constexpr float   kFloatToSignal   = (float)kSignalFullScale;
+
+// ---------------------------------------------------------------------------
 // SynthParams — snapshot of all goal parameters for one control cycle.
 //
 // The hardware shim in main.cpp populates this struct from the gXxx globals
@@ -85,10 +99,10 @@ struct SynthControlOutput
 // SynthEngine — owns all synthesis DSP state.
 //
 // Lifecycle:
-//   1. Create global instance: SynthEngine gSynthEngine;
-//   2. Call gSynthEngine.init(audioRate, controlRate) once at startup.
-//   3. Each control tick: gSynthEngine.control(params, polySlots, output)
-//   4. Each audio sample: gSynthEngine.audio(...)
+//   1. Create an instance — the platform owns it, there is no singleton.
+//   2. Call init(audioRate, controlRate) once at startup.
+//   3. Each control tick: control(params, polySlots, output)
+//   4. Each audio sample: audio(...)
 //
 // Audio signal range is kept as int32_t ±32512 throughout; float conversion
 // happens only at the output boundary.
@@ -324,7 +338,7 @@ class SynthEngine
         = 3.0f * (2048.0f * 65536.0f) / (2.0f * 3.14159265f * 32512.0f);
 };
 
-// Global instance — defined in SynthEngine.cpp; used by main.cpp, commands.cpp,
-// usb_midi.cpp (via the sPolySlots / gCurveEng / gFilterInst globals that are
-// now defined in SynthEngine.cpp and point into this instance).
-extern SynthEngine gSynthEngine;
+// No global instance.  Each platform owns its own: the firmware keeps one file-
+// scope object in main.cpp, VCV keeps one per Module (so two AlloyFlux modules
+// in a rack do not share DSP state).  Code that needs to start a note without
+// knowing about the engine calls polyNoteOn() — see params.h.

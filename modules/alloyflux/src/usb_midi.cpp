@@ -1,7 +1,6 @@
 #ifdef USE_TINYUSB
 
 #include "io/usb_midi.h"
-#include "SynthEngine.h"
 #include "config_store.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/ReverbEngine.h"
@@ -165,37 +164,14 @@ static void onNoteOn(byte channel, byte note, byte velocity)
 
     if(gVoiceMode == VoiceMode::POLY)
     {
-        // POLY voice allocation: search for a free slot starting at sPolyRR so
-        // voices are assigned in rotation (same as CV/gate path).  If all busy,
-        // steal the round-robin next slot.
-        uint8_t slot = 255;
-        for(uint8_t i = 0; i < 6; i++)
-        {
-            uint8_t idx = (sPolyRR + i) % 6;
-            if(sPolySlots[idx].midiNote == 255)
-            {
-                slot = idx;
-                break;
-            }
-        }
-        if(slot == 255)
-        {
-            // All slots occupied — steal round-robin
-            slot = sPolyRR % 6;
-        }
-        sPolyRR          = (sPolyRR + 1) % 6;
         const float freq = constrain(
             midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)),
             20.0f,
             8000.0f);
-        sPolySlots[slot].freq = freq;
-        sPolySlots[slot].velocity
-            = gVelocitySensitive ? (velocity / 127.0f) : 1.0f;
-        sPolySlots[slot].midiNote = note;
         // subMult depends on voice sub-octave param — use 0.5 (default, -1 oct)
         // as a safe approximation; control() will correct the sub freq next tick.
-        const float subMult = 0.5f;
-        gSynthEngine.polyRetrigger(slot, freq, subMult);
+        polyNoteOn(
+            freq, gVelocitySensitive ? (velocity / 127.0f) : 1.0f, 0.5f, note);
         return;
     }
 

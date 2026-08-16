@@ -113,9 +113,10 @@ struct AlloyFlux : Module
 
     // 7 RGB LEDs — three consecutive Rack light indices each (R, G, B).
     // Panel order and roles mirror the hardware designators; see LedId in
-    // common/include/io/LedEngine.h.
+    // io/LedEngine.h.
     // NOTE: this unscoped enum shadows the global ::LightId from HardwareIO.h
-    // inside this struct — qualify that one as ::LightId::X when registering.
+    // inside this struct.  Registration uses the Led:: names from PanelMap.h,
+    // which are typed ::LightId constants and so are unaffected.
     enum LightId
     {
         LED1_R_LIGHT, // D12 top left     — ROOT voice activity
@@ -245,42 +246,42 @@ struct AlloyFlux : Module
         configOutput(R_OUTPUT, "Right");
 
         // IO mappings — primary knobs (ROOT normalised via [-4,4] → 0–1)
-        _io.assignPot(PotId::ROOT, ROOT_PARAM, -4.0f, 4.0f);
-        _io.assignPot(PotId::RELATION, RELATION_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::SHAPE, SHAPE_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::MOTION, MOTION_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::COLOR, COLOR_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::CURVE, CURVE_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::SPACE, SPACE_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::DELAY, DELAY_MIX_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::REVERB, REV_MIX_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::ROOT, ROOT_PARAM, -4.0f, 4.0f);
+        _io.assignPot(Pot::RELATION, RELATION_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::SHAPE, SHAPE_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::MOTION, MOTION_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::COLOR, COLOR_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::CURVE, CURVE_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::SPACE, SPACE_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::DELAY, DELAY_MIX_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::REVERB, REV_MIX_PARAM, 0.0f, 1.0f);
         // IO mappings — secondary (context menu)
-        _io.assignPot(PotId::FATNESS, FATNESS_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::DRIFTSPEED, DRIFTSPEED_PARAM, 0.0f, 1.0f);
-        _io.assignPot(PotId::CURVETIME, CURVETIME_PARAM, 0.25f, 4.0f);
-        _io.assignPot(PotId::VOL, VOL_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::FATNESS, FATNESS_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::DRIFTSPEED, DRIFTSPEED_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::CURVETIME, CURVETIME_PARAM, 0.25f, 4.0f);
+        _io.assignPot(Pot::VOL, VOL_PARAM, 0.0f, 1.0f);
         _io.assignPot(
-            PotId::DELAYTIME, DELAY_TIME_PARAM, 10.0f, (float)DELAY_MAX_MS);
-        _io.assignPot(PotId::REVERBSIZE, REV_SIZE_PARAM, 0.0f, 1.0f);
+            Pot::DELAYTIME, DELAY_TIME_PARAM, 10.0f, (float)DELAY_MAX_MS);
+        _io.assignPot(Pot::REVERBSIZE, REV_SIZE_PARAM, 0.0f, 1.0f);
 
         // IO mappings — CV jacks
-        _io.assignCV(CVId::VOCT, VOCT_INPUT);
-        _io.assignCV(CVId::GATE, GATE_INPUT);
-        _io.assignCV(CVId::REL_CV, REL_CV_INPUT);
-        _io.assignCV(CVId::SHP_CV, SHP_CV_INPUT);
-        _io.assignCV(CVId::MTN_CV, MTN_CV_INPUT);
-        _io.assignCV(CVId::SPC_CV, SPC_CV_INPUT);
-        _io.assignCV(CVId::FM_IN, FM_IN_INPUT);
+        _io.assignCV(Cv::VOCT, VOCT_INPUT);
+        _io.assignCV(Cv::GATE, GATE_INPUT);
+        _io.assignCV(Cv::RELATION, REL_CV_INPUT);
+        _io.assignCV(Cv::SHAPE, SHP_CV_INPUT);
+        _io.assignCV(Cv::MOTION, MTN_CV_INPUT);
+        _io.assignCV(Cv::SPACE, SPC_CV_INPUT);
+        _io.assignCV(Cv::FM, FM_IN_INPUT);
 
         // IO mappings — LEDs (RGB triplets; base index = red channel).
         // ::LightId is the shared enum from HardwareIO.h, not this struct's.
-        _io.assignLight(::LightId::VOICE_L, LED1_R_LIGHT);
-        _io.assignLight(::LightId::VOICE_R, LED7_R_LIGHT);
-        _io.assignLight(::LightId::MOD_L, LED2_R_LIGHT);
-        _io.assignLight(::LightId::MOD_R, LED6_R_LIGHT);
-        _io.assignLight(::LightId::MODE, LED3_R_LIGHT);
-        _io.assignLight(::LightId::SHIFT, LED5_R_LIGHT);
-        _io.assignLight(::LightId::CENTRE, LED4_R_LIGHT);
+        _io.assignLight(Led::VOICE_L, LED1_R_LIGHT);
+        _io.assignLight(Led::VOICE_R, LED7_R_LIGHT);
+        _io.assignLight(Led::MOD_L, LED2_R_LIGHT);
+        _io.assignLight(Led::MOD_R, LED6_R_LIGHT);
+        _io.assignLight(Led::MODE, LED3_R_LIGHT);
+        _io.assignLight(Led::SHIFT, LED5_R_LIGHT);
+        _io.assignLight(Led::CENTRE, LED4_R_LIGHT);
 
         configLight(LED1_R_LIGHT, "Voice activity (root / left)");
         configLight(LED7_R_LIGHT, "Voice activity (relation / right)");
@@ -293,8 +294,8 @@ struct AlloyFlux : Module
         // Buttons
         configButton(MODE_PARAM, "Mode");
         configButton(SHIFT_PARAM, "Drone mode");
-        _io.assignButton(ButtonId::MODE, MODE_PARAM);
-        _io.assignButton(ButtonId::SHIFT, SHIFT_PARAM);
+        _io.assignButton(Btn::MODE, MODE_PARAM);
+        _io.assignButton(Btn::SHIFT, SHIFT_PARAM);
 
         // M37g — Envelope (hidden)
         configSwitch(
@@ -1026,8 +1027,8 @@ struct AlloyFlux : Module
         // ---------------------------------------------------------------
         // Button edge detection
         // ---------------------------------------------------------------
-        bool modeDown  = _io.readButton(ButtonId::MODE);
-        bool shiftDown = _io.readButton(ButtonId::SHIFT);
+        bool modeDown  = _io.readButton(Btn::MODE);
+        bool shiftDown = _io.readButton(Btn::SHIFT);
 
         // MODE + SHIFT held → also exits drone mode (hardware combo parity)
         if(modeDown && shiftDown)
@@ -1223,7 +1224,7 @@ struct AlloyFlux : Module
         // M37m — portamento/glide, sub-octave, reverb freeze, velocity sensitivity
         _params.glideEnabled = params[GLIDE_ENABLE_PARAM].getValue() >= 0.5f;
         _params.glideTime    = params[GLIDE_TIME_PARAM].getValue();
-        // curveTime now arrives from PotId::CURVETIME via fillSynthParams() —
+        // curveTime now arrives from Pot::CURVETIME via fillSynthParams() —
         // SHIFT+CURVE on hardware, the same path DELAY/REVERB took in M56.
         _params.subOctave = params[SUB_OCTAVE_PARAM].getValue() >= 0.5f ? 2 : 1;
         _params.revFrozen = params[REV_FROZEN_PARAM].getValue() >= 0.5f;
@@ -1288,10 +1289,9 @@ struct AlloyFlux : Module
         int32_t revWetL = 0, revWetR = 0;
         if(_params.revEnabled)
         {
-            constexpr float kNorm = 1.0f / 32512.0f;
-            float           wetL, wetR;
-            _engine.reverb->process((float)_prevDryL * kNorm,
-                                    (float)_prevDryR * kNorm,
+            float wetL, wetR;
+            _engine.reverb->process((float)_prevDryL * kSignalToFloat,
+                                    (float)_prevDryR * kSignalToFloat,
                                     &wetL,
                                     &wetR);
             // Clamp before scaling back — algorithmic edge cases can spike past
@@ -1304,8 +1304,8 @@ struct AlloyFlux : Module
                 wetR = 1.0f;
             else if(wetR < -1.0f)
                 wetR = -1.0f;
-            revWetL = (int32_t)(wetL * 32512.0f);
-            revWetR = (int32_t)(wetR * 32512.0f);
+            revWetL = (int32_t)(wetL * kFloatToSignal);
+            revWetR = (int32_t)(wetR * kFloatToSignal);
         }
 
         int32_t outL = 0, outR = 0, dryL = 0, dryR = 0;
@@ -1321,15 +1321,15 @@ struct AlloyFlux : Module
         _prevDryL = dryL;
         _prevDryR = dryR;
 
-        constexpr float kScale = 5.0f / 32512.0f;
+        // The module's edge, Rack side: internal signal convention → ±5 V.
+        constexpr float kScale = 5.0f * kSignalToFloat;
         outputs[L_OUTPUT].setVoltage((float)outL * kScale);
         outputs[R_OUTPUT].setVoltage((float)outR * kScale);
 
         // M37k: peak-hold the output between control ticks — LedEngine turns
         // this into the voice-activity / stereo-energy brightness.
-        constexpr float kNormOut = 1.0f / 32512.0f;
-        float           aL       = std::fabs((float)outL) * kNormOut;
-        float           aR       = std::fabs((float)outR) * kNormOut;
+        float aL = std::fabs((float)outL) * kSignalToFloat;
+        float aR = std::fabs((float)outR) * kSignalToFloat;
         if(aL > _ledPeakL)
             _ledPeakL = aL;
         if(aR > _ledPeakR)

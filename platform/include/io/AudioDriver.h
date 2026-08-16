@@ -41,9 +41,10 @@ class AudioDriver
     /// adding audible latency to a synth voice.
     static constexpr size_t kNumBuffers = 4;
 
-    /// Renders one stereo frame.  Values are int32 ±32512 (the existing
-    /// signal-path convention), converted to the wire format by the driver.
-    using RenderFrameFn = void (*)(int32_t *outL, int32_t *outR);
+    /// Renders one stereo frame, float, ±1.0 = full scale.  The driver owns
+    /// the conversion to the wire format from here on — a module's internal
+    /// signal representation is its own business and stops at this call.
+    using RenderFrameFn = void (*)(float *outL, float *outR);
 
     /**
      * Claims the I2S peripheral and starts the bit clock.  Call from the core
@@ -104,7 +105,7 @@ class AudioDriver
 
         for(size_t i = 0; i < kBlockFrames; ++i)
         {
-            int32_t l = 0, r = 0;
+            float l = 0.0f, r = 0.0f;
             _render(&l, &r);
             _block[i * 2u]      = toWire(l);
             _block[i * 2u + 1u] = toWire(r);
@@ -169,17 +170,16 @@ class AudioDriver
     // every zero would put a 1 LSB step on each zero crossing of a live signal.
     static constexpr int32_t kSilenceSample = 1;
 
-    /// int32 ±32512 → 16-bit sample left-aligned in a 32-bit I2S frame.
-    static inline int32_t toWire(int32_t s)
+    /// float ±1.0 → 16-bit sample left-aligned in a 32-bit I2S frame.
+    static inline int32_t toWire(float s)
     {
-        // Defensive clamp: the signal path is nominally ±32512, but effect
-        // sends and the reverb return can overshoot on transients, and wrapping
-        // a sample sounds like a gunshot.
-        if(s > 32767)
-            s = 32767;
-        else if(s < -32768)
-            s = -32768;
-        return s << 16;
+        // Defensive clamp: effect sends and reverb returns overshoot on
+        // transients, and wrapping a sample sounds like a gunshot.
+        if(s > 1.0f)
+            s = 1.0f;
+        else if(s < -1.0f)
+            s = -1.0f;
+        return (int32_t)(s * 32767.0f) << 16;
     }
 
     I2S _i2s{OUTPUT};

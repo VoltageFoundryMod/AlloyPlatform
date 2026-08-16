@@ -67,6 +67,12 @@ Key files and directories:
 - **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h)
 - **VCV** — `VCVRackIO` in [`vcv-plugin/src/VCVRackIO.h`](vcv-plugin/src/VCVRackIO.h)
 
+Its identifiers are **positional** — `PotId::POT_1`, `CVId::CV_3`, `LightId::LIGHT_5`. AlloyFlux's names for them live in [`modules/alloyflux/include/io/PanelMap.h`](modules/alloyflux/include/io/PanelMap.h) as `Pot::ROOT`, `Cv::VOCT`, `Btn::SHIFT`, `Led::CENTRE`. Use the `Pot::`/`Cv::` names in module code; never add a semantic name to the HAL. **Slot order is the flash format** — append, never insert.
+
+The platform's audio boundary is **float ±1.0**. AlloyFlux's `int32 ±kSignalFullScale` is an internal convention and converts only at its own edge (`renderAudio()` on hardware, `setVoltage()` in VCV) — see `kSignalToFloat` / `kFloatToSignal` in `SynthEngine.h`.
+
+There is **no engine singleton**. The firmware owns one `SynthEngine` at file scope in `main.cpp`; VCV owns one per `Module`. Code that needs to start a note calls `polyNoteOn()` (declared in `params.h`) rather than reaching for an engine.
+
 `#ifdef ARDUINO` guards exist in a few DSP headers for RP2350-specific timer calls; keep them when editing those files.
 
 ### Web Configurator
@@ -84,7 +90,8 @@ Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MI
 
 [`modules/alloyflux/include/config_store.h`](modules/alloyflux/include/config_store.h) defines `AlloyConfig`. Rules:
 
-- **Always bump `kConfigVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `6`.
+- **Always bump `kEngineVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `7`.
+- A slot is `{magic, engineId, engineVersion, blob[192]}` — the container belongs to the platform ([`platform/include/ConfigSlot.h`](platform/include/ConfigSlot.h)), the blob to the module. `engineId` (`0x4146` for AlloyFlux) means another module's preset in the same slot is skipped rather than reinterpreted as AlloyFlux floats.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
 - Current SRAM usage: ~359 KB of 512 KB (68.5%), flash 4.5%; check after any change that increases buffer sizes. The delay buffers alone are ~187 KB (`DELAY_MAX_MS` 500 ms sized at `DelayEngine::kNativeRate`).
 

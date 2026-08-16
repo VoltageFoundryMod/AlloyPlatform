@@ -3,78 +3,83 @@
 #include <stdint.h>
 
 // ---------------------------------------------------------------------------
-// I/O identifiers
+// I/O identifiers — positional, deliberately meaningless.
 //
-// These enums define every hardware point that the IHardwareIO interface can
-// address.  All IDs are defined up-front (M37d) even if not yet wired on both
-// platforms; unregistered slots return safe defaults (0.5 for pots, 0 for CV).
+// These name *slots*, not functions.  The platform hosts more than one module
+// and has no business knowing that slot 1 is a pitch knob on one of them; a
+// module maps its own vocabulary onto these in its own header (AlloyFlux:
+// modules/alloyflux/include/io/PanelMap.h) so `Pot::ROOT` reads the same as it
+// always did at the call site while the HAL stays generic.
+//
+// The counts are ceilings for the platform, not per-module truth: a module
+// declares its own count and simply leaves the rest unassigned.  Unregistered
+// slots return safe defaults (0.5 for pots, 0 for CV).
+//
+// One consequence worth stating: **slot order is the flash format.** Preset
+// blobs and the takeover state array are indexed by these, so inserting a slot
+// in the middle of a module's map renumbers everything after it. Append.
 // ---------------------------------------------------------------------------
 
-/** Panel knobs (pots).  Order reflects physical left→right / top→bottom layout. */
+/**
+ * Knob slots.  Sized for nine physical knobs plus their SHIFT-secondaries,
+ * which is the most a Eurorack panel of this size can carry.
+ */
 enum class PotId : uint8_t
 {
-    // ---- 9 physical panel knobs (same on hardware and VCV) ----
-    ROOT = 0, ///< Root pitch (V/Oct centre)
-    RELATION, ///< RELATION — semitone offset for voice 2 (0–24 st)
-    SHAPE,    ///< Waveform shape (sine → tri → saw → pulse → hollow) [0–1]
-    MOTION,   ///< Drift + chorus depth [0–1]
-    COLOR,    ///< FM depth / ensemble Hz spread [0–1]
-    CURVE,    ///< Envelope curve character (pluck ↔ swell) [0–1]
-    SPACE,    ///< Stereo width [0–1]
-    DELAY,    ///< Delay wet mix [0–1]   — 0 = hard bypass (M56)
-    REVERB,   ///< Reverb wet mix [0–1]  — 0 = hard bypass (M56)
-    // ---- SHIFT-secondary parameters (VCV: hidden params / context menu sliders;
-    //      hardware: same physical knob read when SHIFT held) ----
-    FATNESS,    ///< Sub-oscillator level [0–1]  (SHIFT+SHAPE on hardware)
-    DRIFTSPEED, ///< Drift glide rate [0–1]       (SHIFT+MOTION on hardware)
-    CURVETIME, ///< Envelope time scale [0–1] → 0.25–4× (SHIFT+CURVE on hardware)
-    VOL,       ///< Master output volume [0–1]   (SHIFT+SPACE on hardware)
-    DELAYTIME,  ///< Delay time [0–1] → 10–300 ms (SHIFT+DELAY on hardware)
-    REVERBSIZE, ///< Reverb plate size [0–1]      (SHIFT+REVERB on hardware)
+    POT_1 = 0,
+    POT_2,
+    POT_3,
+    POT_4,
+    POT_5,
+    POT_6,
+    POT_7,
+    POT_8,
+    POT_9,
+    POT_10,
+    POT_11,
+    POT_12,
+    POT_13,
+    POT_14,
+    POT_15,
+    POT_16,
     POT_COUNT
 };
 
-/** CV input jacks. */
+/** CV input jack slots. */
 enum class CVId : uint8_t
 {
-    VOCT = 0, ///< V/Oct pitch — readCV() returns volts (bipolar, ±5 V typical)
-    GATE,     ///< Gate / trigger — readCV() returns 0.0 or ≥1.0 (high = gate)
-    REL_CV,   ///< RELATION CV — bipolar, normalised to ±1.0
-    SHP_CV,   ///< SHAPE CV   — bipolar, normalised to ±1.0
-    MTN_CV,   ///< MOTION CV  — bipolar, normalised to ±1.0
-    SPC_CV,   ///< SPACE CV   — bipolar, normalised to ±1.0
-    FM_IN,    ///< FM / COLOR CV — bipolar, normalised to ±1.0
+    CV_1 = 0,
+    CV_2,
+    CV_3,
+    CV_4,
+    CV_5,
+    CV_6,
+    CV_7,
+    CV_8,
     CV_COUNT
 };
 
-/** Panel buttons / momentary switches. */
+/** Panel button / momentary switch slots. */
 enum class ButtonId : uint8_t
 {
-    MODE = 0, ///< Mode cycle button (GP10 on hardware)
-    SHIFT,    ///< Shift / trig button (GP11 on hardware)
+    BUTTON_1 = 0,
+    BUTTON_2,
+    BUTTON_3,
+    BUTTON_4,
     BUTTON_COUNT
 };
 
-/**
- * RGB LED identifiers (APA102/SK9822 on hardware; light widget in VCV).
- *
- * Order matches LedId in io/LedEngine.h one-for-one — LedEngine::writeTo()
- * casts between them, so the two enums must stay in sync.
- *
- *      VOICE_L ·  ·  · VOICE_R      top:        voice activity
- *     MOD_L  ·  ·  ·  · MOD_R       mid-top:    motion / modulation
- *        MODE  ·   SHIFT            mid-bottom: mode / shift-drone
- *           · CENTRE ·              bottom:     heartbeat / global
- */
+/** RGB LED slots (APA102/SK9822 on hardware; light widgets in VCV). */
 enum class LightId : uint8_t
 {
-    VOICE_L = 0, ///< D12 / VCV LED1 — ROOT voice activity, left channel
-    VOICE_R,     ///< D22 / VCV LED7 — RELATION voice activity, right channel
-    MOD_L,       ///< D13 / VCV LED2 — motion and modulation depth
-    MOD_R,       ///< D21 / VCV LED6 — secondary modulation / stereo position
-    MODE,        ///< D14 / VCV LED3 — current voice mode (near MODE_SW)
-    SHIFT,       ///< D16 / VCV LED5 — shift state / drone (near SHIFT_SW)
-    CENTRE,      ///< D15 / VCV LED4 — heartbeat / global confirmation
+    LIGHT_1 = 0,
+    LIGHT_2,
+    LIGHT_3,
+    LIGHT_4,
+    LIGHT_5,
+    LIGHT_6,
+    LIGHT_7,
+    LIGHT_8,
     LIGHT_COUNT
 };
 

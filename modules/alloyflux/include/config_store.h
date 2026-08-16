@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 
+#include "ConfigSlot.h" // platform slot container: magic, engine tag, blob
 #include "VoiceMode.h"
 #include "dsp/ChorusEngine.h"
 #include "dsp/CurveEngine.h"
@@ -14,27 +15,32 @@
  *
  * Uses the Earle Philhower EEPROM emulation library which provides:
  *   - Wear levelling (circular buffer across multiple 4 KB flash pages)
- *   - Automatic Core 1 pause/resume during flash erase/program
+ *   - Automatic pause/resume of the other core during flash erase/program
  *
  * AlloyFlux adds two more protection layers on top:
  *   - Dirty check: commit() only called when values actually changed
- *   - Rate limit: minimum 10 s between writes (configurable via kMinSaveIntervalMs)
+ *   - Rate limit: minimum 10 s between writes (see kMinSaveIntervalMs)
  *
- * Preset layout: the EEPROM buffer is divided into kMaxPresets slots of
- * sizeof(AlloyConfig) each.  Slot 0 = auto-saved "live" state.
- * Slots 1–(kMaxPresets-1) are user presets saved/loaded by slot number.
+ * The slot container (magic, engine tag, fixed-size blob) belongs to the
+ * platform — see platform/include/ConfigSlot.h.  AlloyConfig below is what
+ * this module stores *inside* a slot's blob, and nothing outside this module
+ * knows its shape.
  *
  * Adding a new parameter:
  *   1. Add a field to AlloyConfig below.
- *   2. Bump kVersion so existing stored configs are detected as incompatible
- *      and defaults are used instead (safe migration).
+ *   2. Bump kEngineVersion so existing stored configs are detected as
+ *      incompatible and defaults are used instead (safe migration).
  *   3. Add pack/apply lines in config_store.cpp.
  */
 
-static constexpr uint32_t kConfigMagic   = 0xAF10CF01; // "AlloyFlux Config v1"
-static constexpr uint8_t  kConfigVersion = 6;
-static constexpr uint8_t  kMaxPresets
-    = 10; // slot 0 = auto-save live state, slots 1–9 = user presets
+/// Identifies AlloyFlux as the engine that wrote a slot — 'A','F'.  Any other
+/// module on this platform must pick a different value.
+static constexpr uint16_t kEngineId = 0x4146;
+
+/// Layout version of the AlloyConfig payload.  Continues the old
+/// kConfigVersion sequence (which reached 6) rather than restarting, so no
+/// stale slot from a pre-M63d build can ever match by coincidence.
+static constexpr uint16_t kEngineVersion = 7;
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
 // on the log 20–16000 Hz scale.  CC 74 → 20 × (16000/20)^(74/127) ≈ 983.2 Hz.
@@ -42,10 +48,10 @@ static constexpr uint8_t  kMaxPresets
 // the in-RAM value always matches what the web configurator reads back over MIDI.
 static constexpr float kDefaultFilterCutoff = 983.2f;
 
+// The payload written into a ConfigSlot's blob.  No magic or version field of
+// its own — the slot header carries both.
 struct AlloyConfig
 {
-    uint32_t magic;
-    uint8_t  version;
     // Pitch / voice
     float   baseFreq;
     float   color; // COLOR knob 0–1
@@ -106,6 +112,10 @@ struct AlloyConfig
     // Knob takeover (M62)
     uint8_t potTakeover; // cast of PotTakeoverMode; 2 = SCALE (default)
 };
+
+static_assert(sizeof(AlloyConfig) <= kSlotBlobBytes,
+              "AlloyConfig outgrew the platform slot blob — raise "
+              "kSlotBlobBytes in platform/include/ConfigSlot.h");
 
 enum class ConfigSaveResult : uint8_t
 {

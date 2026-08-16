@@ -5,9 +5,10 @@
 #include "io/ButtonEngine.h"
 #include "dsp/DelayEngine.h" // DELAY_MAX_MS (SHIFT+DELAY normalisation)
 #include "io/Apa102.h"       // M30 — Dotstar chain driver
-#include "io/HardwareIO.h"
-#include "io/PotTakeover.h" // M62 — knob vs. web/MIDI arbitration
-#include "params.h"         // gBaseFreq, gGateHigh, gGatePatched, gShape, …
+#include "io/HardwareIO.h"   // PotId/CVId/… positional slots
+#include "io/PanelMap.h"     // Pot::/Cv::/Btn::/Led:: — AlloyFlux's slot names
+#include "io/PotTakeover.h"  // M62 — knob vs. web/MIDI arbitration
+#include "params.h"          // gBaseFreq, gGateHigh, gGatePatched, gShape, …
 
 #include <math.h> // log2f, exp2f
 
@@ -40,12 +41,12 @@
 // reuses this table to map both ids onto a single mux channel.
 static constexpr uint8_t kShiftPairCount                 = 6;
 static constexpr PotId   kShiftPairs[kShiftPairCount][2] = {
-    {PotId::SHAPE, PotId::FATNESS},
-    {PotId::MOTION, PotId::DRIFTSPEED},
-    {PotId::CURVE, PotId::CURVETIME},
-    {PotId::SPACE, PotId::VOL},
-    {PotId::DELAY, PotId::DELAYTIME},
-    {PotId::REVERB, PotId::REVERBSIZE},
+    {Pot::SHAPE, Pot::FATNESS},
+    {Pot::MOTION, Pot::DRIFTSPEED},
+    {Pot::CURVE, Pot::CURVETIME},
+    {Pot::SPACE, Pot::VOL},
+    {Pot::DELAY, Pot::DELAYTIME},
+    {Pot::REVERB, Pot::REVERBSIZE},
 };
 
 // ---------------------------------------------------------------------------
@@ -114,7 +115,9 @@ class HardwarePicoIO : public IHardwareIO
             }
         }
 
-        for(uint8_t i = 0; i < (uint8_t)PotId::POT_COUNT; i++)
+        // Pot::kCount, not PotId::POT_COUNT — the HAL sizes for the largest
+        // panel it expects to host; only AlloyFlux's own slots are assigned.
+        for(uint8_t i = 0; i < Pot::kCount; i++)
         {
             const PotId id = (PotId)i;
             // ROOT is deliberately not takeover-managed.  Pitch does not flow
@@ -124,7 +127,7 @@ class HardwarePicoIO : public IHardwareIO
             // while a note is held.  Writing gBaseFreq from the knob here
             // would fight every note-on.  The knob's position still reaches
             // the web: CC 16 is in the patch dump and the CC feedback diff.
-            if(id == PotId::ROOT)
+            if(id == Pot::ROOT)
                 continue;
 
             const float phys = readPotRaw(id);
@@ -150,7 +153,7 @@ class HardwarePicoIO : public IHardwareIO
     {
         switch(id)
         {
-            case PotId::ROOT:
+            case Pot::ROOT:
             {
                 // gBaseFreq (Hz) → V/Oct → 0–1 normalised
                 //   voct  = log2(f / 440)
@@ -158,26 +161,26 @@ class HardwarePicoIO : public IHardwareIO
                 float voct = log2f(gBaseFreq / 440.0f);
                 return (voct + 4.0f) / 8.0f;
             }
-            case PotId::RELATION: return gRelation / 24.0f; // 0–24 st → 0–1
-            case PotId::SHAPE: return gShape;               // already 0–1
-            case PotId::MOTION: return gMotion;             // already 0–1
-            case PotId::COLOR: return gColor;               // already 0–1
-            case PotId::CURVE: return gCurve;               // already 0–1
-            case PotId::SPACE: return gSpace / 2.0f;        // 0–2 → 0–1
-            case PotId::DELAY: return gDelayMix;            // already 0–1
-            case PotId::REVERB: return gRevMix;             // already 0–1
-            case PotId::FATNESS: return gFatness;           // already 0–1
-            case PotId::DRIFTSPEED:
+            case Pot::RELATION: return gRelation / 24.0f; // 0–24 st → 0–1
+            case Pot::SHAPE: return gShape;               // already 0–1
+            case Pot::MOTION: return gMotion;             // already 0–1
+            case Pot::COLOR: return gColor;               // already 0–1
+            case Pot::CURVE: return gCurve;               // already 0–1
+            case Pot::SPACE: return gSpace / 2.0f;        // 0–2 → 0–1
+            case Pot::DELAY: return gDelayMix;            // already 0–1
+            case Pot::REVERB: return gRevMix;             // already 0–1
+            case Pot::FATNESS: return gFatness;           // already 0–1
+            case Pot::DRIFTSPEED:
                 // gDriftSpeed is in [0.001, 0.10] coeff; normalise to 0–1
                 return (gDriftSpeed - 0.001f) / (0.10f - 0.001f);
-            case PotId::CURVETIME:
+            case Pot::CURVETIME:
                 // gCurveTime is a 0.25–4.0× time scale; normalise to 0–1
                 return (gCurveTime - 0.25f) / (4.0f - 0.25f);
-            case PotId::VOL: return gVolume; // already 0–1
-            case PotId::DELAYTIME:
+            case Pot::VOL: return gVolume; // already 0–1
+            case Pot::DELAYTIME:
                 // gDelayTime is in ms over [10, DELAY_MAX_MS]; normalise to 0–1
                 return (gDelayTime - 10.0f) / ((float)DELAY_MAX_MS - 10.0f);
-            case PotId::REVERBSIZE: return gRevSize; // already 0–1
+            case Pot::REVERBSIZE: return gRevSize; // already 0–1
             default: return 0.5f;
         }
     }
@@ -192,31 +195,29 @@ class HardwarePicoIO : public IHardwareIO
     {
         switch(id)
         {
-            case PotId::ROOT:
+            case Pot::ROOT:
                 // norm → ±4 V/Oct → Hz.  Not reached today (updatePots skips
                 // ROOT); kept exact so the inverse pair stays complete.
                 gBaseFreq = 440.0f * exp2f(v * 8.0f - 4.0f);
                 break;
-            case PotId::RELATION: gRelation = v * 24.0f; break;
-            case PotId::SHAPE: gShape = v; break;
-            case PotId::MOTION: gMotion = v; break;
-            case PotId::COLOR: gColor = v; break;
-            case PotId::CURVE: gCurve = v; break;
-            case PotId::SPACE: gSpace = v * 2.0f; break;
-            case PotId::DELAY: gDelayMix = v; break;
-            case PotId::REVERB: gRevMix = v; break;
-            case PotId::FATNESS: gFatness = v; break;
-            case PotId::DRIFTSPEED:
+            case Pot::RELATION: gRelation = v * 24.0f; break;
+            case Pot::SHAPE: gShape = v; break;
+            case Pot::MOTION: gMotion = v; break;
+            case Pot::COLOR: gColor = v; break;
+            case Pot::CURVE: gCurve = v; break;
+            case Pot::SPACE: gSpace = v * 2.0f; break;
+            case Pot::DELAY: gDelayMix = v; break;
+            case Pot::REVERB: gRevMix = v; break;
+            case Pot::FATNESS: gFatness = v; break;
+            case Pot::DRIFTSPEED:
                 gDriftSpeed = 0.001f + v * (0.10f - 0.001f);
                 break;
-            case PotId::CURVETIME:
-                gCurveTime = 0.25f + v * (4.0f - 0.25f);
-                break;
-            case PotId::VOL: gVolume = v; break;
-            case PotId::DELAYTIME:
+            case Pot::CURVETIME: gCurveTime = 0.25f + v * (4.0f - 0.25f); break;
+            case Pot::VOL: gVolume = v; break;
+            case Pot::DELAYTIME:
                 gDelayTime = 10.0f + v * ((float)DELAY_MAX_MS - 10.0f);
                 break;
-            case PotId::REVERBSIZE: gRevSize = v; break;
+            case Pot::REVERBSIZE: gRevSize = v; break;
             default: break;
         }
     }
@@ -254,9 +255,9 @@ class HardwarePicoIO : public IHardwareIO
     {
         switch(id)
         {
-            case CVId::VOCT:
+            case Cv::VOCT:
                 return 0.0f; // pitch from ROOT pot only until ADC lands
-            case CVId::GATE: return gGateHigh ? 5.0f : 0.0f;
+            case Cv::GATE: return gGateHigh ? 5.0f : 0.0f;
             default: return 0.0f;
         }
     }
@@ -265,8 +266,8 @@ class HardwarePicoIO : public IHardwareIO
     {
         switch(id)
         {
-            case CVId::VOCT: return false;        // no V/Oct jack yet
-            case CVId::GATE: return gGatePatched; // set by MIDI / button combo
+            case Cv::VOCT: return false;        // no V/Oct jack yet
+            case Cv::GATE: return gGatePatched; // set by MIDI / button combo
             default: return false;
         }
     }
@@ -279,8 +280,8 @@ class HardwarePicoIO : public IHardwareIO
     {
         switch(id)
         {
-            case ButtonId::MODE: return _btnMode.isDown();
-            case ButtonId::SHIFT: return _btnShift.isDown();
+            case Btn::MODE: return _btnMode.isDown();
+            case Btn::SHIFT: return _btnShift.isDown();
             default: return false;
         }
     }
@@ -313,13 +314,13 @@ class HardwarePicoIO : public IHardwareIO
      */
     void writeLight(LightId id, float r, float g, float b) override
     {
-        // LightId (panel role) -> position in the physical daisy chain.
+        // Panel role -> position in the physical daisy chain.
         // Chain runs D12 -> D13 -> D14 -> D15 -> D16 -> D21 -> D22, while
-        // LightId is ordered VOICE_L(D12) VOICE_R(D22) MOD_L(D13) MOD_R(D21)
-        // MODE(D14) SHIFT(D16) CENTRE(D15). Traced from the schematic netlist;
-        // if a board revision reroutes the chain, this table is the only thing
-        // that changes.
-        static const uint8_t kChainPos[(uint8_t)LightId::LIGHT_COUNT] = {
+        // the panel map is ordered VOICE_L(D12) VOICE_R(D22) MOD_L(D13)
+        // MOD_R(D21) MODE(D14) SHIFT(D16) CENTRE(D15). Traced from the
+        // schematic netlist; if a board revision reroutes the chain, this
+        // table is the only thing that changes.
+        static const uint8_t kChainPos[Led::kCount] = {
             0, // VOICE_L -> D12, first on the chain
             6, // VOICE_R -> D22, last
             1, // MOD_L   -> D13
@@ -330,13 +331,13 @@ class HardwarePicoIO : public IHardwareIO
         };
 
         const uint8_t i = (uint8_t)id;
-        if(i >= (uint8_t)LightId::LIGHT_COUNT)
+        if(i >= Led::kCount)
             return;
         _dotstars.setPixel(kChainPos[i], r, g, b);
 
-        if(id == LightId::MODE)
+        if(id == Led::MODE)
             _btnLedMode = _luma8(r, g, b);
-        else if(id == LightId::SHIFT)
+        else if(id == Led::SHIFT)
             _btnLedShift = _luma8(r, g, b);
     }
 
@@ -366,7 +367,7 @@ class HardwarePicoIO : public IHardwareIO
     PotTakeover _takeover;          // M62 — knob vs. web/MIDI arbitration
     bool        _shiftPrev = false; // SHIFT state at the last updatePots()
 
-    Apa102<(uint8_t)LightId::LIGHT_COUNT> _dotstars;
-    uint8_t                               _btnLedMode  = 0u;
-    uint8_t                               _btnLedShift = 0u;
+    Apa102<Led::kCount> _dotstars;
+    uint8_t             _btnLedMode  = 0u;
+    uint8_t             _btnLedShift = 0u;
 };

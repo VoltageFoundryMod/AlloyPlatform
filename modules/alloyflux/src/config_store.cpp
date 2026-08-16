@@ -2,7 +2,7 @@
 #include "params.h"
 #include <Arduino.h>
 #include <EEPROM.h>
-#include <string.h> // memcmp
+#include <string.h> // memcmp, memcpy
 
 // ---------------------------------------------------------------------------
 // Flash layout
@@ -14,9 +14,8 @@
 // We reserve kEepromBytes for our buffer — enough for kMaxPresets slots.
 // kEepromBytes must be <= the RP2350 EEPROM emulation size (default 4096).
 // ---------------------------------------------------------------------------
-static constexpr int kEepromBytes
-    = kMaxPresets * sizeof(AlloyConfig); // ~1200 bytes (10 slots)
-static constexpr int kSlotBytes = sizeof(AlloyConfig);
+static constexpr int kSlotBytes   = sizeof(ConfigSlot);
+static constexpr int kEepromBytes = kMaxPresets * kSlotBytes;
 
 // Minimum milliseconds between flash commits.
 // Flash is rated ~100,000 erase cycles; at 10 s minimum that's >27 years of
@@ -42,11 +41,24 @@ static void ensureEeprom()
 static int slotAddr(uint8_t slot)
 { return (int)slot * kSlotBytes; }
 
+// Wrap a packed payload in a slot, tagged as ours.
+// Zero-initialised: the blob's unused tail and any padding inside AlloyConfig
+// would otherwise be indeterminate, and the dirty check below is a memcmp over
+// the whole slot — stack garbage there would report a change on every save and
+// burn a flash cycle for nothing.
+static void makeSlot(ConfigSlot &slot, const AlloyConfig &cfg)
+{
+    memset(&slot, 0, sizeof(slot));
+    slot.magic         = kSlotMagic;
+    slot.engineId      = kEngineId;
+    slot.engineVersion = kEngineVersion;
+    memcpy(slot.blob, &cfg, sizeof(cfg));
+}
+
 // Pack all current gXxx globals into a config struct.
 static void packConfig(AlloyConfig &cfg)
 {
-    cfg.magic       = kConfigMagic;
-    cfg.version     = kConfigVersion;
+    memset(&cfg, 0, sizeof(cfg));
     cfg.baseFreq    = gBaseFreq;
     cfg.color       = gColor;
     cfg.relation    = gRelation;
@@ -171,10 +183,18 @@ bool configStore_load(uint8_t slot)
     if(slot >= kMaxPresets)
         slot = 0;
     ensureEeprom();
+    ConfigSlot stored;
+    EEPROM.get(slotAddr(slot), stored);
+    // Three gates, in widening order of specificity: is this a slot at all, was
+    // it written by AlloyFlux, and does its payload match the layout this build
+    // understands.  Any failure leaves the compile-time defaults in place —
+    // notably, a slot holding another engine's preset is skipped rather than
+    // reinterpreted as AlloyFlux floats.
+    if(stored.magic != kSlotMagic || stored.engineId != kEngineId
+       || stored.engineVersion != kEngineVersion)
+        return false;
     AlloyConfig cfg;
-    EEPROM.get(slotAddr(slot), cfg);
-    if(cfg.magic != kConfigMagic || cfg.version != kConfigVersion)
-        return false; // no valid config — caller uses compile-time defaults
+    memcpy(&cfg, stored.blob, sizeof(cfg));
     applyConfig(cfg);
     return true;
 }
@@ -192,21 +212,23 @@ ConfigSaveResult configStore_save(uint8_t slot)
 
     ensureEeprom();
 
-    // Pack current parameters.
+    // Pack current parameters into a tagged slot.
     AlloyConfig newCfg;
     packConfig(newCfg);
+    ConfigSlot newSlot;
+    makeSlot(newSlot, newCfg);
 
     // Dirty check: skip erase/program cycle if contents are identical.
-    AlloyConfig stored;
+    ConfigSlot stored;
     EEPROM.get(slotAddr(slot), stored);
-    if(memcmp(&newCfg, &stored, kSlotBytes) == 0)
+    if(memcmp(&newSlot, &stored, kSlotBytes) == 0)
         return ConfigSaveResult::UNCHANGED;
 
     // Write to EEPROM buffer then commit.  commit() parks the other core for
     // the erase/program — that is Core 1, the audio core — so a save costs a
     // ~10 ms dropout.  The dirty check above is what keeps that off the
     // periodic autosave path.
-    EEPROM.put(slotAddr(slot), newCfg);
+    EEPROM.put(slotAddr(slot), newSlot);
     EEPROM.commit();
     if(slot == 0)
         sLastSaveMs = now;
@@ -236,8 +258,6 @@ void configStore_reset(uint8_t slot)
 void configStore_applyDefaults()
 {
     AlloyConfig d        = {};
-    d.magic              = kConfigMagic;
-    d.version            = kConfigVersion;
     d.baseFreq           = 440.0f;
     d.color              = 0.0f;
     d.relation           = 0.0f;
