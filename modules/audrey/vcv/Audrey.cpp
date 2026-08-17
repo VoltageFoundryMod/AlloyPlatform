@@ -346,12 +346,19 @@ struct AudreyWidget : ModuleWidget
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::ECHOFB), module, Audrey::ECHOFB_PARAM));
 
-        // Low row: space and tone. DECAY and FB LPF each carry a
+        // Low row: space and tone. REV MIX and FB LPF each carry a
         // shift-secondary, exposed in the context menu below.
+        //
+        // Slot -> parameter is PanelMap's job, so these read straight: the
+        // widget asks for the position of the parameter it draws. They were
+        // briefly crossed here (REVMIX's slot drawing REVDECAY_PARAM) to get
+        // the panel right after DECAY and MIX traded places, which looks
+        // identical on screen and quietly breaks everything else that indexes
+        // by slot — the shift pairs, PotTakeover, the future ADC driver.
         addParam(createParamCentered<Trimpot>(
-            pot(Pot::REVMIX), module, Audrey::REVDECAY_PARAM));
+            pot(Pot::REVDECAY), module, Audrey::REVDECAY_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::REVDECAY), module, Audrey::REVMIX_PARAM));
+            pot(Pot::REVMIX), module, Audrey::REVMIX_PARAM));
         addParam(createParamCentered<Trimpot>(
             pot(Pot::FBLPF), module, Audrey::FBLPF_PARAM));
 
@@ -416,7 +423,7 @@ struct AudreyWidget : ModuleWidget
         menu->addChild(new MenuSeparator);
         menu->addChild(createMenuLabel("SHIFT parameters"));
 
-        menu->addChild(createMenuLabel("Volume  (SHIFT + DECAY)"));
+        menu->addChild(createMenuLabel("Volume  (SHIFT + REV MIX)"));
         auto *volSlider     = new SubMenuSlider;
         volSlider->quantity = m->getParamQuantity(Audrey::VOL_PARAM);
         menu->addChild(volSlider);

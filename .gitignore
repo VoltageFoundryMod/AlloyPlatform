@@ -12,8 +12,34 @@
 .vscode/launch.json
 .vscode/ipch
 
-# Ignore backup files from KiCad PCB design software
+# ── KiCad ────────────────────────────────────────────────────────────────────
+# The schematics, the board and the project file are source and are tracked.
+# Everything below regenerates from them, and the point of tracking the source
+# is that it does: a fabrication record is `git show <tag>:hardware/...`, not a
+# directory of gerbers that drifts out of step with the board it came from.
+
+# KiCad's own timestamped backups — 33 MB and growing.
 hardware/MainPCB/MainPCB-backups/
+
+# Hand-made backups (Bk/*.kicad_sch_old). Same argument: git is the backup.
+hardware/MainPCB/Bk/
+
+# Per-user editor state (open sheets, zoom, selected layers) — not project data,
+# and it churns on every session.
+*.kicad_prl
+
+# Footprint library cache, rebuilt on open.
+fp-info-cache
+
+# Fabrication outputs: gerbers, drill files, BOM/CPL, the JLC upload zip, and
+# the plugin's own state database. All produced by the plugin from the board.
+hardware/**/jlcpcb/
+
+# KiCad autosave / rescue leftovers.
+_autosave-*
+*-rescue.kicad_sym
+*.kicad_sch-bak
+*.bak
 
 # VS Code Local History extension — per-edit snapshots, never worth committing
 **/.history/

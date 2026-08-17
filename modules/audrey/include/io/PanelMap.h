@@ -28,7 +28,7 @@
 //     ECHO SEND      ECHO TIME       ECHO FBK        <- mid row: the echo
 //      (POT_4)        (POT_5)         (POT_6)
 //
-//      REV MIX       REV DECAY        FB LPF         <- low row: space + tone
+//     REV DECAY       REV MIX         FB LPF         <- low row: space + tone
 //      (POT_7)        (POT_8)         (POT_9)
 //                    +shift: VOL     +shift: FB HPF
 //                     (POT_14)         (POT_15)
@@ -36,9 +36,16 @@
 // Two shift pairs, both deliberate:
 //   FB LPF / FB HPF   the most natural pair in the set — one knob is the
 //                     feedback band, shift reaches its other edge.
-//   REV DECAY / VOL   VOL sits on POT_14, which is *the same slot AlloyFlux
+//   REV MIX / VOL     VOL sits on POT_14, which is *the same slot AlloyFlux
 //                     puts VOL on*. SHIFT+centre-bottom means volume on both
 //                     firmwares, so the muscle memory carries across.
+//
+// That second pair is positional, not thematic, and it got weaker when DECAY
+// and MIX swapped places: two "how much" controls now share a knob, where
+// DECAY/VOL at least separated time from level. The position wins anyway —
+// VOL's entire argument is that it lives where AlloyFlux's VOL lives, and
+// moving it to POT_13 to chase DECAY would trade the only cross-firmware
+// habit on the panel for a tidier-sounding pairing.
 //
 // FB LPF gets the knob and VOL the shift because sweeping the feedback filter
 // darkens the ring audibly and is played, while output level is set once.
@@ -64,14 +71,16 @@ constexpr PotId ECHOTIME = PotId::POT_5; ///< mid C — echo time 0.05–4 s
 constexpr PotId ECHOFB   = PotId::POT_6; ///< mid R — echo feedback 0–1.2
 
 // ---- low row: space + tone ----
-constexpr PotId REVMIX   = PotId::POT_7; ///< bottom L — reverb mix 0–1
-constexpr PotId REVDECAY = PotId::POT_8; ///< bottom C — reverb decay 0.2–1.0
+constexpr PotId REVDECAY = PotId::POT_7; ///< bottom L — reverb decay 0.2–1.0
+constexpr PotId REVMIX   = PotId::POT_8; ///< bottom C — reverb mix 0–1
 constexpr PotId FBLPF    = PotId::POT_9; ///< bottom R — feedback LPF 100–18 kHz
 
 // ---- SHIFT-secondaries ----
-/// SHIFT + bottom-centre. **The same slot AlloyFlux puts VOL on**, which is the
-/// point: SHIFT+centre-bottom means volume on either firmware, so the muscle
-/// memory carries across.
+/// SHIFT + bottom-centre, i.e. SHIFT + REV MIX. **The same slot AlloyFlux puts
+/// VOL on**, which is the point: SHIFT+centre-bottom means volume on either
+/// firmware, so the muscle memory carries across. It is pinned to the position,
+/// not to whichever parameter currently sits there — REV DECAY and REV MIX have
+/// already traded places once and VOL did not move.
 constexpr PotId VOL = PotId::POT_14;
 /// SHIFT + bottom-right, pairing HPF with the LPF knob — one knob is the
 /// feedback band, shift reaches its other edge.
@@ -92,7 +101,7 @@ namespace Pot
 {
 constexpr uint8_t kShiftPairCount              = 2;
 constexpr PotId   kShiftPairs[kShiftPairCount][2]
-    = {{REVDECAY, VOL}, {FBLPF, FBHPF}};
+    = {{REVMIX, VOL}, {FBLPF, FBHPF}};
 } // namespace Pot
 
 /**
