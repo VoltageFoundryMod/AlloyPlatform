@@ -6,23 +6,36 @@
   // which has neither g++ nor jq on PATH — fails. Chocolatey's make on PATH is
   // fine here; the Makefile handles it.
   //
+  // Two things are asymmetric between the targets, and the task names reflect
+  // it rather than hiding it:
+  //
+  //   Firmware — ONE IMAGE PER MODULE. The engines cannot be co-resident in
+  //              520 KB, so each module is its own PlatformIO env, selected
+  //              with ENV=<module>. Hence "AlloyFlux:" and "Audrey:" tasks.
+  //
+  //   VCV      — ONE PLUGIN, ALL MODULES. plugin.dll carries every module and
+  //              Rack offers them all in the browser, so there is nothing
+  //              per-module to build. Hence a single "VCV:" group.
+  //
+  //   Web      — one build per module, selected with MODULE=<module>, because
+  //              the configurator picks its parameter map and SysEx signature
+  //              at build time (see web-configurator/src/lib/activeModule.ts).
+  //
   // `make help` lists every target.
   "version": "2.0.0",
   "tasks": [
+    // ── AlloyFlux firmware ───────────────────────────────────────────────────
     {
-      "label": "Firmware: Build",
-      "detail": "make firmware — RP2350 image, .pio/build/alloyflux/firmware.uf2",
+      "label": "AlloyFlux: Build firmware",
+      "detail": "make firmware — .pio/build/alloyflux/firmware.uf2",
       "type": "shell",
       "command": "make",
       "args": ["firmware"],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
+      "group": { "kind": "build", "isDefault": true },
       "problemMatcher": ["$gcc"]
     },
     {
-      "label": "Firmware: Upload to Pico 2",
+      "label": "AlloyFlux: Upload",
       "detail": "make upload — builds, then flashes over USB",
       "type": "shell",
       "command": "make",
@@ -31,17 +44,69 @@
       "problemMatcher": ["$gcc"]
     },
     {
-      "label": "Firmware: Upload and Monitor",
-      "detail": "make upload-monitor — flashes, then opens the serial monitor",
+      "label": "AlloyFlux: Upload and monitor",
+      "detail": "make upload-monitor — flashes, then opens the serial console",
       "type": "shell",
       "command": "make",
       "args": ["upload-monitor"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
+
+    // ── Audrey II firmware ───────────────────────────────────────────────────
+    // Note the clock: this env runs the RP2350 at 192 MHz, not the stock 150.
+    // The engine needs ~690 us per block against a 666 us budget at 150, and
+    // 192 is the next step that keeps the I2S divider exact. See platformio.ini.
+    {
+      "label": "Audrey: Build firmware",
+      "detail": "make firmware ENV=audrey — .pio/build/audrey/firmware.uf2 (192 MHz)",
+      "type": "shell",
+      "command": "make",
+      "args": ["firmware", "ENV=audrey"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Audrey: Upload",
+      "detail": "make upload ENV=audrey — builds, then flashes over USB",
+      "type": "shell",
+      "command": "make",
+      "args": ["upload", "ENV=audrey"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Audrey: Upload and monitor",
+      "detail": "make upload-monitor ENV=audrey — flashes, then opens the serial console",
+      "type": "shell",
+      "command": "make",
+      "args": ["upload-monitor", "ENV=audrey"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Audrey: Host-build engine",
+      "detail": "make audrey-host — compiles the engine against nothing but the vendored DaisySP, runs it 10 s at unity feedback, prints its static footprint",
+      "type": "shell",
+      "command": "make",
+      "args": ["audrey-host"],
+      "group": "test",
+      "problemMatcher": ["$gcc"]
+    },
+
+    // ── Firmware, both modules ───────────────────────────────────────────────
+    {
+      "label": "Firmware: Build all modules",
+      "detail": "make firmware-all — every module's image in turn. Run this after touching platform/, since it compiles differently against each module.",
+      "type": "shell",
+      "command": "make",
+      "args": ["firmware-all"],
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
     {
       "label": "Firmware: Serial monitor",
-      "detail": "make monitor — 115200 baud serial console",
+      "detail": "make monitor — 115200 baud. Add ENV=audrey if that is what is flashed; the port is the same either way.",
       "type": "shell",
       "command": "make",
       "args": ["monitor"],
@@ -50,7 +115,7 @@
     },
     {
       "label": "Firmware: Clean",
-      "detail": "make firmware-clean",
+      "detail": "make firmware-clean — clears the PlatformIO build for ENV",
       "type": "shell",
       "command": "make",
       "args": ["firmware-clean"],
@@ -63,15 +128,37 @@
       "type": "shell",
       "command": "make",
       "args": ["test"],
-      "group": {
-        "kind": "test",
-        "isDefault": true
-      },
+      "group": { "kind": "test", "isDefault": true },
       "problemMatcher": ["$gcc"]
     },
+
+    // ── Panels ───────────────────────────────────────────────────────────────
+    // Rack renders <path> only, so Inkscape text has to be converted. Edit
+    // res/<Name>_src.svg and let the build produce res/<Name>.svg; the "vcv"
+    // tasks already depend on this, so it normally runs on its own.
     {
-      "label": "VCV: Build plugin",
-      "detail": "make vcv — vcv-plugin/plugin.dll against the Rack SDK",
+      "label": "Panels: Convert edited panels",
+      "detail": "make panels — strips the 'components' guide layer, converts text to paths, exports plain SVG. Only touches panels whose _src is newer.",
+      "type": "shell",
+      "command": "make",
+      "args": ["panels"],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Panels: Rebuild all (force)",
+      "detail": "make panels-force — for when Inkscape's output changed under you rather than the source",
+      "type": "shell",
+      "command": "make",
+      "args": ["panels-force"],
+      "group": "build",
+      "problemMatcher": []
+    },
+
+    // ── VCV Rack plugin — one plugin, both modules ────────────────────────────
+    {
+      "label": "VCV: Build plugin (both modules)",
+      "detail": "make vcv — one vcv-plugin/plugin.dll containing AlloyFlux and Audrey II. There is no per-module VCV build.",
       "type": "shell",
       "command": "make",
       "args": ["vcv"],
@@ -80,7 +167,7 @@
     },
     {
       "label": "VCV: Build and install plugin",
-      "detail": "make vcv-install — installs into Rack's user plugin directory (restart Rack to pick it up)",
+      "detail": "make vcv-install — installs into Rack's user plugin directory. Restart Rack to pick it up; both modules appear in the browser.",
       "type": "shell",
       "command": "make",
       "args": ["vcv-install"],
@@ -113,8 +200,13 @@
       "args": ["print-plugins-dir"],
       "problemMatcher": []
     },
+
+    // ── Web Configurator — one build per module ───────────────────────────────
+    // The build picks its parameter map and SysEx signature from VITE_MODULE, and
+    // fails closed: an AlloyFlux build will not connect to an Audrey module
+    // rather than showing the wrong controls. The header names which it is.
     {
-      "label": "Web: Build configurator",
+      "label": "Web: Build (AlloyFlux)",
       "detail": "make web — production build into web-configurator/dist",
       "type": "shell",
       "command": "make",
@@ -123,12 +215,54 @@
       "problemMatcher": ["$tsc"]
     },
     {
+      "label": "Web: Build (Audrey)",
+      "detail": "make web MODULE=audrey — production build into web-configurator/dist",
+      "type": "shell",
+      "command": "make",
+      "args": ["web", "MODULE=audrey"],
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "Web: Build all modules",
+      "detail": "make web-all — every module's configurator in turn (each overwrites dist/)",
+      "type": "shell",
+      "command": "make",
+      "args": ["web-all"],
+      "group": "build",
+      "problemMatcher": ["$tsc"]
+    },
+    {
       // Chrome or Edge only — Web Serial and Web MIDI are not in Firefox/Safari.
-      "label": "Web: Dev server",
+      "label": "Web: Dev server (AlloyFlux)",
       "detail": "make web-dev — vite on localhost:5173",
       "type": "shell",
       "command": "make",
       "args": ["web-dev"],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "vite",
+        "pattern": {
+          "regexp": "^([^\\s].*)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*VITE.*",
+          "endsPattern": ".*ready in.*"
+        }
+      }
+    },
+    {
+      "label": "Web: Dev server (Audrey)",
+      "detail": "make web-dev MODULE=audrey — vite on localhost:5173",
+      "type": "shell",
+      "command": "make",
+      "args": ["web-dev", "MODULE=audrey"],
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",
@@ -164,9 +298,41 @@
       "args": ["web-deps"],
       "problemMatcher": []
     },
+
+    // ── Parameters ───────────────────────────────────────────────────────────
+    // A module declares its parameters once in modules/<name>/params.json; this
+    // regenerates the C++ table and the web map from it. Commit the output — an
+    // ordinary build never needs Python.
+    {
+      "label": "Params: Regenerate (AlloyFlux)",
+      "detail": "make params — param_manifest.generated.h + paramMapAlloyFlux.ts",
+      "type": "shell",
+      "command": "make",
+      "args": ["params"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Params: Regenerate (Audrey)",
+      "detail": "make params MODULE=audrey — param_manifest.generated.h + paramMapAudrey.ts",
+      "type": "shell",
+      "command": "make",
+      "args": ["params", "MODULE=audrey"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Params: Check up to date",
+      "detail": "make params-check — CI gate; fails if the committed tables are stale. Also fires on a dirty working tree, which is expected.",
+      "type": "shell",
+      "command": "make",
+      "args": ["params-check"],
+      "group": "test",
+      "problemMatcher": []
+    },
+
+    // ── Across the repo ──────────────────────────────────────────────────────
     {
       "label": "Build everything",
-      "detail": "make everything — firmware + VCV plugin + web configurator. Run this after any change under common/, since a shared header edit can break either C++ target.",
+      "detail": "make everything — every firmware image + the VCV plugin + every web build. Run this after any change under platform/.",
       "type": "shell",
       "command": "make",
       "args": ["everything"],
@@ -175,7 +341,7 @@
     },
     {
       "label": "Format C/C++ (all tracked)",
-      "detail": "make format — clang-format -i over every tracked C/C++ file, per .clang-format",
+      "detail": "make format — clang-format -i per .clang-format. Vendored trees (vendor/, modules/audrey/) are excluded on purpose.",
       "type": "shell",
       "command": "make",
       "args": ["format"],

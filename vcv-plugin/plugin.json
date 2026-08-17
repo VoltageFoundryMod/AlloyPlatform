@@ -1,6 +1,6 @@
 {
-  "slug": "AlloyFlux",
-  "name": "Alloy Flux",
+  "slug": "AlloyPlatform",
+  "name": "Alloy Platform",
   "version": "2.0.0",
   "license": "VCV Rack EULA",
   "brand": "Voltage Foundry Modular",
@@ -24,6 +24,19 @@
         "Complex",
         "Hardware clone",
         "Synth voice"
+      ]
+    },
+    {
+      "slug": "Audrey",
+      "name": "Audrey II",
+      "description": "Feedback resonator \u00e2\u20ac\u201d Karplus-Strong string in a saturating feedback loop, with echo and reverb. Engine by Synthux Academy.",
+      "tags": [
+        "Physical modeling",
+        "Effect",
+        "Reverb",
+        "Delay",
+        "Digital",
+        "Hardware clone"
       ]
     }
   ]

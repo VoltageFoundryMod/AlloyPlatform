@@ -36,6 +36,23 @@ extern float gReverbDecay; // 0.2–1.0
 // Output
 extern float gOutputLevel; // 0–1
 
+/**
+ * External excitation, ±1.0. Summed into both resonator channels before the
+ * string, so patching anything here drives it instead of leaving it to
+ * self-excite from its own −90 dBFS noise floor.
+ *
+ * volatile because the audio core reads it every frame while the control core
+ * writes it — a single aligned float, so atomic on the M33.
+ *
+ * ⚠ Its bandwidth is a property of the platform, not of the engine. VCV writes
+ * it once per sample from the EXCITER port, which is genuine audio-rate
+ * excitation. The firmware writes it from `readCV()` at the 128 Hz control
+ * tick, so on hardware it is a control voltage that pokes and swells the
+ * string rather than an audio input. Giving it audio bandwidth means a
+ * dedicated ADC path on the audio core; the seam is here and ready for it.
+ */
+extern volatile float gExciterIn;
+
 // CPU profiling — defined in main.cpp, only present when CPU_PROFILE is set.
 #ifdef CPU_PROFILE
 extern volatile bool     gPerformancePrintEnabled;

@@ -10,7 +10,7 @@
 // Usage:
 //   menu->addChild(createMenuLabel("Fatness"));
 //   auto* s = new SubMenuSlider;
-//   s->quantity = module->getParamQuantity(AlloyFlux::FATNESS_PARAM);
+//   s->quantity = module->getParamQuantity(MyModule::SOME_PARAM);
 //   menu->addChild(s);
 // ---------------------------------------------------------------------------
 struct SubMenuSlider : rack::ui::MenuItem

@@ -1,6 +1,7 @@
 #include "SubMenuSlider.hpp"
 #include "SynthEngine.h"
 #include "alloy_config.h" // kDefaultFilterCutoff — shared with the firmware
+#include "PanelLayout.h"  // shared panel geometry (all modules, one PCB)
 #include "VCVRackIO.h"    // VCV-specific IHardwareIO implementation (M37d)
 #include "VoiceMode.h"
 #include "dsp/ChorusEngine.h" // ChorusMode enum
@@ -1415,73 +1416,77 @@ struct AlloyFluxWidget : ModuleWidget
             createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH,
                                          RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-        // --- Panel knobs (7) ---
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(13.868, 20.883)), module, AlloyFlux::ROOT_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(56.962, 20.923)), module, AlloyFlux::RELATION_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(35.5, 25.423)), module, AlloyFlux::COLOR_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(13.862, 39.971)), module, AlloyFlux::SHAPE_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(57.076, 40.388)), module, AlloyFlux::MOTION_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(35.48, 43.653)), module, AlloyFlux::CURVE_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(35.477, 62.018)), module, AlloyFlux::SPACE_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(19.748, 62.018)), module, AlloyFlux::DELAY_MIX_PARAM));
-        addParam(createParamCentered<RoundBlackKnob>(
-            mm2px(Vec(51.196, 61.885)), module, AlloyFlux::REV_MIX_PARAM));
+        // Positions come from PanelLayout, indexed by the same positional slot
+        // the HAL uses — so a knob cannot end up somewhere the firmware does not
+        // expect, and moving the panel is a one-file change.
+        using namespace PanelLayout;
+
+        // --- Panel knobs (9), row-major ---
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::ROOT), module, AlloyFlux::ROOT_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::COLOR), module, AlloyFlux::COLOR_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::RELATION), module, AlloyFlux::RELATION_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::SHAPE), module, AlloyFlux::SHAPE_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::CURVE), module, AlloyFlux::CURVE_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::MOTION), module, AlloyFlux::MOTION_PARAM));
+        addParam(createParamCentered<Trimpot>(
+            pot(Pot::DELAY), module, AlloyFlux::DELAY_MIX_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::SPACE), module, AlloyFlux::SPACE_PARAM));
+        addParam(createParamCentered<Trimpot>(
+            pot(Pot::REVERB), module, AlloyFlux::REV_MIX_PARAM));
 
         // --- Buttons ---
         addParam(createParamCentered<VCVButton>(
-            mm2px(Vec(22.312, 76.912)), module, AlloyFlux::MODE_PARAM));
+            button(Btn::MODE), module, AlloyFlux::MODE_PARAM));
         addParam(createParamCentered<VCVButton>(
-            mm2px(Vec(48.612, 76.912)), module, AlloyFlux::SHIFT_PARAM));
+            button(Btn::SHIFT), module, AlloyFlux::SHIFT_PARAM));
 
-        // --- CV inputs — row 1 (V/OCT, GATE, [MIDI jack — software only], REL CV, SHAPE CV) ---
+        // --- Jacks. The panel labels the four modulation inputs CV 1..CV 4;
+        //     what they modulate is this module's choice. ---
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(9.511, 93.27)), module, AlloyFlux::VOCT_INPUT));
+            at(kVOctMm), module, AlloyFlux::VOCT_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(22.256, 93.27)), module, AlloyFlux::GATE_INPUT));
+            at(kGateMm), module, AlloyFlux::GATE_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(35.4, 93.27)), module, AlloyFlux::MIDI_INPUT));
+            at(kMidiMm), module, AlloyFlux::MIDI_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(48.645, 93.27)), module, AlloyFlux::REL_CV_INPUT));
+            at(kCv1Mm), module, AlloyFlux::REL_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(61.389, 93.27)), module, AlloyFlux::SHP_CV_INPUT));
-
-        // --- CV inputs — row 2 (MTN CV, FM IN, SPACE CV) ---
+            at(kCv2Mm), module, AlloyFlux::SHP_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(9.511, 107.242)), module, AlloyFlux::MTN_CV_INPUT));
+            at(kCv3Mm), module, AlloyFlux::MTN_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(22.256, 107.474)), module, AlloyFlux::FM_IN_INPUT));
+            at(kFmInMm), module, AlloyFlux::FM_IN_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            mm2px(Vec(35.4, 107.474)), module, AlloyFlux::SPC_CV_INPUT));
+            at(kCv4Mm), module, AlloyFlux::SPC_CV_INPUT));
 
         // --- Outputs ---
         addOutput(createOutputCentered<PJ301MPort>(
-            mm2px(Vec(48.645, 107.369)), module, AlloyFlux::L_OUTPUT));
+            at(kOutLMm), module, AlloyFlux::L_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(
-            mm2px(Vec(61.389, 107.437)), module, AlloyFlux::R_OUTPUT));
+            at(kOutRMm), module, AlloyFlux::R_OUTPUT));
 
         // --- LEDs (7 × RGB) — colour driven by the shared LedEngine ---
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(13.868, 52.389)), module, AlloyFlux::LED1_R_LIGHT));
+            led(Led::VOICE_L), module, AlloyFlux::LED1_R_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(57.046, 52.389)), module, AlloyFlux::LED7_R_LIGHT));
+            led(Led::VOICE_R), module, AlloyFlux::LED7_R_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(9.356, 66.422)), module, AlloyFlux::LED2_R_LIGHT));
+            led(Led::MOD_L), module, AlloyFlux::LED2_R_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(61.934, 66.422)), module, AlloyFlux::LED6_R_LIGHT));
+            led(Led::MOD_R), module, AlloyFlux::LED6_R_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(13.853, 77.328)), module, AlloyFlux::LED3_R_LIGHT));
+            led(Led::MODE), module, AlloyFlux::LED3_R_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(57.018, 77.328)), module, AlloyFlux::LED5_R_LIGHT));
+            led(Led::SHIFT), module, AlloyFlux::LED5_R_LIGHT));
         addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
-            mm2px(Vec(35.477, 79.106)), module, AlloyFlux::LED4_R_LIGHT));
+            led(Led::CENTRE), module, AlloyFlux::LED4_R_LIGHT));
     }
 
     // -----------------------------------------------------------------------

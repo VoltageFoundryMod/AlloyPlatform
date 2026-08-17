@@ -6,9 +6,10 @@
 // ---------------------------------------------------------------------------
 // VCVRackIO — IHardwareIO implementation for VCV Rack 2.
 //
-// Maps PotId/CVId/ButtonId/LightId to Rack param/input/light indices via
-// assignment tables populated in AlloyFlux's constructor.
-// M37e+ assignments are added there as new params/inputs are configured.
+// Platform code, not a module''s: it maps the positional PotId/CVId/ButtonId/
+// LightId slots onto Rack param/input/light indices through assignment tables
+// that each module fills in its own constructor. Nothing here knows what a
+// slot means, which is what lets AlloyFlux and Audrey share it.
 //
 // Pot normalisation:  readPot() maps the param's [minVal, maxVal] range → 0–1
 //                     so that IOBridge::fillSynthParams() sees the same 0–1
@@ -36,7 +37,7 @@ class VCVRackIO : public IHardwareIO
     }
 
     // -----------------------------------------------------------------------
-    // Registration — call these in AlloyFlux::AlloyFlux() after config().
+    // Registration — call these in the module's constructor, after config().
     // -----------------------------------------------------------------------
 
     /** Map a pot to a Rack param.  minVal/maxVal must match configParam(). */

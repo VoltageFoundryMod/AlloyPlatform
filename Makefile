@@ -132,40 +132,77 @@ WEB := web-configurator
 .DEFAULT_GOAL := all
 .PHONY: all everything help list
 
-# `all` is the firmware you flash.
+# ── Modules ──────────────────────────────────────────────────────────────────
+# The platform hosts one engine per firmware image, so each module is its own
+# PlatformIO env; ENV selects which. The VCV plugin is the opposite — one .dll
+# carries every module and Rack offers them all, so there is nothing per-module
+# to build there.
+MODULES := alloyflux audrey
+
+# `all` is the firmware you flash — AlloyFlux unless ENV says otherwise.
 all: firmware
 
-# Everything a change under common/ can break, plus the web app.
-everything: firmware vcv web
+# Everything a shared change can break. Both firmware images, because a change
+# under platform/ compiles differently against each module, and both web builds
+# for the same reason.
+everything: firmware-all vcv web-all
+
+.PHONY: firmware-all web-all
+firmware-all:
+	@for m in $(MODULES); do \
+	  echo ""; echo "--- firmware: $$m ---"; \
+	  $(MAKE) --no-print-directory firmware ENV=$$m || exit 1; \
+	done
+
+web-all:
+	@for m in $(MODULES); do \
+	  echo ""; echo "--- web: $$m ---"; \
+	  $(MAKE) --no-print-directory web MODULE=$$m || exit 1; \
+	done
 
 help list:
 	@echo ""
-	@echo "AlloyFlux - make targets"
+	@echo "Alloy Platform - make targets"
 	@echo ""
-	@echo "  Firmware (RP2350, env:$(ENV))"
+	@echo "  Modules: $(MODULES)"
+	@echo "    ENV=<module>      picks the firmware image   (current: $(ENV))"
+	@echo "    MODULE=<module>   picks the params/web target (current: $(MODULE))"
+	@echo ""
+	@echo "  Firmware (RP2350, one image per module)"
 	@echo "    firmware          build firmware.uf2                  (default)"
+	@echo "    firmware-all      build every module's image"
 	@echo "    upload            build and flash over USB"
 	@echo "    upload-monitor    flash, then open the serial monitor"
 	@echo "    monitor           serial monitor only"
 	@echo "    test              PlatformIO native unit tests"
 	@echo "    firmware-clean    clean the PlatformIO build"
+	@echo "      e.g.  make upload ENV=audrey"
 	@echo ""
-	@echo "  VCV Rack plugin"
+	@echo "  VCV Rack plugin (ONE plugin, all modules in it)"
 	@echo "    vcv               build vcv-plugin/plugin.dll"
 	@echo "    vcv-install       build and install into Rack's user plugin dir"
 	@echo "    vcv-dist          package the .vcvplugin for the VCV library"
 	@echo "    vcv-clean         clean the plugin build"
 	@echo "    print-plugins-dir print Rack's user plugin directory"
 	@echo ""
-	@echo "  Web Configurator (Svelte + Vite)"
+	@echo "  Web Configurator (Svelte + Vite, one build per module)"
 	@echo "    web               production build into $(WEB)/dist"
+	@echo "    web-all           build every module's configurator in turn"
 	@echo "    web-dev           vite dev server on localhost:5173"
 	@echo "    web-check         svelte-check + tsc type validation"
 	@echo "    web-deps          npm install"
 	@echo "    web-clean         remove dist/ and node_modules/"
+	@echo "      e.g.  make web-dev MODULE=audrey"
+	@echo ""
+	@echo "  Parameters"
+	@echo "    params            regenerate tables from modules/\$$(MODULE)/params.json"
+	@echo "    params-check      CI gate: fail if the committed tables are stale"
+	@echo ""
+	@echo "  Audrey engine"
+	@echo "    audrey-host       host-build + run the engine, print its footprint"
 	@echo ""
 	@echo "  Across the repo"
-	@echo "    everything        firmware + vcv + web"
+	@echo "    everything        every firmware image + vcv + every web build"
 	@echo "    format            clang-format every tracked C/C++ file"
 	@echo "    format-check      verify formatting without writing (CI gate)"
 	@echo "    clean             all three clean targets"
@@ -268,6 +305,112 @@ audrey-host:
 audrey-host-clean:
 	rm -f $(AUDREY_BIN)
 
+# ── Panels ───────────────────────────────────────────────────────────────────
+# Rack's SVG parser (nanosvg) renders <path> and nothing else — it does not
+# understand <text>, so a label typed in Inkscape simply does not appear. The
+# fix is object-to-path before export, and doing it by hand is exactly the step
+# that gets forgotten right before a release.
+#
+# So: edit `res/<Name>_src.svg` in Inkscape and leave text as text. The build
+# converts it into `res/<Name>.svg`, which is what the plugin loads and what
+# gets committed. Both files are tracked — the _src because it is the source,
+# the output because a machine without Inkscape still has to be able to build.
+#
+# ⚠ Use plain `select-all`, NOT `select-all:all`. The docs make `:all` ("every
+# object including groups") sound safer, but `object-to-path` then recurses into
+# every group in the document and on a 270 KB panel it does not finish — killed
+# after ten minutes. Plain `select-all` (documented as `no-groups`) does reach
+# text inside layers and groups here: verified, 0 <text> left in the output.
+#
+# `export-plain-svg` drops the inkscape:/sodipodi: namespaces, which nanosvg
+# ignores anyway — 272 KB in, 258 KB out.
+#
+# ⚠ `--batch-process` is not optional. Without it Inkscape writes the export and
+# then keeps running with its GUI event loop alive, so make blocks forever on a
+# job that already finished. It is intermittent enough to look like a slow
+# conversion rather than a hang: small documents happened to exit on their own,
+# a 390 KB panel did not.
+#
+# ⚠ And `>/dev/null 2>&1 </dev/null` — all three, not just stdout. Even with
+# --batch-process, Inkscape leaves a process behind that inherits whatever file
+# descriptors the recipe had. It writes GTK warnings to *stderr*, so redirecting
+# only stdout leaves that orphan holding the write end of the build's output
+# pipe — and a reader on that pipe blocks until every writer closes. The visible
+# symptom is `make vcv` freezing *after* the panel is already converted, while
+# `make panels` on its own appears fine because nothing was reading a pipe.
+# Probed with a shell loop, not $(wildcard)/$(firstword) like the other tools in
+# this file: the default install path is "C:/Program Files/Inkscape/...", and
+# both of those functions split their arguments on whitespace — so the space
+# turns one path into two and neither exists. Every use site quotes $(INKSCAPE)
+# for the same reason.
+INKSCAPE ?= $(shell for p in \
+      "$$(command -v inkscape 2>/dev/null)" \
+      "C:/Program Files/Inkscape/bin/inkscape.com" \
+      "C:/Program Files (x86)/Inkscape/bin/inkscape.com" \
+      $(foreach h,$(HOMEDIRS),"$(h)/AppData/Local/Programs/Inkscape/bin/inkscape.com") \
+      ; do [ -n "$$p" ] && [ -x "$$p" ] && printf '%s' "$$p" && break; done)
+
+# Guide layers stripped before conversion — `components` holds a shape per pot,
+# jack and LED so widget coordinates can be read off the drawing, and Rack would
+# happily render all of it on top of the finished panel. Keyed on the Inkscape
+# layer label, which is the name you chose and will keep, rather than on the
+# generated id.
+PANEL_HIDE_LAYERS ?= components
+
+# The action list, overridable so a variant can be tried without editing this
+# file: make panels PANEL_ACTIONS="..."
+PANEL_ACTIONS ?= select-all; object-to-path; export-plain-svg; export-filename:$@; export-do
+
+# Sources live OUTSIDE vcv-plugin/res/ on purpose. vcv-plugin/Makefile ships the
+# whole of res/ via `DISTRIBUTABLES += res`, so an editable _src sitting there was
+# packaged into every .vcvplugin — several hundred KB of Inkscape working file per
+# panel, in a release. Keeping them here means `make vcv-dist` cannot pick them up
+# by accident rather than because someone remembered to exclude them.
+PANEL_SRCDIR := panel-src
+PANEL_OUTDIR := vcv-plugin/res
+
+# Anchor the patsubst on both directories. A bare `%_src.svg` pattern captures
+# the source directory into `%` as well, which quietly nests the output
+# (vcv-plugin/res/panel-src/Foo.svg) instead of relocating it.
+PANEL_SRC := $(wildcard $(PANEL_SRCDIR)/*_src.svg)
+PANEL_OUT := $(patsubst $(PANEL_SRCDIR)/%_src.svg,$(PANEL_OUTDIR)/%.svg,$(PANEL_SRC))
+PANEL_TMP := $(BUILD_TMP)/panels
+
+.PHONY: panels panels-force panel-coords
+
+# Print the true component positions from the master panel's `components` layer,
+# ready to paste into platform/vcv/PanelLayout.h. Honours the ancestor transforms
+# and the viewBox scale, which Rack's module-helper stub does not — see the
+# warning at the top of PanelLayout.h.
+panel-coords:
+	@$(PYTHON) tools/panel_coords.py $(PANEL_SRCDIR)/AlloyPlatform.svg $(PANEL_HIDE_LAYERS)
+
+panels: $(PANEL_OUT)
+
+# Rebuild every panel regardless of timestamps — for when Inkscape's output
+# changed under you (a version bump) rather than the source.
+panels-force:
+	rm -f $(PANEL_OUT)
+	@$(MAKE) --no-print-directory panels
+
+# Missing Inkscape is not an error: the converted SVG is committed, so only
+# someone actually editing a panel needs the tool. Warn and use what is there.
+$(PANEL_OUTDIR)/%.svg: $(PANEL_SRCDIR)/%_src.svg
+ifeq ($(INKSCAPE),)
+	@echo "  Inkscape not found - keeping the committed $@."
+	@echo "  Install Inkscape, or set INKSCAPE=/path/to/inkscape.com, to rebuild"
+	@echo "  it from $<. Text in the _src will not render in Rack until you do."
+	@touch $@
+else
+	@echo "panel: $< -> $@"
+	@mkdir -p $(PANEL_TMP)
+	@$(PYTHON) tools/prep_panel.py $< $(PANEL_TMP)/$(notdir $<) $(PANEL_HIDE_LAYERS)
+	@"$(INKSCAPE)" --batch-process $(PANEL_TMP)/$(notdir $<) \
+	  --actions="$(PANEL_ACTIONS)" \
+	  >/dev/null 2>&1 </dev/null
+	@$(PYTHON) tools/prep_panel.py --check $@
+endif
+
 # ── VCV Rack plugin ──────────────────────────────────────────────────────────
 # PlatformIO does NOT compile vcv-plugin/, so `make firmware` passing says
 # nothing about the Rack port. Any edit under modules/alloyflux/ or
@@ -276,13 +419,13 @@ audrey-host-clean:
 # install / dist come from Rack's plugin.mk, which vcv-plugin/Makefile includes.
 .PHONY: vcv vcv-install vcv-dist vcv-clean print-plugins-dir
 
-vcv:
+vcv: panels
 	$(MAKE) -C vcv-plugin $(RACK_ARG)
 
-vcv-install:
+vcv-install: panels
 	$(MAKE) -C vcv-plugin install $(RACK_ARG)
 
-vcv-dist:
+vcv-dist: panels
 	$(MAKE) -C vcv-plugin dist $(RACK_ARG)
 
 vcv-clean:

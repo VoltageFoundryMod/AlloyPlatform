@@ -10,51 +10,83 @@
 // they do.  This header is the one place that says slot 1 is the pitch knob,
 // and it is the only file that has to change if the panel is re-laid out.
 //
-// ⚠ **Slot order is the flash format.**  Preset blobs and PotTakeover's state
-// array are indexed by slot number, so inserting an entry in the middle
-// renumbers everything after it and silently reinterprets stored presets.
-// Append new entries at the end of each group and bump kEngineVersion.
+// Renumbering slots is safe as far as flash goes — preset blobs are structs of
+// named fields (see alloy_config.h), not slot-indexed arrays, and PotTakeover's
+// slot-indexed state is runtime-only. What renumbering *does* affect is
+// `kShiftPairs` below and `PanelLayout`'s coordinate table, both of which index
+// by slot; change them together or a knob moves without anything failing.
 //
 // Counts are AlloyFlux's, not the platform's — the HAL sizes for the largest
 // module it expects to host, and the unused slots simply go unassigned.
 // ---------------------------------------------------------------------------
 
-/** Knobs.  Slots 1–9 are physical; 10–15 are their SHIFT-secondaries. */
+/**
+ * Knobs. Slots 1–9 are the physical knobs, **numbered row-major to match the
+ * panel silkscreen**: POT 1–3 across the top, 4–6 the middle, 7–9 the bottom.
+ * Slots 10–15 are their SHIFT-secondaries.
+ *
+ * The row-major ordering is not cosmetic. `platform/vcv/PanelLayout.h` indexes
+ * its coordinate table by these very slots, so `PanelLayout::pot(Pot::ROOT)`
+ * lands on the knob the panel calls POT 1. They were previously numbered in the
+ * order the parameters happened to be written, which put POT_2 at top-right in
+ * the firmware and top-centre on the panel — a disagreement nothing could catch.
+ */
 namespace Pot
 {
 // ---- 9 physical panel knobs (same on hardware and VCV) ----
-constexpr PotId ROOT     = PotId::POT_1; ///< Root pitch (V/Oct centre)
-constexpr PotId RELATION = PotId::POT_2; ///< Semitone offset, voice 2 (0–24 st)
-constexpr PotId SHAPE    = PotId::POT_3; ///< sine → tri → saw → pulse → hollow
-constexpr PotId MOTION   = PotId::POT_4; ///< Drift + chorus depth [0–1]
-constexpr PotId COLOR  = PotId::POT_5; ///< FM depth / ensemble Hz spread [0–1]
-constexpr PotId CURVE  = PotId::POT_6; ///< Envelope character (pluck ↔ swell)
-constexpr PotId SPACE  = PotId::POT_7; ///< Stereo width [0–1]
-constexpr PotId DELAY  = PotId::POT_8; ///< Delay wet mix — 0 = bypass (M56)
-constexpr PotId REVERB = PotId::POT_9; ///< Reverb wet mix — 0 = bypass (M56)
+constexpr PotId ROOT  = PotId::POT_1; ///< top L    — root pitch (V/Oct centre)
+constexpr PotId COLOR = PotId::POT_2; ///< top C    — FM depth / Hz spread
+constexpr PotId RELATION = PotId::POT_3; ///< top R    — voice 2 offset, 0–24 st
+constexpr PotId SHAPE  = PotId::POT_4; ///< mid L    — sine→tri→saw→pulse→hollow
+constexpr PotId CURVE  = PotId::POT_5; ///< mid C    — envelope pluck ↔ swell
+constexpr PotId MOTION = PotId::POT_6; ///< mid R    — drift + chorus depth
+constexpr PotId DELAY  = PotId::POT_7; ///< bottom L — delay mix, 0 = bypass
+constexpr PotId SPACE  = PotId::POT_8; ///< bottom C — stereo width
+constexpr PotId REVERB = PotId::POT_9; ///< bottom R — reverb mix, 0 = bypass
 
-// ---- SHIFT-secondaries.  Hardware: the same physical knob, read while SHIFT
-//      is held.  VCV: hidden params / context-menu sliders. ----
-constexpr PotId FATNESS    = PotId::POT_10; ///< Sub level      (SHIFT+SHAPE)
-constexpr PotId DRIFTSPEED = PotId::POT_11; ///< Drift rate     (SHIFT+MOTION)
-constexpr PotId CURVETIME  = PotId::POT_12; ///< Env time 0.25–4× (SHIFT+CURVE)
-constexpr PotId VOL        = PotId::POT_13; ///< Master volume  (SHIFT+SPACE)
-constexpr PotId DELAYTIME  = PotId::POT_14; ///< Delay time     (SHIFT+DELAY)
-constexpr PotId REVERBSIZE = PotId::POT_15; ///< Plate size     (SHIFT+REVERB)
+// ---- SHIFT-secondaries. Hardware: the same physical knob, read while SHIFT is
+//      held, so a secondary has no position of its own. VCV: context-menu
+//      sliders. Numbered in row-major order of their primary, so POT_10..POT_15
+//      pair with POT_4..POT_9 in sequence. ----
+constexpr PotId FATNESS    = PotId::POT_10; ///< SHIFT+SHAPE  — sub level
+constexpr PotId CURVETIME  = PotId::POT_11; ///< SHIFT+CURVE  — env time 0.25–4×
+constexpr PotId DRIFTSPEED = PotId::POT_12; ///< SHIFT+MOTION — drift rate
+constexpr PotId DELAYTIME  = PotId::POT_13; ///< SHIFT+DELAY  — delay time
+constexpr PotId VOL        = PotId::POT_14; ///< SHIFT+SPACE  — master volume
+constexpr PotId REVERBSIZE = PotId::POT_15; ///< SHIFT+REVERB — plate size
 
 constexpr uint8_t kCount = 15;
 } // namespace Pot
 
-/** CV input jacks. */
+/**
+ * CV input jacks.
+ *
+ * The panel numbers its four modulation jacks CV 1..CV 4 and they map onto the
+ * HAL in order, CV 1..CV 4 -> CV_3..CV_6; CV_1 and CV_2 are V/Oct and Gate.
+ * Physically (board designators from hardware/MainPCB, left to right):
+ *
+ *   upper row:  V/OCT   GATE   MIDI IN   CV 1      CV 2
+ *               J3      J4     J2        J5        J6
+ *               CV_1    CV_2   —         CV_3      CV_4
+ *               —       —      —         RELATION  SHAPE
+ *
+ *   lower row:  CV 3    FM IN  CV 4      OUT L     OUT R
+ *               J7      J9     J8        J10       J11
+ *               CV_5    CV_7   CV_6      —         —
+ *               MOTION  FM     SPACE     —         —
+ *
+ * FM IN sits *between* CV 3 and CV 4, so the lower row is not in slot order.
+ * MIDI IN is a MIDI jack, not a CV one, and has no slot at all.
+ */
 namespace Cv
 {
-constexpr CVId VOCT = CVId::CV_1; ///< V/Oct pitch — readCV() returns volts
-constexpr CVId GATE = CVId::CV_2; ///< Gate — 0.0 or the raw voltage when high
-constexpr CVId RELATION = CVId::CV_3; ///< bipolar, normalised to ±1.0
-constexpr CVId SHAPE    = CVId::CV_4; ///< bipolar, normalised to ±1.0
-constexpr CVId MOTION   = CVId::CV_5; ///< bipolar, normalised to ±1.0
-constexpr CVId SPACE    = CVId::CV_6; ///< bipolar, normalised to ±1.0
-constexpr CVId FM       = CVId::CV_7; ///< FM / COLOR — bipolar, ±1.0
+constexpr CVId VOCT = CVId::CV_1; ///< J3, V/OCT — readCV() returns volts
+constexpr CVId GATE = CVId::CV_2; ///< J4, GATE — 0.0 or raw voltage when high
+constexpr CVId RELATION = CVId::CV_3; ///< J5, CV 1  — bipolar, ±1.0
+constexpr CVId SHAPE    = CVId::CV_4; ///< J6, CV 2  — bipolar, ±1.0
+constexpr CVId MOTION   = CVId::CV_5; ///< J7, CV 3  — bipolar, ±1.0
+constexpr CVId SPACE    = CVId::CV_6; ///< J8, CV 4  — bipolar, ±1.0
+constexpr CVId FM       = CVId::CV_7; ///< J9, FM IN — FM / COLOR, ±1.0
 
 constexpr uint8_t kCount = 7;
 } // namespace Cv
@@ -77,16 +109,22 @@ constexpr uint8_t kCount = 2;
  *     MOD_L  ·  ·  ·  · MOD_R       mid-top:    motion / modulation
  *        MODE  ·   SHIFT            mid-bottom: mode / shift-drone
  *           · CENTRE ·              bottom:     heartbeat / global
+ *
+ * This role order pairs the LEDs left/right, which is **not** how the panel
+ * numbers them: the silkscreen's LED1..LED7 (board D12, D13, D14, D15, D16,
+ * D21, D22) run counter-clockwise from the upper left, which is also the
+ * daisy-chain order. Both columns are spelled out below; the third mapping,
+ * LightId -> chain position, is kChainPos in HardwarePicoIO::writeLight().
  */
 namespace Led
 {
-constexpr LightId VOICE_L = LightId::LIGHT_1; ///< D12 / VCV LED1
-constexpr LightId VOICE_R = LightId::LIGHT_2; ///< D22 / VCV LED7
-constexpr LightId MOD_L   = LightId::LIGHT_3; ///< D13 / VCV LED2
-constexpr LightId MOD_R   = LightId::LIGHT_4; ///< D21 / VCV LED6
-constexpr LightId MODE    = LightId::LIGHT_5; ///< D14 / VCV LED3
-constexpr LightId SHIFT   = LightId::LIGHT_6; ///< D16 / VCV LED5
-constexpr LightId CENTRE  = LightId::LIGHT_7; ///< D15 / VCV LED4
+constexpr LightId VOICE_L = LightId::LIGHT_1; ///< LED1 / D12 — upper left
+constexpr LightId VOICE_R = LightId::LIGHT_2; ///< LED7 / D22 — upper right
+constexpr LightId MOD_L   = LightId::LIGHT_3; ///< LED2 / D13 — left
+constexpr LightId MOD_R   = LightId::LIGHT_4; ///< LED6 / D21 — right
+constexpr LightId MODE    = LightId::LIGHT_5; ///< LED3 / D14 — lower left
+constexpr LightId SHIFT   = LightId::LIGHT_6; ///< LED5 / D16 — lower right
+constexpr LightId CENTRE  = LightId::LIGHT_7; ///< LED4 / D15 — bottom centre
 
 constexpr uint8_t kCount = 7;
 } // namespace Led

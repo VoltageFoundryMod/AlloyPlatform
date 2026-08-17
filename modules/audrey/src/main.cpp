@@ -69,6 +69,9 @@ float gReverbMix     = 0.0f;
 float gReverbDecay   = 0.2f;
 float gOutputLevel   = 0.5f;
 
+// External excitation — see params.h. Control-rate on this platform.
+volatile float gExciterIn = 0.0f;
+
 #ifdef CPU_PROFILE
 volatile bool     gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs          = 0;
@@ -225,9 +228,9 @@ renderAudio(float *pOutL, float *pOutR)
     }
 #endif
 
-    // Mono in: the engine takes an external excitation input, which this build
-    // has no jack for. The resonator self-excites from its own noise floor.
-    gEngine.Process(0.0f, *pOutL, *pOutR);
+    // gExciterIn is whatever the EXCITER jack last read; 0 when unpatched, in
+    // which case the resonator self-excites from its own noise floor as before.
+    gEngine.Process(gExciterIn, *pOutL, *pOutR);
 
 #if AUDREY_OUTPUT_SOFTCLIP
     // Master soft clip.

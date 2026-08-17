@@ -3,7 +3,7 @@
 AlloyFlux is a eurorack synthesizer module with three build targets that share a single DSP codebase:
 
 - **Firmware** — RP2350 (Pico 2), Arduino, PlatformIO
-- **VCV Rack plugin** — Rack SDK 2.6.6, shares `platform/include/` + `modules/alloyflux/`
+- **VCV Rack plugin** — Rack SDK 2.6.6, one plugin carrying every module
 - **Web Configurator** — Svelte 5 + TypeScript + Vite
 
 ---
@@ -16,19 +16,19 @@ All three targets build from the **root `Makefile`**. Use it rather than calling
 Rack plugin build, which is what Rack's POSIX `plugin.mk` needs. `make help`
 lists every target.
 
-| Target     | Command                  | Notes                                                                  |
-| ---------- | ------------------------ | ---------------------------------------------------------------------- |
-| Firmware   | `make` / `make firmware` | env `alloyflux`; output `.pio/build/alloyflux/firmware.uf2`            |
-|            | `make upload`            | build + flash; `make upload-monitor` also opens the serial console     |
-| VCV plugin | `make vcv`               | `vcv-plugin/plugin.dll`; no MSYS shell needed, the Makefile finds one  |
-|            | `make vcv-install`       | installs into Rack's user plugin dir (`make print-plugins-dir`)        |
-|            | `make vcv-dist`          | packages the `.vcvplugin` for the VCV library                          |
-| Web        | `make web`               | production build into `web-configurator/dist`                          |
-|            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc     |
-| Everything | `make everything`        | firmware + VCV + web                                                   |
-| Audrey     | `make firmware ENV=audrey` | Audrey II firmware; `make web MODULE=audrey` for its configurator     |
-|            | `make audrey-host`       | host-compiles + runs the vendored Audrey engine; prints its footprint  |
-| Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate |
+| Target     | Command                  | Notes                                                                                   |
+| ---------- | ------------------------ | --------------------------------------------------------------------------------------- |
+| Firmware   | `make` / `make firmware` | one image per module; `ENV=audrey` for the other. Output `.pio/build/$ENV/firmware.uf2` |
+|            | `make firmware-all`      | every module's image — run after touching `platform/`                                   |
+|            | `make upload`            | build + flash; `make upload-monitor` also opens the serial console                      |
+| VCV plugin | `make vcv`               | **one** `plugin.dll` with *all* modules in it — there is no per-module VCV build        |
+|            | `make vcv-install`       | installs into Rack's user plugin dir (`make print-plugins-dir`)                         |
+|            | `make vcv-dist`          | packages the `.vcvplugin` for the VCV library                                           |
+| Web        | `make web`               | one build per module; `MODULE=audrey` for the other. Into `web-configurator/dist`       |
+|            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc                      |
+| Everything | `make everything`        | every firmware image + VCV + every web build                                            |
+| Audrey     | `make audrey-host`       | host-compiles + runs the vendored Audrey engine; prints its footprint                   |
+| Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate                  |
 
 `RACK_DIR` defaults to a `Rack-SDK` checkout beside this repository. Override it
 with an **absolute** path (`make RACK_DIR=D:/Rack-SDK vcv`) — a relative one would
@@ -68,10 +68,10 @@ Key files and directories:
 
 `IHardwareIO` (defined in [`platform/include/io/HardwareIO.h`](platform/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
 
-- **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h)
-- **VCV** — `VCVRackIO` in [`vcv-plugin/src/VCVRackIO.h`](vcv-plugin/src/VCVRackIO.h)
+- **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h). Audrey has none yet, so its knobs and CV are VCV-only.
+- **VCV** — `VCVRackIO` in [`platform/vcv/VCVRackIO.h`](platform/vcv/VCVRackIO.h), shared by every module. `SubMenuSlider.hpp` sits beside it for shift-secondaries.
 
-Its identifiers are **positional** — `PotId::POT_1`, `CVId::CV_3`, `LightId::LIGHT_5`. AlloyFlux's names for them live in [`modules/alloyflux/include/io/PanelMap.h`](modules/alloyflux/include/io/PanelMap.h) as `Pot::ROOT`, `Cv::VOCT`, `Btn::SHIFT`, `Led::CENTRE`. Use the `Pot::`/`Cv::` names in module code; never add a semantic name to the HAL. **Slot order is the flash format** — append, never insert.
+Its identifiers are **positional** — `PotId::POT_1`, `CVId::CV_3`, `LightId::LIGHT_5`. Each module names them in its own `io/PanelMap.h` — AlloyFlux as `Pot::ROOT`/`Cv::VOCT`, Audrey as `Pot::PITCH`/`Cv::EXCITER` — and **both map the same slot numbers to the same physical positions**, because they share a PCB. Use the `Pot::`/`Cv::` names in module code; never add a semantic name to the HAL. **Slot order is the flash format** — append, never insert.
 
 The platform's audio boundary is **float ±1.0**. AlloyFlux's `int32 ±kSignalFullScale` is an internal convention and converts only at its own edge (`renderAudio()` on hardware, `setVoltage()` in VCV) — see `kSignalToFloat` / `kFloatToSignal` in `SynthEngine.h`.
 
