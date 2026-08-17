@@ -23,9 +23,14 @@
 //   AUDREY_ECHO_DECIMATION  run the echo loop at fs/N (default 4 -> 12 kHz)
 //   AUDREY_ECHO_Q15         store samples as int16 rather than float
 //   AUDREY_ECHO_NOISE_SHAPE first-order error feedback on the quantiser
+//   AUDREY_ECHO_ANTIALIAS   the 24 dB/oct filter ahead of the decimator
 //
 // Together they cut the storage 8x. Set AUDREY_ECHO_DECIMATION=1 and
 // AUDREY_ECHO_Q15=0 to get upstream's behaviour back exactly.
+//
+// AUDREY_ECHO_ANTIALIAS exists only so the filter can be measured against its
+// own absence — see modules/audrey/test/echo_ab.cpp and `make audrey-ab`.
+// Turning it off in a shipping build is not a trade-off, it is a bug.
 //
 // Both carry real DSP risk, and the mitigations are the interesting part:
 //
@@ -54,8 +59,23 @@
 #define AUDREY_ECHO_Q15 1
 #endif
 
+// Off by default since the M63f A/B (`make audrey-ab-sweep`) measured it.
+// Error feedback is the textbook improvement on a quantiser and it buys
+// nothing here: SNR is 37.5 dB with it and 37.6 dB without, because the floor
+// is set by SoftClip's intermodulation inside the loop, not by the quantiser.
+// What it does cost is silence — the error term keeps the quantiser dithering
+// around zero, leaving a permanent -119 dBFS floor where truncation decays to
+// bit-exact zero. Inaudible on its own, but this echo deliberately allows
+// feedback past unity, which amplifies that floor at ~1.7 dB/s. Trading a
+// measurable "never truly silent" for an unmeasurable improvement is the wrong
+// way round. Kept switchable because the reasoning is worth re-testing if the
+// loop's nonlinearities ever change.
 #ifndef AUDREY_ECHO_NOISE_SHAPE
-#define AUDREY_ECHO_NOISE_SHAPE 1
+#define AUDREY_ECHO_NOISE_SHAPE 0
+#endif
+
+#ifndef AUDREY_ECHO_ANTIALIAS
+#define AUDREY_ECHO_ANTIALIAS 1
 #endif
 
 namespace infrasonic {
@@ -111,13 +131,19 @@ class EchoDelay {
             bpf_.Init(decim_rate_);
             bpf_.SetParams(800.0f, 1.0f);
 
-            // Anti-alias ahead of the decimator. 0.35 x the decimated rate is
-            // 0.7 x its Nyquist: high enough to leave the echo's own voice
-            // alone (the bandpass above is at 800 Hz, so there is little of
-            // interest up here) and low enough that 24 dB/oct has room to work
-            // before the first fold-down point.
+            // Anti-alias ahead of the decimator, at half the decimated rate's
+            // Nyquist. This started at 0.35 and came down to 0.25 once the A/B
+            // put numbers on it: at 0.35 (4200 Hz) an 11 kHz tone still folded
+            // down to 1 kHz at -41 dBFS, which is audible, and 1 kHz is exactly
+            // where the loop's own bandpass passes it through untouched.
+            //
+            // Dropping to 0.25 (3000 Hz) is another 12 dB of rejection for
+            // almost nothing, because the bandpass below is at 800 Hz and
+            // 12 dB/oct — it has already taken 23 dB out by 3 kHz, so there is
+            // very little real echo content up in the band being given away.
+            // Re-measure with `make audrey-ab` before moving it again.
             aa_lpf_.Init(sample_rate);
-            aa_lpf_.SetCutoff(decim_rate_ * 0.35f);
+            aa_lpf_.SetCutoff(decim_rate_ * 0.25f);
             aa_lpf_.SetFlatResponse();
         }
 
@@ -162,7 +188,11 @@ class EchoDelay {
             // Band-limit the send before it is decimated. This is the whole
             // defence against fold-down: the tap is post-reverb and carries
             // content well above the decimated Nyquist.
+#if AUDREY_ECHO_ANTIALIAS
             const float band_limited = aa_lpf_.Process(in);
+#else
+            const float band_limited = in; // measurement only — see the header
+#endif
 
             if (++phase_ >= kDecim) {
                 phase_    = 0;

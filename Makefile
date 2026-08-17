@@ -73,7 +73,7 @@ endif
 # means one clear message instead of plugin.mk's "SLUG could not be found in
 # manifest", which names neither the missing tool nor the wrong shell.
 ifdef WINDOWS
-ifneq ($(filter vcv vcv-% audrey-host everything,$(or $(MAKECMDGOALS),all)),)
+ifneq ($(filter vcv vcv-% audrey-host audrey-ab audrey-ab-% everything,$(or $(MAKECMDGOALS),all)),)
   WIN_MISSING :=
   ifeq ($(WIN_SH),)
     WIN_MISSING += msys2($(MSYS)/usr/bin/sh.exe)
@@ -200,6 +200,8 @@ help list:
 	@echo ""
 	@echo "  Audrey engine"
 	@echo "    audrey-host       host-build + run the engine, print its footprint"
+	@echo "    audrey-ab         measure echo aliasing + quantiser noise"
+	@echo "    audrey-ab-sweep   the same, across the whole switch matrix"
 	@echo ""
 	@echo "  Across the repo"
 	@echo "    everything        every firmware image + vcv + every web build"
@@ -304,6 +306,51 @@ audrey-host:
 
 audrey-host-clean:
 	rm -f $(AUDREY_BIN)
+
+# ── Audrey echo A/B ──────────────────────────────────────────────────────────
+# The two DSP risks M63f has been carrying since it landed, measured instead of
+# argued: does the anti-alias filter catch the /4 fold-down, and does int16
+# quantisation noise regenerate when echo feedback goes past unity.
+#
+# Exercises EchoDelay directly — no string, no reverb, no feedback loop — so
+# nothing else can colour the answer. Builds are the comparison: these are
+# compile-time switches by design, so `audrey-ab-sweep` rebuilds across the
+# matrix and prints each configuration in turn.
+.PHONY: audrey-ab audrey-ab-sweep audrey-ab-clean
+
+AUDREY_AB_BIN  := $(BUILD_TMP)/audrey_ab$(EXE)
+AUDREY_AB_SRCS := modules/audrey/test/echo_ab.cpp \
+                  modules/audrey/src/BiquadFilters.cpp
+
+# Same HOST_EXTRA convention as audrey-host:
+#   make audrey-ab HOST_EXTRA="-DAUDREY_ECHO_ANTIALIAS=0"
+#   make audrey-ab HOST_EXTRA="-DAUDREY_ECHO_Q15=0"
+audrey-ab:
+	@mkdir -p $(BUILD_TMP)
+	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
+	  -Ivendor/daisysp -Imodules/audrey/include $(HOST_EXTRA) \
+	  $(AUDREY_AB_SRCS) -o $(AUDREY_AB_BIN)
+	@$(AUDREY_AB_BIN)
+
+# The whole matrix, in the order that makes the argument:
+#   1. /1 float          the reference — no decimation, no quantiser
+#   2. /4, AA off        what fold-down looks like unmitigated
+#   3. /4, AA on         what the filter buys  (= the shipping alias behaviour)
+#   4. /4 int16, shaping off   the quantiser without its error feedback
+#   5. shipping default        everything on
+audrey-ab-sweep:
+	@$(MAKE) --no-print-directory audrey-ab \
+	  HOST_EXTRA="-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0"
+	@$(MAKE) --no-print-directory audrey-ab \
+	  HOST_EXTRA="-DAUDREY_ECHO_Q15=0 -DAUDREY_ECHO_ANTIALIAS=0"
+	@$(MAKE) --no-print-directory audrey-ab \
+	  HOST_EXTRA="-DAUDREY_ECHO_Q15=0"
+	@$(MAKE) --no-print-directory audrey-ab \
+	  HOST_EXTRA="-DAUDREY_ECHO_NOISE_SHAPE=0"
+	@$(MAKE) --no-print-directory audrey-ab
+
+audrey-ab-clean:
+	rm -f $(AUDREY_AB_BIN)
 
 # ── Panels ───────────────────────────────────────────────────────────────────
 # Rack's SVG parser (nanosvg) renders <path> and nothing else — it does not
