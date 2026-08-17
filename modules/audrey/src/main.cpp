@@ -68,6 +68,7 @@ float gEchoFeedback  = 0.0f;
 float gReverbMix     = 0.0f;
 float gReverbDecay   = 0.2f;
 float gOutputLevel   = 0.5f;
+float gExciterLevel  = 1.0f;
 
 // External excitation — see params.h. Control-rate on this platform.
 volatile float gExciterIn = 0.0f;
@@ -171,6 +172,7 @@ void updateControl()
     gEngine.SetReverbMix(gReverbMix);
     gEngine.SetReverbFeedback(gReverbDecay);
     gEngine.SetOutputLevel(gOutputLevel);
+    gEngine.SetExciterLevel(gExciterLevel);
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
     gAudioElapsedUs = sAudioDriver.lastBlockUs();

@@ -36,6 +36,11 @@ extern float gReverbDecay; // 0.2–1.0
 // Output
 extern float gOutputLevel; // 0–1
 
+/// Gain on the exciter jack before it enters the loop, 0–2. Not volatile: this
+/// is a control-rate goal value like the rest, written by the knob/CC/preset
+/// and read by updateControl(). Only gExciterIn below is touched per frame.
+extern float gExciterLevel;
+
 /**
  * External excitation, ±1.0. Summed into both resonator channels before the
  * string, so patching anything here drives it instead of leaving it to

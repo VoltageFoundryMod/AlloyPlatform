@@ -74,4 +74,11 @@ inline void fillAudreyParams(IHardwareIO &io)
     // Output.  Square-law audio taper, `skew: 2.0`.
     const float vol = io.readPot(Pot::VOL);
     gOutputLevel    = vol * vol;
+
+    // -----------------------------------------------------------------------
+    // Exciter level, 0–2 with the same square-law taper (`skew: 2.0`). Only
+    // the gain lives here; the sample itself is gExciterIn, written per frame
+    // in VCV and at the control tick on hardware.
+    const float exc = io.readPot(Pot::EXCITE);
+    gExciterLevel   = exc * exc * 2.0f;
 }

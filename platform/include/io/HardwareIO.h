@@ -69,6 +69,42 @@ enum class ButtonId : uint8_t
     BUTTON_COUNT
 };
 
+// ---------------------------------------------------------------------------
+// CvRange — what the input conditioning stage actually accepts, in volts.
+//
+// readCV() returns volts on both platforms: the hardware ADC path scales to
+// them, and VCVRackIO returns the port voltage directly. Turning volts into the
+// 0–1 or ±1 a parameter wants is the module's job, in its IOBridge — and it has
+// to use the *jack's* range to do it, not a habit.
+//
+// The jacks do not share a range, which is the trap. Audrey scaled the exciter
+// by 1/5 like the modulation inputs, but that jack swings to ±8 V: on hardware
+// the same patch cable would have driven the string 4 dB quieter than in Rack,
+// with nothing to indicate it. Numbers below are the board's, from the input
+// stage in hardware/MainPCB (Inputs.kicad_sch).
+// ---------------------------------------------------------------------------
+namespace CvRange
+{
+/// V/Oct. Asymmetric because pitch only needs a little below zero.
+constexpr float kVOctMinV = -3.0f;
+constexpr float kVOctMaxV = 7.0f;
+
+/// Gate. Reads as a threshold, so the range only bounds what is survivable.
+constexpr float kGateMinV = -0.8f;
+constexpr float kGateMaxV = 8.0f;
+
+/// The four generic modulation jacks the panel calls CV 1..CV 4, ±5 V.
+constexpr float kModMaxV = 5.0f;
+
+/// FM / exciter, ±8 V — hotter than the others so it can take a raw audio
+/// signal at modular level without clipping the front end.
+constexpr float kFmMaxV = 8.0f;
+
+/// Volts -> ±1.0, per jack family. Use these rather than a literal.
+constexpr float kModToUnit = 1.0f / kModMaxV; // 0.2
+constexpr float kFmToUnit  = 1.0f / kFmMaxV;  // 0.125
+} // namespace CvRange
+
 /** RGB LED slots (APA102/SK9822 on hardware; light widgets in VCV). */
 enum class LightId : uint8_t
 {

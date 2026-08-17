@@ -12,6 +12,11 @@ void Engine::Init(const float sample_rate) {
   noise_.Init();
   noise_.SetAmp(dbfs2lin(-90.0f));
 
+  // Init() runs again on every sample-rate change, so the exciter's stereo
+  // offset has to be cleared here and not only at construction.
+  for (size_t i = 0; i < kExciterOffset; i++) { exciter_hist_[i] = 0.0f; }
+  exciter_pos_ = 0;
+
   for (unsigned int i = 0; i < 2; i++) {
 
     strings_[i].Init(sample_rate);
@@ -89,6 +94,8 @@ void Engine::SetReverbFeedback(const float time) { verb_.SetFeedback(time); }
 
 void Engine::SetOutputLevel(const float level) { output_level_ = level; }
 
+void Engine::SetExciterLevel(const float level) { exciter_level_ = level; }
+
 void Engine::Process(float in, float &outL, float &outR) {
   // --- Update audio-rate-smoothed control params ---
 
@@ -99,12 +106,22 @@ void Engine::Process(float in, float &outL, float &outR) {
   float inL, inR, sampL, sampR, echoL, echoR, verbL, verbR;
   const float noise_samp = noise_.Process();
 
+  // ---> Exciter
+
+  // Level first, then a small stereo offset. Read-then-write on the same index
+  // is exactly a kExciterOffset-sample delay, and the mask is why the size is a
+  // power of two — this runs every frame.
+  const float excL = in * exciter_level_;
+  const float excR = exciter_hist_[exciter_pos_];
+  exciter_hist_[exciter_pos_] = excL;
+  exciter_pos_ = (exciter_pos_ + 1) & (kExciterOffset - 1);
+
   // ---> Feedback Loop
 
   // Get noise + feedback output
-  inL = fb_delayline_[0].Read(fb_delay_samp_) + noise_samp + in;
+  inL = fb_delayline_[0].Read(fb_delay_samp_) + noise_samp + excL;
   inR = fb_delayline_[1].Read(daisysp::fmax(1.0f, fb_delay_samp_ - 4.f)) +
-        noise_samp + in;
+        noise_samp + excR;
 
   // Process through KS resonator
   sampL = strings_[0].Process(inL);

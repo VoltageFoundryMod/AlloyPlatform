@@ -37,6 +37,16 @@ export const PARAM_MAP: CCParam[] = [
     rowBreakBefore: true,
   },
   {
+    cc: 19,
+    name: "excite",
+    label: "Exciter Level",
+    category: "Resonator",
+    min: 0.0,
+    max: 2.0,
+    default: 1.0,
+    skew: 2.0,
+  },
+  {
     cc: 18,
     name: "fbbody",
     label: "Body",

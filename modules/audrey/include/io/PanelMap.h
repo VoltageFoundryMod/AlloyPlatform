@@ -24,6 +24,8 @@
 //
 //        PITCH          BODY          FB GAIN        <- top row: the resonator
 //      (POT_1)        (POT_2)         (POT_3)           and its feedback loop
+//                                    +shift: EXCITE
+//                                      (POT_16)
 //
 //     ECHO SEND      ECHO TIME       ECHO FBK        <- mid row: the echo
 //      (POT_4)        (POT_5)         (POT_6)
@@ -33,7 +35,9 @@
 //                    +shift: VOL     +shift: FB HPF
 //                     (POT_14)         (POT_15)
 //
-// Two shift pairs, both deliberate:
+// Three shift pairs, all deliberate:
+//   FB GAIN / EXCITE  one knob for how much energy is in the loop, whether it
+//                     comes from the loop itself or from the exciter jack.
 //   FB LPF / FB HPF   the most natural pair in the set — one knob is the
 //                     feedback band, shift reaches its other edge.
 //   REV MIX / VOL     VOL sits on POT_14, which is *the same slot AlloyFlux
@@ -86,10 +90,23 @@ constexpr PotId VOL = PotId::POT_14;
 /// feedback band, shift reaches its other edge.
 constexpr PotId FBHPF = PotId::POT_15;
 
-/// Covers slots 0..14, i.e. through POT_15. POT_10..POT_13 are the shift pairs
+/// SHIFT + top-right, i.e. SHIFT + FB GAIN — gain on the exciter jack.
+///
+/// ⚠ This breaks the platform's shift-numbering convention and does so on
+/// purpose. Slots POT_10..POT_15 pair with POT_4..POT_9 in row-major sequence,
+/// which leaves the top row (POT_1..POT_3) with no secondaries at all — an
+/// artefact of AlloyFlux having needed exactly six. FB GAIN is the only
+/// ergonomically right home for an exciter level: both answer "how hard is the
+/// loop driven". So POT_16 is claimed as POT_3's secondary rather than putting
+/// EXCITE on POT_10..POT_13, where it would have shared a knob with the echo or
+/// the reverb and meant nothing. If a module ever needs the top row's other two,
+/// the convention needs a proper extension rather than two more exceptions.
+constexpr PotId EXCITE = PotId::POT_16;
+
+/// Covers slots 0..15, i.e. through POT_16. POT_10..POT_13 are the shift pairs
 /// Audrey does not use and stay unassigned; readPot() returns 0.5 for those and
 /// nothing reads them.
-constexpr uint8_t kCount = 15;
+constexpr uint8_t kCount = 16;
 } // namespace Pot
 
 /**
@@ -99,9 +116,9 @@ constexpr uint8_t kCount = 15;
  */
 namespace Pot
 {
-constexpr uint8_t kShiftPairCount              = 2;
+constexpr uint8_t kShiftPairCount              = 3;
 constexpr PotId   kShiftPairs[kShiftPairCount][2]
-    = {{REVMIX, VOL}, {FBLPF, FBHPF}};
+    = {{REVMIX, VOL}, {FBLPF, FBHPF}, {FBGAIN, EXCITE}};
 } // namespace Pot
 
 /**

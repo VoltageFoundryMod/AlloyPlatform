@@ -70,6 +70,38 @@
       ]
     },
     {
+      "cc": 19,
+      "name": "excite",
+      "label": "Exciter Level",
+      "category": "Resonator",
+      "kind": "float",
+      "min": 0.0,
+      "max": 2.0,
+      "default": 1.0,
+      "scale": "linear",
+      "skew": 2.0,
+      "target": "gExciterLevel",
+      "$comment": [
+        "Gain on the FM/EXCITER jack before it enters the loop. SHIFT + FB GAIN",
+        "on the panel: one knob for how much energy is in the loop, whether it",
+        "comes from the loop itself or from outside.",
+        "",
+        "CC 19 continues the module-specific 16/17/18 block. The AlloyFlux-",
+        "parallel choice would have been 92, which is COLOR there and is",
+        "literally the FM IN attenuverter — but Audrey already spent 92 on",
+        "reverb decay, and CC numbers are one namespace across both modules.",
+        "",
+        "Max 2.0, not 1.0. The jack is +/-8 V, so a Eurorack source at +/-5 V",
+        "normalises to 0.625 and unity here would put full-scale excitation out",
+        "of reach of most patches. Default 1.0 means the jack's full swing maps",
+        "to the engine's full scale, which is what it did before this existed.",
+        "",
+        "skew 2 for the same reason as vol and echosend: a linear input gain",
+        "spends its top half on 6 dB and leaves nothing usable down where you",
+        "are just tickling the string."
+      ]
+    },
+    {
       "cc": 18,
       "name": "fbbody",
       "label": "Body",

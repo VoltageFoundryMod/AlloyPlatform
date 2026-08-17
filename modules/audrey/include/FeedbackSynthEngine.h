@@ -41,6 +41,22 @@ class Engine {
 
         void SetOutputLevel(const float level);
 
+        /**
+         * @brief Gain applied to the exciter input before it enters the loop.
+         *
+         * How hard the input drives the string *is* the timbre: the same signal
+         * at a quarter level brightens the ring, at full level slams the
+         * Overdrive inside the loop into saturation and keeps it there, because
+         * the exciter is injected ahead of the string and then recirculated.
+         * There was no control over this at all before — Process() took whatever
+         * arrived.
+         *
+         * Linear, and deliberately allowed past 1.0: a Eurorack source at ±5 V
+         * only reaches 0.625 once the ±8 V jack range is normalised, so unity
+         * here would put full-scale excitation out of reach of most patches.
+         */
+        void SetExciterLevel(const float level);
+
         void Process(float in, float &outL, float &outR);
 
     public:
@@ -76,6 +92,28 @@ class Engine {
         float echo_send_ = 0.0f;
         float verb_mix_ = 0.0f;
         float output_level_ = 0.5f;
+        float exciter_level_ = 1.0f;
+
+        // Stereo offset for the exciter, in samples.
+        //
+        // Everything else in the loop is decorrelated — the right channel reads
+        // its feedback delay 4 samples earlier — but the exciter was summed into
+        // both channels identically, so the moment an external source dominated
+        // it sat dead centre and pulled the image in with it. Injecting the
+        // right channel 4 samples late mirrors the offset the loop already uses,
+        // and because the loop recirculates, the difference compounds on every
+        // pass rather than staying a one-off 83 us.
+        //
+        // 4 is small on purpose: it is well inside the Haas fusion zone, so a
+        // pluck does not flam, and its first comb notch is up at 6 kHz where it
+        // widens rather than colours. Open it up if a wider image is wanted —
+        // it costs nothing but the notch walks down into the musical band.
+        static constexpr size_t kExciterOffset = 4;
+        static_assert((kExciterOffset & (kExciterOffset - 1)) == 0,
+                      "kExciterOffset must be a power of two — the index wraps "
+                      "with a mask, not a modulo, in the audio path");
+        float  exciter_hist_[kExciterOffset] = {0.0f};
+        size_t exciter_pos_ = 0;
 
         float fb_delay_smooth_coef_;
         float fb_delay_samp_ = 1000.f;

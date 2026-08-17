@@ -22,7 +22,8 @@
 static constexpr uint16_t kAudreyEngineId = 0x4155;
 
 /// Layout version of the AudreyConfig payload.
-static constexpr uint16_t kAudreyEngineVersion = 1;
+/// 2: added exciterLevel (M63h).
+static constexpr uint16_t kAudreyEngineVersion = 2;
 
 struct AudreyConfig
 {
@@ -37,6 +38,7 @@ struct AudreyConfig
     float   reverbMix;
     float   reverbDecay;
     float   outputLevel;
+    float   exciterLevel;
     uint8_t midiChannel; // 0 = omni, 1–16
 };
 

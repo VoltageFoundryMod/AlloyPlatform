@@ -10,6 +10,7 @@ static const ParamDescriptor kParamManifest[] = {
     {  16, "pitch"         , "String Pitch"            , "Resonator"   ,                  16.0f,                      72.0f,      40.0f, ParamScale::Linear, "note", &gStringPitch, 1.0f },
     {  17, "fbgain"        , "Feedback Gain"           , "Feedback"    ,                 -30.0f,                      12.0f,     -30.0f, ParamScale::Linear, "dB"  , &gFeedbackGain, 1.0f },
     {  18, "fbbody"        , "Body"                    , "Feedback"    ,                 0.001f,                       0.1f,     0.001f, ParamScale::Log , "s"   , &gFeedbackDelay, 1.0f },
+    {  19, "excite"        , "Exciter Level"           , "Resonator"   ,                   0.0f,                       2.0f,       1.0f, ParamScale::Linear, nullptr, &gExciterLevel, 2.0f },
     {  74, "fblpf"         , "Feedback LPF"            , "Feedback"    ,                 100.0f,                   18000.0f,   18000.0f, ParamScale::Log , "Hz"  , &gFeedbackLPF, 1.0f },
     {  75, "fbhpf"         , "Feedback HPF"            , "Feedback"    ,                  10.0f,                    4000.0f,     250.0f, ParamScale::Log , "Hz"  , &gFeedbackHPF, 1.0f },
     {  86, "echotime"      , "Time"                    , "Echo"        ,                  0.05f,   (float)AUDREY_ECHO_MAX_S,       0.5f, ParamScale::Log , "s"   , &gEchoTime, 1.0f },

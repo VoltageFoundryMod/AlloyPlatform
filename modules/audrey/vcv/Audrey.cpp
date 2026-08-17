@@ -38,6 +38,7 @@ float gEchoFeedback  = 0.0f;
 float gReverbMix     = 0.0f;
 float gReverbDecay   = 0.2f;
 float gOutputLevel   = 0.5f;
+float gExciterLevel  = 1.0f;
 
 volatile float gExciterIn = 0.0f;
 
@@ -56,6 +57,7 @@ struct Audrey : Module
         REVMIX_PARAM,
         REVDECAY_PARAM,
         VOL_PARAM,
+        EXCITE_PARAM,
         // ---- Panel buttons. Present because the hardware has them (SW2/SW3)
         //      and the panel art draws them; neither carries a gesture yet.
         //      SHIFT is what selects the shift-secondaries on hardware, and in
@@ -154,6 +156,10 @@ struct Audrey : Module
         configParam(REVMIX_PARAM, 0.f, 1.f, 0.f, "Reverb mix");
         configParam(REVDECAY_PARAM, 0.f, 1.f, 0.f, "Reverb decay");
         configParam(VOL_PARAM, 0.f, 1.f, 0.7071f, "Volume");
+        // Default 0.7071 = square-law 1.0 on a 0–2 range: the jack's full
+        // swing maps to the engine's full scale, i.e. what it did before this
+        // control existed.
+        configParam(EXCITE_PARAM, 0.f, 1.f, 0.7071f, "Exciter level");
 
         // Panel buttons — momentary, matching the hardware switches.
         configButton(MODE_PARAM, "Mode (unassigned)");
@@ -188,6 +194,7 @@ struct Audrey : Module
         _io.assignPot(Pot::VOL, VOL_PARAM, 0.f, 1.f);
         _io.assignPot(Pot::FBHPF, FBHPF_PARAM, 0.f, 1.f);
         _io.assignPot(Pot::REVDECAY, REVDECAY_PARAM, 0.f, 1.f);
+        _io.assignPot(Pot::EXCITE, EXCITE_PARAM, 0.f, 1.f);
 
         _io.assignCV(Cv::VOCT, VOCT_INPUT);
         _io.assignCV(Cv::FBGAIN, FBGAIN_CV_INPUT);
@@ -247,6 +254,7 @@ struct Audrey : Module
             _engine.SetReverbMix(gReverbMix);
             _engine.SetReverbFeedback(gReverbDecay);
             _engine.SetOutputLevel(gOutputLevel);
+            _engine.SetExciterLevel(gExciterLevel);
 
             // LEDs, from the peaks accumulated since the previous tick. Same
             // call the firmware will make once Audrey has an IHardwareIO.
@@ -263,9 +271,15 @@ struct Audrey : Module
         }
 
         // Exciter, per sample — this is the part the firmware cannot do yet.
-        // Rack's ±5 V convention scaled to the engine's ±1.0.
+        //
+        // Scaled by the *jack's* range, not Rack's ±5 V audio convention: the
+        // hardware front end takes ±8 V (CvRange::kFmMaxV), so dividing by 5
+        // here would make the same patch cable drive the string 4 dB harder in
+        // Rack than on the module. A Eurorack source at ±5 V therefore only
+        // reaches 0.625 — which is what EXCITE_PARAM's range past unity is for.
         const float exciter = inputs[EXCITER_INPUT].isConnected()
-                                  ? inputs[EXCITER_INPUT].getVoltage() * 0.2f
+                                  ? inputs[EXCITER_INPUT].getVoltage()
+                                        * CvRange::kFmToUnit
                                   : 0.0f;
 
         float outL = 0.f, outR = 0.f;
@@ -432,6 +446,11 @@ struct AudreyWidget : ModuleWidget
         auto *hpfSlider     = new SubMenuSlider;
         hpfSlider->quantity = m->getParamQuantity(Audrey::FBHPF_PARAM);
         menu->addChild(hpfSlider);
+
+        menu->addChild(createMenuLabel("Exciter level  (SHIFT + FB GAIN)"));
+        auto *excSlider     = new SubMenuSlider;
+        excSlider->quantity = m->getParamQuantity(Audrey::EXCITE_PARAM);
+        menu->addChild(excSlider);
     }
 };
 

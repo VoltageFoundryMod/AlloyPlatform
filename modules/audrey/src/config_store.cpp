@@ -20,6 +20,7 @@ void packAudreyConfig(AudreyConfig &cfg)
     cfg.reverbMix     = gReverbMix;
     cfg.reverbDecay   = gReverbDecay;
     cfg.outputLevel   = gOutputLevel;
+    cfg.exciterLevel  = gExciterLevel;
     cfg.midiChannel   = gMidiChannel;
 }
 
@@ -36,6 +37,7 @@ void applyAudreyConfig(const AudreyConfig &cfg)
     gReverbMix     = cfg.reverbMix;
     gReverbDecay   = cfg.reverbDecay;
     gOutputLevel   = cfg.outputLevel;
+    gExciterLevel  = cfg.exciterLevel;
     gMidiChannel   = (cfg.midiChannel <= 16) ? cfg.midiChannel : 0;
 }
 
@@ -54,6 +56,7 @@ void applyAudreyDefaults()
     d.reverbMix     = 0.0f;
     d.reverbDecay   = 0.2f;
     d.outputLevel   = 0.5f;
+    d.exciterLevel  = 1.0f;
     d.midiChannel   = 0;
     applyAudreyConfig(d);
 }
