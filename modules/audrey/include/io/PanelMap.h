@@ -27,13 +27,30 @@
 //                                    +shift: EXCITE
 //                                      (POT_16)
 //
-//     ECHO SEND      ECHO TIME       ECHO FBK        <- mid row: the echo
+//     ECHO TIME      ECHO SEND       ECHO FBK        <- mid row: the echo
 //      (POT_4)        (POT_5)         (POT_6)
 //
 //     REV DECAY       REV MIX         FB LPF         <- low row: space + tone
 //      (POT_7)        (POT_8)         (POT_9)
 //                    +shift: VOL     +shift: FB HPF
 //                     (POT_14)         (POT_15)
+//
+// Read it in columns and the panel teaches itself:
+//
+//   left    PITCH / ECHO TIME / REV DECAY   — time. Pitch is 1/time, the other
+//                                             two are times outright.
+//   centre  BODY / ECHO SEND / REV MIX      — how much. The wet amount of the
+//                                             row below the resonator's own.
+//   right   FB GAIN / ECHO FBK / FB LPF     — feedback. All three are what
+//                                             comes back round; FB LPF is
+//                                             literally inside the loop.
+//
+// ECHO SEND and ECHO TIME started the other way round and were swapped for
+// this: it puts the two wet-amount controls in the same column, one above the
+// other, and the columns fell out of it. BODY is the one knob that does not fit
+// its column cleanly — it is a delay length sitting in the "amount" slot — and
+// it stays because PITCH has to be top-left and the resonator row has its own
+// logic to obey first.
 //
 // Three shift pairs, all deliberate:
 //   FB GAIN / EXCITE  one knob for how much energy is in the loop, whether it
@@ -70,8 +87,8 @@ constexpr PotId FBBODY = PotId::POT_2; ///< top C — feedback delay 1–100 ms
 constexpr PotId FBGAIN = PotId::POT_3; ///< top R — feedback gain −30…+12 dB
 
 // ---- mid row: echo ----
-constexpr PotId ECHOSEND = PotId::POT_4; ///< mid L — echo send 0–1
-constexpr PotId ECHOTIME = PotId::POT_5; ///< mid C — echo time 0.05–4 s
+constexpr PotId ECHOTIME = PotId::POT_4; ///< mid L — echo time 0.05–4 s
+constexpr PotId ECHOSEND = PotId::POT_5; ///< mid C — echo send 0–1
 constexpr PotId ECHOFB   = PotId::POT_6; ///< mid R — echo feedback 0–1.2
 
 // ---- low row: space + tone ----
@@ -126,21 +143,31 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
  *
  * The panel numbers its four modulation jacks CV 1..CV 4 and they map onto the
  * HAL in order, CV 1..CV 4 -> CV_3..CV_6, because CV_1 and CV_2 are V/Oct and
- * Gate and no module gets to reassign those. Physically (board designators from
- * hardware/MainPCB, left to right):
+ * Gate and no module gets to reassign those. Left to right, as the panel reads:
  *
- *   upper row:  V/OCT   GATE    MIDI IN   CV 1     CV 2
- *               J3      J4      J2        J5       J6
- *               CV_1    CV_2    —         CV_3     CV_4
- *               —       unused  —         FBGAIN   ECHOSEND
+ *   upper row:  V/OCT    GATE      MIDI IN   CV 1     CV 2
+ *               CV_1     CV_2      —         CV_3     CV_4
+ *               —        unused    —         FBBODY   FBGAIN
+ *               "Pitch"  "Gate"    "MIDI In" "Body"   "FB Gain"
  *
- *   lower row:  CV 3    FM IN   CV 4      OUT L    OUT R
- *               J7      J9      J8        J10      J11
- *               CV_5    CV_7    CV_6      —        —
- *               ECHOFB  EXCITER REVDECAY  —        —
+ *   lower row:  EXC IN   CV 3      CV 4      OUT L    OUT R
+ *               CV_7     CV_5      CV_6      —        —
+ *               EXCITER  ECHOSEND  REVMIX    —        —
+ *               "Exc In" "Delay Snd" "Rev. Mix"
  *
- * Note FM IN sits *between* CV 3 and CV 4, so the lower row is not in slot
- * order. MIDI IN is a MIDI jack, not a CV one, and has no slot at all.
+ * Bottom row is left to right as the panel reads it, with the exciter at the
+ * left end. MIDI IN is a MIDI jack, not a CV one, and has no slot at all.
+ *
+ * ⚠ Two parameters lost their CV here and it was a choice, not an oversight:
+ * **echo feedback** and **reverb decay** are no longer modulated, while **body**
+ * and **reverb mix** now are. There are four generic jacks, and they are spent
+ * on the resonator's two shaping controls and the two wet/dry amounts rather
+ * than on the two coefficients that can run away. Both dropped controls are
+ * still reachable by MIDI CC (87 and 92).
+ *
+ * ⚠ EXC IN's position is a board problem, not a firmware one: the exciter needs
+ * the direct GP27 ADC to be read at audio rate, and on the current PCB that pin
+ * is J9 in the *middle* of this row. See platform/vcv/PanelLayout.h.
  *
  * EXCITER is CV_7, AlloyFlux's FM jack. The engine sums it into both resonator
  * channels ahead of the string, so anything patched there drives the string
@@ -157,27 +184,38 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
  */
 namespace Cv
 {
-constexpr CVId VOCT     = CVId::CV_1; ///< J3, V/OCT — summed with PITCH knob
-constexpr CVId FBGAIN   = CVId::CV_3; ///< J5, CV 1   — feedback gain
-constexpr CVId ECHOSEND = CVId::CV_4; ///< J6, CV 2   — echo send
-constexpr CVId ECHOFB   = CVId::CV_5; ///< J7, CV 3   — echo feedback
-constexpr CVId REVDECAY = CVId::CV_6; ///< J8, CV 4   — reverb decay
-constexpr CVId EXCITER  = CVId::CV_7; ///< J9, FM IN  — external excitation
+constexpr CVId VOCT     = CVId::CV_1; ///< "Pitch"     — summed with PITCH knob
+constexpr CVId FBBODY   = CVId::CV_3; ///< "Body",  CV 1, top row
+constexpr CVId FBGAIN   = CVId::CV_4; ///< "FB Gain", CV 2, top row
+constexpr CVId ECHOSEND = CVId::CV_5; ///< "Delay Snd", CV 3, lower row
+constexpr CVId REVMIX   = CVId::CV_6; ///< "Rev. Mix", CV 4, lower row
+constexpr CVId EXCITER  = CVId::CV_7; ///< "Exc In"    — external excitation
 
 constexpr uint8_t kCount = 7;
 } // namespace Cv
 
 /**
  * Panel buttons — the same two illuminated switches AlloyFlux has (board SW2,
- * SW3). No gesture is assigned to either yet: SHIFT's job is to select the
- * shift-secondaries, and Rack puts those in the context menu while the firmware
- * has no ADC to read a knob with. The slots are claimed anyway so the panel,
- * the widget and the HAL agree now rather than after a renumber.
+ * SW3).
+ *
+ * WARP is the doppler warp: held, it halves the echo time, which drags the read
+ * head toward the write head and pitches the whole tail up before it settles.
+ * This is upstream Audrey II's one panel switch (`kDelaySwitchPin`), and it is
+ * the only performance gesture the engine has. See io/IOBridge.h.
+ *
+ * SHIFT selects the shift-secondaries. On hardware that means "read this knob
+ * as its other parameter"; Rack has no key to hold, so it puts them in the
+ * context menu and the button is inert there.
+ *
+ * BUTTON_1 is AlloyFlux's MODE button and the silkscreen there says MODE. Audrey
+ * calls the same slot WARP because Audrey's panel says WARP — which is the whole
+ * job of this header. A module names slots in its own vocabulary; it does not
+ * inherit the other module's.
  */
 namespace Btn
 {
-constexpr ButtonId MODE  = ButtonId::BUTTON_1; ///< SW2, left
-constexpr ButtonId SHIFT = ButtonId::BUTTON_2; ///< SW3, right
+constexpr ButtonId WARP  = ButtonId::BUTTON_1; ///< SW2, left  — doppler warp
+constexpr ButtonId SHIFT = ButtonId::BUTTON_2; ///< SW3, right — secondaries
 
 constexpr uint8_t kCount = 2;
 } // namespace Btn

@@ -1,12 +1,16 @@
 # Audrey II — vendored engine
 
 The feedback-resonator engine from
-[Synthux Academy's Audrey II](https://github.com/Synthux-Academy/audrey-ii-simple),
+[Synthux Academy's Audrey II](https://github.com/Synthux-Academy/Audrey-II),
 vendored as the Alloy platform's second module.
 
 | Upstream | Commit |
 | -------- | ------ |
-| `Synthux-Academy/audrey-ii-simple` | `e5ab79910eb7ccbac5bbc865fae5459d65f5b5e3` |
+| `Synthux-Academy/Audrey-II` | `e5ab79910eb7ccbac5bbc865fae5459d65f5b5e3` |
+
+⚠️ The repository was `Synthux-Academy/audrey-ii-simple` when this was vendored
+and has since been renamed to `Audrey-II`; the old URL now 404s. The commit hash
+is the thing that actually pins what was taken.
 
 **Original work by [Nick Donaldson](https://github.com/ndonald2) (concept and
 firmware) and [Roey Tsemah](https://github.com/roeytsemah) (visual and hardware
@@ -113,7 +117,8 @@ trade-offs can be compared by ear rather than argued about:
 | ------ | ------- | ------ |
 | `AUDREY_ECHO_DECIMATION` | 4 | echo loop rate = `fs / N` |
 | `AUDREY_ECHO_Q15` | 1 | `int16` storage; 0 = float |
-| `AUDREY_ECHO_NOISE_SHAPE` | 1 | first-order error feedback on the quantiser |
+| `AUDREY_ECHO_NOISE_SHAPE` | 0 | first-order error feedback on the quantiser |
+| `AUDREY_ECHO_ANTIALIAS` | 1 | the filter ahead of the decimator — measurement only |
 | `AUDREY_ECHO_MAX_S` | 4 | maximum echo time, seconds |
 
 `-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0` restores upstream behaviour
@@ -125,7 +130,7 @@ Both reductions carry real DSP risk, and the mitigations are the substance:
   feedback loop's own LPF sits at 18 kHz — so decimating it raw would fold
   6–18 kHz down into the audible band. Some of that lands *low* (11 kHz folds
   to 1 kHz) where the echo's 800 Hz bandpass cannot help. A 24 dB/oct LPF at
-  0.35 × the decimated rate now sits ahead of the decimator, and the return is
+  0.25 × the decimated rate now sits ahead of the decimator, and the return is
   linearly interpolated back up.
 - **Quantisation noise.** Feedback is deliberately allowed past unity here, so
   anything the quantiser adds is recirculated and amplified rather than
@@ -159,10 +164,16 @@ It does **not** discriminate noise shaping on from off: the two produce
 identical peak and DC figures, because shaping moves quantisation noise in
 frequency without changing the signal's peak or mean, and the difference sits
 around −90 dBFS — below what a 4-decimal peak and a 6-decimal DC mean can
-resolve. Confirming the shaping does what it should needs a spectrum, which is
-the VCV A/B the milestone schedules before firmware bring-up. The same goes for
-the anti-alias filter: a swept sine into a spectrum analyser is the test, and
-this harness is not it.
+resolve. The same goes for the anti-alias filter.
+
+That is what **`make audrey-ab`** is for, and it has now been run — see
+`modules/audrey/test/echo_ab.cpp` and milestone 63f-ab. Both risks came back
+clean: the anti-alias filter buys 19–47 dB of fold-down rejection and is
+load-bearing (without it, 11 kHz folds to 1 kHz at −3 dB), and `int16` storage
+costs 0.0–0.1 dB of SNR because the floor is set by `SoftClip`'s
+intermodulation rather than by the quantiser. Two defaults changed as a result:
+noise shaping off, and the anti-alias cutoff from 0.35 to 0.25 × the decimated
+rate.
 
 ## Original footprint, for reference
 
@@ -180,11 +191,18 @@ full-rate.
 
 ## Still to do
 
-- **Integration** — a `modules/audrey/src/main.cpp`, a `params.json` manifest to
-  replace `FeedbackSynthControls`, a second PlatformIO env.
-- **VCV A/B before firmware** — the anti-alias filter wants a swept sine into a
-  spectrum analyser, and the Q15 path wants a noise-floor comparison against
-  `-DAUDREY_ECHO_Q15=0`. Neither is something the host harness can answer.
-- **Confirm the budget against a real link.** 466 KiB is inferred from
-  AlloyFlux's overhead, not measured on an Audrey image. If it comes in tighter,
-  `-DAUDREY_ECHO_MAX_S=3` is the lever.
+Integration, the VCV A/B and the budget check are all done — the Audrey image
+links at 477 396 B (91.1 % of the part) with `AUDREY_ECHO_MAX_S=4`, so the
+inferred 466 KiB budget held and `-DAUDREY_ECHO_MAX_S=3` stays in reserve rather
+than being needed. What remains is hardware, not DSP:
+
+- **No `IHardwareIO` implementation.** Audrey's firmware drives its parameters
+  from MIDI, SysEx and the serial console only; `io/PanelMap.h` and
+  `io/IOBridge.h` are live in the VCV build and ready for the knobs, CV, buttons
+  and LEDs whenever the multiplexed ADC driver lands.
+- **Audio-rate exciter on hardware.** `gExciterIn` is written at the 128 Hz
+  control tick, so the jack is a control voltage there and a true audio input in
+  Rack. FM IN is on a dedicated direct ADC pin for exactly this, so it is a
+  firmware job rather than a board change.
+- **Long-run stability on hardware.** The host harness covers 10 s; the
+  milestone asks for 10 minutes at maximum feedback on a real board.

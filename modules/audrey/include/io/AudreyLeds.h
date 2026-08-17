@@ -106,7 +106,7 @@ struct Signals
     float exciter        = 0.0f;
     bool  exciterPatched = false;
     bool  shiftHeld      = false;
-    bool  modeHeld       = false;
+    bool  warpHeld       = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -140,7 +140,7 @@ class Engine
         _advance(s, dt);
         _renderLevel();
         _renderLoop();
-        _renderEcho();
+        _renderEcho(s);
         _renderSpace(s);
         _renderCentre(s);
 
@@ -264,13 +264,18 @@ class Engine
     }
 
     // LED3 — echo. Brightness is the send amount; it flashes once per repeat,
-    // so the delay time is visible while setting it.
-    void _renderEcho()
+    // so the delay time is visible while setting it. WARP (doppler warp) shows
+    // here rather than on the centre LED, because what it does is halve the
+    // echo time — and the flash rate doubling under your finger is the clearest
+    // possible readout of that.
+    void _renderEcho(const Signals &s)
     {
         const float send = clamp01(gEchoSend);
         if(send <= 0.001f)
         {
-            _led[(int)Led::ECHO] = kOff;
+            // Still acknowledge the button when the echo is silent, or holding
+            // WARP with the send down looks like a dead panel.
+            _led[(int)Led::ECHO] = s.warpHeld ? scale(kWhite, 0.25f) : kOff;
             return;
         }
         // Short flash rather than a sine: a repeat is an event, not a swell.
@@ -281,7 +286,10 @@ class Engine
 
         // Feedback pushes the hue toward the loop colours: a long echo tail is
         // the same kind of accumulation the feedback ring does.
-        _led[(int)Led::ECHO] = scale(lerp(kCyan, kAmber, fb), clamp01(b));
+        Color c = lerp(kCyan, kAmber, fb);
+        if(s.warpHeld)
+            c = lerp(c, kWhite, 0.7f);
+        _led[(int)Led::ECHO] = scale(c, clamp01(b));
     }
 
     // LED5 — reverb presence, and SHIFT while it is held. SHIFT wins: knowing
@@ -312,8 +320,6 @@ class Engine
 
         if(s.exciterPatched && _exc > 0.001f)
             c = lerp(c, kWhite, clamp01(_exc));
-        if(s.modeHeld)
-            c = kWhite;
 
         _led[(int)Led::CENTRE] = c;
     }

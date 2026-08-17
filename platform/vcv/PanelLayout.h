@@ -113,8 +113,8 @@ static constexpr float kLedMm[kLedCount][2] = {
 //
 //   upper (y 93.714):  V/OCT   GATE    MIDI IN   CV 1    CV 2
 //                      J3      J4      J2        J5      J6
-//   lower (y 107.732): CV 3    FM IN   CV 4      OUT L   OUT R
-//                      J7      J9      J8        J10     J11
+//   lower (y 107.732): FM IN   CV 3    CV 4      OUT L   OUT R
+//                      (J7)    (J9)    J8        J10     J11
 //
 // The panel labels the four modulation jacks CV 1..CV 4 rather than naming
 // them, for the same reason the pots are numbered: what they modulate is the
@@ -122,17 +122,29 @@ static constexpr float kLedMm[kLedCount][2] = {
 // order — CV_1 and CV_2 are taken by V/Oct and Gate, which are not free for a
 // module to reassign.
 //
-// ⚠ FM IN sits *between* CV 3 and CV 4 on the lower row, not at its left end.
-// That is J9 between J7 and J8 on the board and it is what the SVG guides say;
-// the two agree, which is the only reason it is written down as fact here. If a
-// board revision moves it, kCv3Mm and kFmInMm are the two lines to swap.
+// FM IN is at the LEFT end of the lower row. Both panel arts say so
+// (AlloyFlux "FM In", Audrey "Exc In", both at x 9.3) and the guide layer
+// agrees, so that is the design.
+//
+// ⚠⚠ THE BOARD HAS NOT CAUGHT UP, AND THIS ONE IS NOT A SILKSCREEN FIX.
+//
+// `MainPCB.kicad_pcb` still has J7 (a mux channel) at 9.343 and J9 (FM IN) at
+// 22.116. **J9 is the only jack on a direct ADC pin — GP27, deliberately off
+// the analogue mux so the exciter can be sampled at audio rate.** Swapping the
+// two therefore has to move that net *and* its conditioning stage, which is not
+// the same as the modulation inputs': FM IN is ±8 V with a 100 pF cap, the
+// generic CV jacks are ±5 V through the mux.
+//
+// Fabricating the board as it stands would put the exciter on a control-rate
+// channel permanently, and no firmware can undo that. Until the board moves,
+// Rack and the panel art agree with each other and not with the PCB.
 static constexpr float kVOctMm[2] = {9.443f, 93.714f};  // J3  V/Oct
 static constexpr float kGateMm[2] = {22.217f, 93.714f}; // J4  Gate
 static constexpr float kMidiMm[2] = {35.390f, 93.714f}; // J2  TRS MIDI IN
 static constexpr float kCv1Mm[2]  = {48.663f, 93.714f}; // J5  CV 1 -> CV_3
 static constexpr float kCv2Mm[2]  = {61.437f, 93.714f}; // J6  CV 2 -> CV_4
-static constexpr float kCv3Mm[2]  = {9.343f, 107.732f}; // J7  CV 3 -> CV_5
-static constexpr float kFmInMm[2] = {22.116f, 107.732f};// J9  FM IN -> CV_7
+static constexpr float kFmInMm[2] = {9.343f, 107.732f}; // FM IN -> CV_7 (needs GP27)
+static constexpr float kCv3Mm[2]  = {22.116f, 107.732f};// CV 3  -> CV_5
 static constexpr float kCv4Mm[2]  = {35.340f, 107.732f};// J8  CV 4 -> CV_6
 static constexpr float kOutLMm[2] = {48.563f, 107.732f};// J10 Out L
 static constexpr float kOutRMm[2] = {61.337f, 107.732f};// J11 Out R

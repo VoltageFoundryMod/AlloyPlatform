@@ -37,38 +37,73 @@ inline void fillAudreyParams(IHardwareIO &io)
     // sweeping it toward unity is the instrument.
     float gain = io.readPot(Pot::FBGAIN);
     if(io.isPatched(Cv::FBGAIN))
-        gain = audreyClampf(gain + io.readCV(Cv::FBGAIN) * 0.2f, 0.0f, 1.0f);
+        gain = audreyClampf(gain + io.readCV(Cv::FBGAIN) * CvRange::kModToUnit,
+                            0.0f,
+                            1.0f);
     gFeedbackGain = -30.0f + gain * (12.0f - -30.0f);
+
     // Log knobs, matching params.json's `scale: "log"`, so the knob and the
-    // CC agree end to end.
-    gFeedbackDelay = 0.001f * powf(0.1f / 0.001f, io.readPot(Pot::FBBODY));
-    gFeedbackLPF   = 100.0f * powf(18000.0f / 100.0f, io.readPot(Pot::FBLPF));
-    gFeedbackHPF   = 10.0f * powf(4000.0f / 10.0f, io.readPot(Pot::FBHPF));
+    // CC agree end to end. Body's CV is summed *before* the exponent, not
+    // after: 1 V then means a constant ratio of delay time wherever the knob
+    // is, instead of a constant number of milliseconds that would be the whole
+    // range at one end and inaudible at the other.
+    float body = io.readPot(Pot::FBBODY);
+    if(io.isPatched(Cv::FBBODY))
+        body = audreyClampf(body + io.readCV(Cv::FBBODY) * CvRange::kModToUnit,
+                            0.0f,
+                            1.0f);
+    gFeedbackDelay = 0.001f * powf(0.1f / 0.001f, body);
+
+    gFeedbackLPF = 100.0f * powf(18000.0f / 100.0f, io.readPot(Pot::FBLPF));
+    gFeedbackHPF = 10.0f * powf(4000.0f / 10.0f, io.readPot(Pot::FBHPF));
 
     // -----------------------------------------------------------------------
     // Echo.  Send is a square-law taper (params.json `skew: 2.0`) — squaring
     // the knob here is that same curve.
     float send = io.readPot(Pot::ECHOSEND);
     if(io.isPatched(Cv::ECHOSEND))
-        send = audreyClampf(send + io.readCV(Cv::ECHOSEND) * 0.2f, 0.0f, 1.0f);
+        send = audreyClampf(send + io.readCV(Cv::ECHOSEND) * CvRange::kModToUnit,
+                            0.0f,
+                            1.0f);
     gEchoSend = send * send;
 
     gEchoTime = 0.05f * powf((float)AUDREY_ECHO_MAX_S / 0.05f,
                              io.readPot(Pot::ECHOTIME));
 
-    float echoFb = io.readPot(Pot::ECHOFB);
-    if(io.isPatched(Cv::ECHOFB))
-        echoFb = audreyClampf(echoFb + io.readCV(Cv::ECHOFB) * 0.2f, 0.0f, 1.0f);
-    gEchoFeedback = echoFb * 1.2f;
+    // WARP — doppler warp. Upstream Audrey II has a panel toggle wired to
+    // exactly this (`kDelaySwitchPin`, scaling echo time by 0.5), and it is the
+    // one performance gesture the engine has.
+    //
+    // The effect is a side effect of how a delay line works: shortening the
+    // time while the buffer is full drags the read head toward the write head,
+    // so everything already in the line is re-read faster and pitches up, then
+    // settles at the new time. EchoDelay glides delay time over 0.5 s
+    // (SetLagTime in Engine::Init), and that glide is the sweep — nothing here
+    // has to implement it.
+    //
+    // Momentary rather than latching, which is a deliberate departure: upstream
+    // has a physical toggle and two stable settings, we have a button. Holding
+    // gives a dive on press and a rise on release, which is playable in a way a
+    // latch is not. Latching instead is a one-line change here.
+    if(io.readButton(Btn::WARP))
+        gEchoTime *= 0.5f;
+
+    // Echo feedback is knob-only. It had a CV and lost it when the panel spent
+    // its four generic jacks elsewhere; MIDI CC 87 still reaches it.
+    gEchoFeedback = io.readPot(Pot::ECHOFB) * 1.2f;
 
     // -----------------------------------------------------------------------
-    // Reverb.  Decay carries `skew: 0.5`, i.e. a square root.
-    gReverbMix = io.readPot(Pot::REVMIX);
+    // Reverb.
+    float mix = io.readPot(Pot::REVMIX);
+    if(io.isPatched(Cv::REVMIX))
+        mix = audreyClampf(mix + io.readCV(Cv::REVMIX) * CvRange::kModToUnit,
+                           0.0f,
+                           1.0f);
+    gReverbMix = mix;
 
-    float decay = io.readPot(Pot::REVDECAY);
-    if(io.isPatched(Cv::REVDECAY))
-        decay = audreyClampf(decay + io.readCV(Cv::REVDECAY) * 0.2f, 0.0f, 1.0f);
-    gReverbDecay = 0.2f + sqrtf(decay) * (1.0f - 0.2f);
+    // Decay carries `skew: 0.5`, i.e. a square root. Knob-only for the same
+    // reason as echo feedback above; CC 92 still reaches it.
+    gReverbDecay = 0.2f + sqrtf(io.readPot(Pot::REVDECAY)) * (1.0f - 0.2f);
 
     // -----------------------------------------------------------------------
     // Output.  Square-law audio taper, `skew: 2.0`.

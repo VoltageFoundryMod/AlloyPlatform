@@ -182,7 +182,7 @@ The reference document is at [AlloyFlux-module-reference.md](./AlloyFlux-module-
     |                                | left              | centre               | right                  |
     | ------------------------------ | ----------------- | -------------------- | ---------------------- |
     | **top** — resonator + feedback | `POT_1` PITCH     | `POT_2` BODY         | `POT_3` FB GAIN        |
-    | **mid** — echo                 | `POT_4` SEND      | `POT_5` TIME         | `POT_6` FBK            |
+    | **mid** — echo                 | `POT_4` TIME      | `POT_5` SEND         | `POT_6` FBK            |
     | **low** — space + tone         | `POT_7` REV DECAY | `POT_8` REV MIX ⇧VOL | `POT_9` FB LPF ⇧FB HPF |
 
     Slots are **row-major**, matching the panel silkscreen and `PanelLayout`'s coordinate table, so `PanelLayout::pot(Pot::PITCH)` lands on the knob the panel calls POT 1. (This table was first written with the pre-M63d numbering, where slots followed the order the parameters happened to be declared; it is corrected here because the drift is invisible until a knob is in the wrong place.) Note the _board_ designators are a third numbering again — POT1/POT3/POT2 across the top — which matters only to the ADC mux driver; see `platform/vcv/PanelLayout.h`.

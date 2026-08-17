@@ -58,13 +58,15 @@ struct Audrey : Module
         REVDECAY_PARAM,
         VOL_PARAM,
         EXCITE_PARAM,
-        // ---- Panel buttons. Present because the hardware has them (SW2/SW3)
-        //      and the panel art draws them; neither carries a gesture yet.
-        //      SHIFT is what selects the shift-secondaries on hardware, and in
-        //      Rack those are context-menu sliders instead — so the button is
-        //      wired to the HAL and left inert rather than given a second,
-        //      Rack-only meaning that the firmware would not share. ----
-        MODE_PARAM,
+        // ---- Panel buttons (SW2/SW3). WARP is the doppler warp — held, it
+        //      halves the echo time, which is upstream Audrey II's one panel
+        //      switch. It sits on the slot AlloyFlux calls MODE; the panels
+        //      disagree because the modules do, which is what PanelMap is for.
+        //      SHIFT selects the shift-secondaries on hardware; Rack has no key
+        //      to hold so those are context-menu sliders and the button is
+        //      wired to the HAL but inert, rather than given a second,
+        //      Rack-only meaning the firmware would not share. ----
+        WARP_PARAM,
         SHIFT_PARAM,
         PARAMS_LEN
     };
@@ -76,11 +78,13 @@ struct Audrey : Module
         // arrives through the module's MIDI settings, not a patch cable — but
         // the hole is on the panel, so leaving it undrawn would be the lie.
         MIDI_INPUT,
+        // Listed in panel reading order from here: top row CV 1, CV 2, then
+        // the lower row left to right starting at EXC IN.
+        FBBODY_CV_INPUT,
         FBGAIN_CV_INPUT,
-        ECHOSEND_CV_INPUT,
-        ECHOFB_CV_INPUT,
-        REVDECAY_CV_INPUT,
         EXCITER_INPUT,
+        ECHOSEND_CV_INPUT,
+        REVMIX_CV_INPUT,
         INPUTS_LEN
     };
     enum OutputId
@@ -162,7 +166,9 @@ struct Audrey : Module
         configParam(EXCITE_PARAM, 0.f, 1.f, 0.7071f, "Exciter level");
 
         // Panel buttons — momentary, matching the hardware switches.
-        configButton(MODE_PARAM, "Mode (unassigned)");
+        configButton(WARP_PARAM,
+                     "Warp — hold to halve the echo time; the tail pitches up "
+                     "on press and back down on release");
         configButton(SHIFT_PARAM,
                      "Shift — selects the secondary parameters on hardware; "
                      "in Rack they are in the context menu");
@@ -170,10 +176,10 @@ struct Audrey : Module
         configInput(VOCT_INPUT, "V/Oct");
         configInput(GATE_INPUT, "Gate (unused — reserved for VCA/envelope)");
         configInput(MIDI_INPUT, "MIDI (TRS — Rack uses software MIDI instead)");
+        configInput(FBBODY_CV_INPUT, "Body CV");
         configInput(FBGAIN_CV_INPUT, "Feedback gain CV");
         configInput(ECHOSEND_CV_INPUT, "Echo send CV");
-        configInput(ECHOFB_CV_INPUT, "Echo feedback CV");
-        configInput(REVDECAY_CV_INPUT, "Reverb decay CV");
+        configInput(REVMIX_CV_INPUT, "Reverb mix CV");
         configInput(EXCITER_INPUT,
                     "Exciter — audio into the resonator; unpatched, the string "
                     "self-excites from its own noise floor");
@@ -197,15 +203,15 @@ struct Audrey : Module
         _io.assignPot(Pot::EXCITE, EXCITE_PARAM, 0.f, 1.f);
 
         _io.assignCV(Cv::VOCT, VOCT_INPUT);
+        _io.assignCV(Cv::FBBODY, FBBODY_CV_INPUT);
         _io.assignCV(Cv::FBGAIN, FBGAIN_CV_INPUT);
         _io.assignCV(Cv::ECHOSEND, ECHOSEND_CV_INPUT);
-        _io.assignCV(Cv::ECHOFB, ECHOFB_CV_INPUT);
-        _io.assignCV(Cv::REVDECAY, REVDECAY_CV_INPUT);
+        _io.assignCV(Cv::REVMIX, REVMIX_CV_INPUT);
         _io.assignCV(Cv::EXCITER, EXCITER_INPUT);
         // Cv::GATE is deliberately not assigned — see PanelMap.h.
         // MIDI_INPUT has no CV slot at all: it is a MIDI jack, not a CV one.
 
-        _io.assignButton(Btn::MODE, MODE_PARAM);
+        _io.assignButton(Btn::WARP, WARP_PARAM);
         _io.assignButton(Btn::SHIFT, SHIFT_PARAM);
 
         // Led:: names are typed ::LightId constants, not this struct's enum.
@@ -264,7 +270,7 @@ struct Audrey : Module
             sig.exciter        = _peakExc;
             sig.exciterPatched = inputs[EXCITER_INPUT].isConnected();
             sig.shiftHeld      = _io.readButton(Btn::SHIFT);
-            sig.modeHeld       = _io.readButton(Btn::MODE);
+            sig.warpHeld       = _io.readButton(Btn::WARP);
             _leds.update(sig, (float)(kControlDiv + 1) * args.sampleTime);
             _leds.writeTo(_io);
             _peakL = _peakR = _peakExc = 0.f;
@@ -354,9 +360,9 @@ struct AudreyWidget : ModuleWidget
 
         // Mid row: the echo.
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::ECHOSEND), module, Audrey::ECHOSEND_PARAM));
-        addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::ECHOTIME), module, Audrey::ECHOTIME_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::ECHOSEND), module, Audrey::ECHOSEND_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::ECHOFB), module, Audrey::ECHOFB_PARAM));
 
@@ -378,7 +384,7 @@ struct AudreyWidget : ModuleWidget
 
         // --- Buttons (SW2 / SW3) ---
         addParam(createParamCentered<VCVButton>(
-            button(Btn::MODE), module, Audrey::MODE_PARAM));
+            button(Btn::WARP), module, Audrey::WARP_PARAM));
         addParam(createParamCentered<VCVButton>(
             button(Btn::SHIFT), module, Audrey::SHIFT_PARAM));
 
@@ -393,16 +399,16 @@ struct AudreyWidget : ModuleWidget
         addInput(createInputCentered<PJ301MPort>(
             at(kMidiMm), module, Audrey::MIDI_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv1Mm), module, Audrey::FBGAIN_CV_INPUT));
+            at(kCv1Mm), module, Audrey::FBBODY_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv2Mm), module, Audrey::ECHOSEND_CV_INPUT));
+            at(kCv2Mm), module, Audrey::FBGAIN_CV_INPUT));
 
-        addInput(createInputCentered<PJ301MPort>(
-            at(kCv3Mm), module, Audrey::ECHOFB_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
             at(kFmInMm), module, Audrey::EXCITER_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv4Mm), module, Audrey::REVDECAY_CV_INPUT));
+            at(kCv3Mm), module, Audrey::ECHOSEND_CV_INPUT));
+        addInput(createInputCentered<PJ301MPort>(
+            at(kCv4Mm), module, Audrey::REVMIX_CV_INPUT));
         addOutput(createOutputCentered<PJ301MPort>(
             at(kOutLMm), module, Audrey::L_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(
