@@ -349,9 +349,9 @@ struct AudreyWidget : ModuleWidget
         // Low row: space and tone. DECAY and FB LPF each carry a
         // shift-secondary, exposed in the context menu below.
         addParam(createParamCentered<Trimpot>(
-            pot(Pot::REVMIX), module, Audrey::REVMIX_PARAM));
+            pot(Pot::REVMIX), module, Audrey::REVDECAY_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::REVDECAY), module, Audrey::REVDECAY_PARAM));
+            pot(Pot::REVDECAY), module, Audrey::REVMIX_PARAM));
         addParam(createParamCentered<Trimpot>(
             pot(Pot::FBLPF), module, Audrey::FBLPF_PARAM));
 

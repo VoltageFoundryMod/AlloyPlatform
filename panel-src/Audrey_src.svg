@@ -36,8 +36,8 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      inkscape:zoom="5.459786"
-     inkscape:cx="99.088133"
-     inkscape:cy="342.04637"
+     inkscape:cx="99.637605"
+     inkscape:cy="269.88237"
      inkscape:window-width="3840"
      inkscape:window-height="2071"
      inkscape:window-x="-9"
@@ -341,7 +341,7 @@
          id="tspan2-13"
          style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:211.667px;font-family:'Ioskeley Mono';-inkscape-font-specification:'Ioskeley Mono Semi-Bold';text-align:center;text-anchor:middle;stroke-width:0"
          x="3541.2009"
-         y="5427.2505">Decay</tspan></text><text
+         y="5427.2505">Dry/Wet</tspan></text><text
        xml:space="preserve"
        style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:141.111px;font-family:'Ioskeley Mono';-inkscape-font-specification:'Ioskeley Mono Semi-Bold';text-align:center;writing-mode:lr-tb;direction:ltr;text-anchor:middle;fill:#ffffff;fill-opacity:1;stroke:#bf984a;stroke-width:0;stroke-opacity:0"
        x="3528.1833"
@@ -363,7 +363,7 @@
          id="tspan2-93"
          style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:211.667px;font-family:'Ioskeley Mono';-inkscape-font-specification:'Ioskeley Mono Semi-Bold';text-align:center;text-anchor:middle;stroke-width:0"
          x="1963.5597"
-         y="6970.2959">Dry/Wet</tspan></text><text
+         y="6970.2959">Decay</tspan></text><text
        xml:space="preserve"
        style="font-style:normal;font-variant:normal;font-weight:600;font-stretch:normal;font-size:211.667px;font-family:'Ioskeley Mono';-inkscape-font-specification:'Ioskeley Mono Semi-Bold';text-align:center;writing-mode:lr-tb;direction:ltr;text-anchor:middle;fill:#ffffff;fill-opacity:1;stroke:#bf984a;stroke-width:0;stroke-opacity:0"
        x="5692.144"
@@ -577,7 +577,7 @@
        inkscape:label="Subtitle"><tspan
          x="82.111328"
          y="35.530282"
-         id="tspan5">Feedback Resonator</tspan></text><text
+         id="tspan1">Feedback Resonator</tspan></text><text
        xml:space="preserve"
        id="text1"
        style="font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:24px;font-family:'Ioskeley Mono';-inkscape-font-specification:'Ioskeley Mono Bold';text-align:start;writing-mode:lr-tb;direction:ltr;white-space:pre;shape-inside:url(#rect1);display:inline;fill:#ffffff;fill-opacity:1;stroke:#bf984a;stroke-width:0;stroke-dasharray:none;stroke-opacity:0"
@@ -585,9 +585,9 @@
        inkscape:label="Name"><tspan
          x="82.111328"
          y="45.098312"
-         id="tspan7"><tspan
+         id="tspan5"><tspan
            style="font-weight:500;-inkscape-font-specification:'Ioskeley Mono Medium'"
-           id="tspan6">Audrey II</tspan></tspan></text><g
+           id="tspan4">Audrey II</tspan></tspan></text><g
        id="g2"
        transform="matrix(2.0437451,0,0,2.0437451,2899.6689,11626.756)"
        inkscape:label="VFMLogo"
