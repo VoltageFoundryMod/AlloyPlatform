@@ -87,7 +87,7 @@ that row you get, and the **right** column is feedback — what comes back round
 | **REV DECAY** | 0.2–1.0       | Reverb tail, from a short room to effectively frozen at the top.                                                         |
 | **REV MIX**   | 0–1           | Dry/wet.                                                                                                                 |
 | ⇧ **VOLUME**  | 0–1           | Output level. Same knob position Alloy Flux puts volume on.                                                              |
-| **FB LPF**    | 100 Hz–18 kHz | Low-pass _inside_ the feedback loop. Sweeping it darkens the ring as it circulates — this is the one to play.            |
+| **FB LPF**    | 100 Hz–18 kHz | Low-pass _inside_ the feedback loop. Sweeping it darkens the ring as it circulates.                                      |
 | ⇧ **FB HPF**  | 10 Hz–4 kHz   | High-pass in the same loop. Together with LPF this is the loop's bandwidth.                                              |
 
 ### Buttons
