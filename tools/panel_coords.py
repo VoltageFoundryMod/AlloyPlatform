@@ -117,13 +117,39 @@ def main(argv):
         raise SystemExit("need both a width in mm and a viewBox to derive the scale")
     mm_per_uu = wmm / vb[2]
 
-    layer = None
-    for g in root.iter(f"{{{SVG}}}g"):
-        if g.get(LABEL) == want:
-            layer = g
-            break
-    if layer is None:
+    # Every match, not the first. Inkscape happily allows two layers with the
+    # same label, and picking the first silently answers from whichever the
+    # document happens to list earlier — which is how a stale 21-shape guide
+    # layer left over from before the LEDs existed came to shadow the real
+    # 28-shape one. A wrong coordinate table that looks right is the single
+    # most expensive failure this script can have, so this is fatal.
+    layers = [g for g in root.iter(f"{{{SVG}}}g") if g.get(LABEL) == want]
+    if not layers:
         raise SystemExit(f"no layer labelled '{want}' in {src}")
+    if len(layers) > 1:
+        ids = ", ".join(repr(g.get("id")) for g in layers)
+        counts = ", ".join(str(len(list(g))) for g in layers)
+        raise SystemExit(
+            f"{src}: {len(layers)} layers are labelled '{want}' ({ids}; "
+            f"{counts} shapes each).\n"
+            f"Delete the stale one in Inkscape — this script cannot know which "
+            f"you meant, and guessing would produce a plausible wrong answer."
+        )
+    layer = layers[0]
+
+    # Duplicate guide names inside the layer are the same trap one level down.
+    seen = {}
+    for el in layer.iter():
+        name = el.get(LABEL)
+        if name and centre(el) is not None:
+            seen[name] = seen.get(name, 0) + 1
+    dupes = sorted(n for n, c in seen.items() if c > 1)
+    if dupes:
+        raise SystemExit(
+            f"{src}: duplicate guide label(s) in '{want}': {', '.join(dupes)}.\n"
+            f"Each guide names one position; two shapes sharing a name means "
+            f"one of them is unnamed by accident."
+        )
 
     # Start from the layer's own transform: walk() composes it in, and anything
     # above a top-level Inkscape layer is the root, which has none.

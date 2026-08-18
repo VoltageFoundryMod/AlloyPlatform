@@ -498,8 +498,10 @@ PANEL_TMP := $(BUILD_TMP)/panels
 # ready to paste into platform/vcv/PanelLayout.h. Honours the ancestor transforms
 # and the viewBox scale, which Rack's module-helper stub does not — see the
 # warning at the top of PanelLayout.h.
+PANEL_MASTER ?= $(PANEL_SRCDIR)/Audrey_src.svg
+
 panel-coords:
-	@$(PYTHON) tools/panel_coords.py $(PANEL_SRCDIR)/AlloyPlatform.svg $(PANEL_HIDE_LAYERS)
+	@$(PYTHON) tools/panel_coords.py $(PANEL_MASTER) $(PANEL_HIDE_LAYERS)
 
 panels: $(PANEL_OUT)
 
