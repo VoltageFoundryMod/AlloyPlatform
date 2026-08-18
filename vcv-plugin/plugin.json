@@ -2,7 +2,7 @@
   "slug": "AlloyPlatform",
   "name": "Alloy Platform",
   "version": "2.0.0",
-  "license": "VCV Rack EULA",
+  "license": "GPL-3.0-or-later",
   "brand": "Voltage Foundry Modular",
   "author": "Carlos Eduardo de Paula",
   "authorEmail": "carlosedp@gmail.com",

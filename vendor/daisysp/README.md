@@ -80,17 +80,42 @@ of the confusion.
 
 ## Licensing
 
-DaisySP is **MIT** (Electrosmith Corp., 2020) — see `LICENSE`, preserved
-verbatim.
+**Two licences apply here, not one.**
 
-`reverbsc` carries a longer lineage, and its attribution block at the top of
-`reverbsc.h` is kept exactly as upstream ships it:
+| Files | Licence | Text |
+| ----- | ------- | ---- |
+| everything except `reverbsc.*` | MIT (Electrosmith Corp., 2020) | `LICENSE` |
+| `reverbsc.h`, `reverbsc.cpp` | **LGPL-2.1** (Electrosmith / Csound lineage) | `LICENSE.LGPL-2.1` |
+
+This was recorded incorrectly at first, so it is worth stating plainly:
+`reverbsc` is **not** part of MIT DaisySP. Electrosmith keeps it in a separate
+repository, [`electro-smith/DaisySP-LGPL`](https://github.com/electro-smith/DaisySP-LGPL),
+alongside `moogladder`, `bitcrush` and `fold` — and the split exists precisely
+so that the LGPL-derived code is not covered by DaisySP's MIT licence. The main
+`DaisySP` repo carries `DaisySP-LGPL` as a submodule, which is why a casual look
+at one commit makes the whole thing appear MIT.
+
+Its attribution block at the top of `reverbsc.h` is kept exactly as upstream
+ships it, and must not be dropped:
 
 > Reverb SC: ported from csound/soundpipe. Original author(s): Sean Costello,
 > Istvan Varga (1999, 2005). Ported to soundpipe by Paul Batchelor. Ported by
 > Stephen Hensley.
 
-Csound is LGPL-2.1 and soundpipe is MIT; Electrosmith distributes the result
-under DaisySP's MIT licence. This project is GPL-3.0, which absorbs MIT and
-LGPL-2.1 alike, so the combination is fine on any reading of that chain — but
-the attribution block must not be dropped, whichever reading applies.
+### Why the combination is still fine
+
+LGPL-2.1 §3 grants the option of relicensing a copy under "the ordinary GNU
+General Public License, version 2 or any later version", and this project
+exercises that option: `reverbsc` is used here **as GPL-3.0-or-later**, under
+the terms of the repository's root `LICENSE`. That is a one-way door for this
+copy only — upstream stays LGPL for everyone else.
+
+Taking that route also means the LGPL's relinking obligation (§6: end users must
+be able to swap in a modified LGPL component) does not attach to the combined
+work, which matters because the firmware is a statically linked binary with no
+dynamic loading. It would have been satisfiable anyway — the whole project is
+open source and buildable from this tree — but it is better not to depend on
+that.
+
+One further lineage, inside `dsp.h`: `SoftLimit()` is noted as "ported extracted
+from pichenettes/stmlib", which is MIT (Émilie Gillet). Absorbed the same way.

@@ -1,38 +1,76 @@
-# End User License Agreement for Software Sold on VCVRack.com
+Alloy Platform — VCV Rack plugin
+Copyright (C) 2026 Carlos Eduardo de Paula
 
-___
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
 
-## 1. USE
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-This software is licensed, not sold.
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
 
-The purchase of this software by a user grants the user one license for the software.
-A license grants use on all operating systems on all computers owned by the user, provided the primary user is the license holder.
+The full text is in LICENSE at the root of the source repository.
 
-Businesses and organizations must purchase a license for each user of the software.
+--------------------------------------------------------------------------------
+Names, artwork and branding
+--------------------------------------------------------------------------------
 
-You must not remove or alter any copyright notices on any copy of this software.
+Except as noted below, all module names, panel artwork, silkscreen layout and
+logos are copyright (C) 2026 Carlos Eduardo de Paula, trading as Voltage Foundry
+Modular — including the names "Alloy Platform" and "Alloy Flux", the Voltage
+Foundry Modular name and logo, and the panel graphics in res/.
 
-You must not disassemble, decompile, or reverse engineer the software, in whole or in part.
+The .svg panels in res/ are NOT covered by the GPL above. They are data files
+loaded at runtime, licensed separately under CC BY-NC-ND 4.0:
+https://creativecommons.org/licenses/by-nc-nd/4.0/ — redistributable with this
+plugin, with credit, but not modifiable and not for commercial use. See
+res/LICENSE. The code remains GPL-3.0-or-later and can be built, forked and
+redistributed freely.
 
-You must not distribute graphics and resources from this software package.
+The names are not licensed at all. No licence in this plugin grants any right
+to use them; a fork must rename.
 
+"Audrey II" is not ours. The name and the engine belong to Synthux Academy
+(Nick Donaldson, Roey Tsemah); the engine is used under MIT with attribution,
+and the name is theirs regardless of the code licence. The Audrey panel artwork
+in this repository is original work built on the Alloy Platform layout, so the
+drawing is ours while the name it carries is not.
 
-## 2. DISTRIBUTION
+The Rack Component Library graphics drawn by this plugin's widgets are
+copyright (C) VCV under CC BY-NC 4.0 and are not ours to relicense.
 
-You must not distribute or sell licenses of this software to third parties.
-Licenses are revoked if distributed or sold to third parties.
+--------------------------------------------------------------------------------
+Third-party components distributed in this plugin
+--------------------------------------------------------------------------------
 
+Audrey II engine — Copyright (c) 2026 Synthux Academy. MIT.
+  Nick Donaldson (concept and firmware), Roey Tsemah (visual and hardware
+  design). See modules/audrey/LICENSE and modules/audrey/CREDITS.md.
 
-## 3. WARRANTIES
+DaisySP — Copyright (c) 2020 Electrosmith, Corp. MIT.
+  See vendor/daisysp/LICENSE.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY DIRECT,
-INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
-EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+DaisySP-LGPL (reverbsc only) — LGPL-2.1.
+  Reverb SC ported from csound/soundpipe; original authors Sean Costello and
+  Istvan Varga (1999, 2005), ported to soundpipe by Paul Batchelor, ported by
+  Stephen Hensley. Used here as GPL-3.0-or-later under LGPL-2.1 section 3.
+  See vendor/daisysp/LICENSE.LGPL-2.1.
+
+--------------------------------------------------------------------------------
+Note on VCV Rack
+--------------------------------------------------------------------------------
+
+VCV Rack is GPLv3-or-later. Rack additionally grants a "Non-Commercial Plugin
+License Exception" letting a plugin distributed free of charge use any licence
+it likes; this plugin does not need that exception, because GPLv3 satisfies
+Rack's own terms directly.
+
+The Rack Component Library graphics used by this plugin's widgets (knobs, ports,
+buttons, lights, screws) are Copyright (C) VCV and licensed CC BY-NC 4.0. That
+is a separate matter from this source code's licence: it permits non-commercial
+use with credit, and commercial distribution only through the VCV Library or
+under a commercial licence from VCV.

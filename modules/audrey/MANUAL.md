@@ -22,8 +22,11 @@ lives.
 
 The engine has been ported to the Alloy Platform which is a compact and powerful platform for Eurorack modules. The module is also published as a VCV Rack plugin under the Alloy Platform.
 
-Engine by [Synthux Academy](https://github.com/Synthux-Academy/audrey-ii-simple)
-(Nick Donaldson, Roey Tsemah); see `CREDITS.md`.
+Engine and name by [Synthux Academy](https://github.com/Synthux-Academy/Audrey-II)
+— concept and firmware by Nick Donaldson, original visual and hardware design by
+Roey Tsemah. The engine is used under MIT; the name is theirs and this port does
+not claim it. See `CREDITS.md` and `LICENSE`, and `LICENSING.md` at the root of
+the repository.
 
 ---
 

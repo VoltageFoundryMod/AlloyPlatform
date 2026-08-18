@@ -224,6 +224,7 @@ The reference document is at [AlloyFlux-module-reference.md](./AlloyFlux-module-
   - [ ] 65. Implement a VCA section that can accept input from CV, MIDI or LFO to control the output volume of Audrey II, allowing for dynamic volume adjustments during performance and from external CV sources.
   - [ ] 66. Add some LFOs that can have a matrix to modulate some parameters with changeable waveforms (square, triangle, pulse) that can even modulate the VCA section for more expressive control.
   - [ ] 67. Have an envelope generator that can be triggered by MIDI or CV, allowing for more complex shaping of the sound over time. It could be mapped to some controls like VCA, feedback gain, body, pitch.
+  - [ ] 68. Any benefits the new libraries implemented for Audrey II can bring to AlloyFlux?
 
 ---
 

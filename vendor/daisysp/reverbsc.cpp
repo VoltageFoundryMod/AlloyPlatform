@@ -1,3 +1,8 @@
+// ⚠ LICENCE: this file is NOT under DaisySP's MIT licence like the rest of
+// vendor/daisysp. It comes from electro-smith/DaisySP-LGPL and is LGPL-2.1 —
+// see LICENSE.LGPL-2.1 and the "Licensing" section of README.md. Used here as
+// GPL-3.0-or-later under LGPL-2.1 section 3.
+
 #include <math.h>
 #include <stdlib.h>
 #include <stdint.h>

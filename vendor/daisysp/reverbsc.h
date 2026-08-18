@@ -2,6 +2,11 @@
 #ifndef DSYSP_REVERBSC_H
 #define DSYSP_REVERBSC_H
 
+// ⚠ LICENCE: this file is NOT under DaisySP's MIT licence like the rest of
+// vendor/daisysp. It comes from electro-smith/DaisySP-LGPL and is LGPL-2.1 —
+// see LICENSE.LGPL-2.1 and the "Licensing" section of README.md. Used here as
+// GPL-3.0-or-later under LGPL-2.1 section 3. Keep the attribution block below.
+
 // LOCAL PATCH. Now a count of FLOATS, which is what it was always used as —
 // see the units bug fixed in reverbsc.cpp's Init(). The eight delay lines need
 // 24 726 samples at 48 kHz (2543 + 2842 + 3325 + 3605 + 3977 + 4202 + 2251 +

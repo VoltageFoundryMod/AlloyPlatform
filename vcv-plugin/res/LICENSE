@@ -1,0 +1,25 @@
+Panel artwork — Alloy Platform
+Copyright (C) 2026 Carlos Eduardo de Paula, trading as Voltage Foundry Modular.
+
+THIS DIRECTORY IS NOT COVERED BY THE PLUGIN'S GPL-3.0 LICENCE.
+
+The .svg panels here are generated from panel-src/ and carry the same terms:
+
+    Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+    (CC BY-NC-ND 4.0)
+    https://creativecommons.org/licenses/by-nc-nd/4.0/
+
+They are data files loaded at runtime, not part of the program's source, and
+are licensed separately from it. The plugin's code remains GPL-3.0-or-later and
+can be built, forked and redistributed freely; these drawings may be
+redistributed with it but not modified or used commercially.
+
+The graphics drawn by Rack's own widgets — knobs, ports, buttons, lights,
+screws — are not in this directory and are not ours: they are copyright (C) VCV
+under CC BY-NC 4.0, supplied by the Rack Component Library.
+
+"Alloy Platform", "Alloy Flux" and "Voltage Foundry Modular" are names and
+marks; no licence to use them is granted here. "Audrey II" is Synthux Academy's
+name, used with attribution.
+
+See LICENSE.txt in the plugin root, and LICENSING.md in the source repository.

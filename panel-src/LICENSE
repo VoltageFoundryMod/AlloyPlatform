@@ -1,0 +1,35 @@
+Panel artwork — Alloy Platform
+Copyright (C) 2026 Carlos Eduardo de Paula, trading as Voltage Foundry Modular.
+All rights reserved except as granted below.
+
+THIS DIRECTORY IS NOT COVERED BY THE REPOSITORY'S ROOT GPL-3.0 LICENCE.
+
+The panel drawings here — layout, typography, silkscreen, graphics and logos —
+are licensed under:
+
+    Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+    (CC BY-NC-ND 4.0)
+    https://creativecommons.org/licenses/by-nc-nd/4.0/
+
+In short: you may copy and redistribute these files, including as part of this
+project, with credit. You may not use them commercially, and you may not
+distribute modified versions.
+
+This is deliberate and it is the only part of the project licensed this way.
+The firmware, the VCV Rack plugin and the tooling are GPL-3.0-or-later, and the
+hardware design under hardware/ is CERN-OHL-S v2 — both chosen so the module can
+be built, studied, forked and improved by anyone. The artwork is reserved so
+that the result of doing so is not a visually identical module sold as if it
+were ours. Fork the module; draw your own front.
+
+WHAT IS NOT COVERED HERE
+
+  "Alloy Platform", "Alloy Flux" and "Voltage Foundry Modular" are names and
+  marks, not artwork, and no licence to use them is granted by CC BY-NC-ND or
+  by any other licence in this repository.
+
+  "Audrey II" is Synthux Academy's module name, not ours. The Audrey panel
+  drawing in this directory is original work on the Alloy Platform layout and
+  is covered by the notice above; the name it carries is not ours to license.
+
+  See LICENSING.md at the root of the repository for the whole picture.
