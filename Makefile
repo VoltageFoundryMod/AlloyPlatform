@@ -352,6 +352,23 @@ audrey-ab-sweep:
 audrey-ab-clean:
 	rm -f $(AUDREY_AB_BIN)
 
+# ── Panel LED shape ──────────────────────────────────────────────────────────
+# The LED apertures are drawn on the panel's F.Mask layer (the panel is a PCB,
+# and the light comes through the bare substrate from behind). Rack has to fill
+# the same outline to match, so it is generated from the artwork rather than
+# transcribed — a 1200-character bezier is not something to retype, and an
+# eyeballed approximation would drift the moment the panel is edited.
+#
+# All seven apertures are the same shape, so one path serves the lot; LED1 is
+# simply the one it is taken from. Committed, so a normal build needs no Python.
+.PHONY: led-shape
+
+led-shape:
+	$(PYTHON) tools/svg_path_to_nvg.py \
+	  $(PANEL_SRCDIR)/Audrey_src.svg LED1 \
+	  platform/vcv/PanelLedShape.generated.h AlloyPanelLed \
+	  $(PANEL_SRCDIR)/AlloyFlux_src.svg
+
 # ── Panels ───────────────────────────────────────────────────────────────────
 # Rack's SVG parser (nanosvg) renders <path> and nothing else — it does not
 # understand <text>, so a label typed in Inkscape simply does not appear. The
@@ -408,6 +425,38 @@ PANEL_HIDE_LAYERS ?= components
 # file: make panels PANEL_ACTIONS="..."
 PANEL_ACTIONS ?= select-all; object-to-path; export-plain-svg; export-filename:$@; export-do
 
+# ⚠ Hard wall-clock limit on Inkscape, because every other guard here stops a
+# *known* hang and this one stops the unknown next one.
+#
+# Inkscape on Windows is single-instance: a second invocation hands its work to
+# the first and waits. So one wedged batch process does not just fail its own
+# build, it wedges every build after it — observed as `make vcv-install`
+# printing "panel: ..." and sitting there while an orphan from twenty minutes
+# earlier span at 8% CPU holding the lock. Nothing times out, because make is
+# waiting on a process that is technically alive.
+#
+# 180 s is generous: a 270 KB panel converts in under ten seconds. Exceeding it
+# means something is wrong, and a failed build that says so beats a hung one.
+#
+# Must be MSYS2's timeout, by absolute path. `timeout` on PATH under Windows
+# resolves to C:/Windows/system32/timeout.exe, which is an unrelated tool that
+# waits for a keypress and rejects these arguments outright.
+PANEL_TIMEOUT_S ?= 180
+
+# Resolved with $(wildcard), not a shell loop. A `case` statement cannot live
+# inside $(shell ...) — its `)` closes the make function call, and the result is
+# a syntax error from sh plus an empty variable. And $(wildcard)'s whitespace
+# splitting, which rules it out for the Inkscape probe above ("C:/Program
+# Files/..."), is harmless here because none of these paths contain a space.
+#
+# PATH is deliberately not consulted: `timeout` there resolves to
+# C:/Windows/system32/timeout.exe, an unrelated tool that waits for a keypress.
+PANEL_TIMEOUT ?= $(firstword $(wildcard \
+      $(MSYS)/usr/bin/timeout.exe \
+      C:/msys64/usr/bin/timeout.exe \
+      /usr/bin/timeout \
+      /opt/homebrew/bin/gtimeout))
+
 # Sources live OUTSIDE vcv-plugin/res/ on purpose. vcv-plugin/Makefile ships the
 # whole of res/ via `DISTRIBUTABLES += res`, so an editable _src sitting there was
 # packaged into every .vcvplugin — several hundred KB of Inkscape working file per
@@ -452,9 +501,16 @@ else
 	@echo "panel: $< -> $@"
 	@mkdir -p $(PANEL_TMP)
 	@$(PYTHON) tools/prep_panel.py $< $(PANEL_TMP)/$(notdir $<) $(PANEL_HIDE_LAYERS)
-	@"$(INKSCAPE)" --batch-process $(PANEL_TMP)/$(notdir $<) \
+	@$(if $(PANEL_TIMEOUT),"$(PANEL_TIMEOUT)" -k 5 $(PANEL_TIMEOUT_S),) \
+	  "$(INKSCAPE)" --batch-process $(PANEL_TMP)/$(notdir $<) \
 	  --actions="$(PANEL_ACTIONS)" \
-	  >/dev/null 2>&1 </dev/null
+	  >/dev/null 2>&1 </dev/null \
+	  || { echo "  ERROR: Inkscape failed or exceeded $(PANEL_TIMEOUT_S)s."; \
+	       echo "  Inkscape is single-instance on Windows, so this is usually an"; \
+	       echo "  orphan holding the lock, or the editor open on this file."; \
+	       echo "  Close Inkscape, check for a stray process, and retry:"; \
+	       echo "      Get-Process inkscape | Stop-Process -Force"; \
+	       exit 1; }
 	@$(PYTHON) tools/prep_panel.py --check $@
 endif
 

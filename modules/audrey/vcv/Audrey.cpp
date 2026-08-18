@@ -11,6 +11,7 @@
 #include "FeedbackSynthEngine.h"
 #include "SubMenuSlider.hpp" // shift-secondaries as context-menu sliders
 #include "PanelLayout.h"     // shared panel geometry (all modules, one PCB)
+#include "PanelLed.hpp"      // aperture-shaped lights, matching the panel art
 #include "VCVRackIO.h"       // platform: positional slots -> Rack indices
 #include "io/AudreyLeds.h"   // the LED language, shared with the firmware
 #include "io/IOBridge.h"
@@ -415,19 +416,25 @@ struct AudreyWidget : ModuleWidget
             at(kOutRMm), module, Audrey::R_OUTPUT));
 
         // --- LEDs (7 × RGB) — colour driven by AudreyLed::Engine ---
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        //
+        // Aperture-shaped rather than Rack's round MediumLight: on the hardware
+        // these are openings in the panel PCB's solder mask and the LED shines
+        // through the bare substrate from behind. The outline is generated from
+        // the panel artwork itself — see platform/vcv/PanelLed.hpp.
+        using PanelLight = AlloyPanelLight<RedGreenBlueLight>;
+        addChild(createLightCentered<PanelLight>(
             led(Led::LEVEL_L), module, Audrey::LED1_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::LEVEL_R), module, Audrey::LED7_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::LOOP_L), module, Audrey::LED2_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::LOOP_R), module, Audrey::LED6_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::ECHO), module, Audrey::LED3_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::SPACE), module, Audrey::LED5_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::CENTRE), module, Audrey::LED4_R_LIGHT));
     }
 

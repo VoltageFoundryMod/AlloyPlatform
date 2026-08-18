@@ -2,6 +2,7 @@
 #include "SynthEngine.h"
 #include "alloy_config.h" // kDefaultFilterCutoff — shared with the firmware
 #include "PanelLayout.h"  // shared panel geometry (all modules, one PCB)
+#include "PanelLed.hpp"   // aperture-shaped lights, matching the panel art
 #include "VCVRackIO.h"    // VCV-specific IHardwareIO implementation (M37d)
 #include "VoiceMode.h"
 #include "dsp/ChorusEngine.h" // ChorusMode enum
@@ -1473,19 +1474,27 @@ struct AlloyFluxWidget : ModuleWidget
             at(kOutRMm), module, AlloyFlux::R_OUTPUT));
 
         // --- LEDs (7 × RGB) — colour driven by the shared LedEngine ---
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        //
+        // Aperture-shaped, not Rack's round MediumLight: the panel is a PCB and
+        // these are openings in its front solder mask, lit from behind through
+        // the bare substrate. The outline is generated from the panel artwork —
+        // see platform/vcv/PanelLed.hpp. Both modules share one aperture shape
+        // because they share one panel; `make led-shape` regenerates it and
+        // checks the two drawings still agree.
+        using PanelLight = AlloyPanelLight<RedGreenBlueLight>;
+        addChild(createLightCentered<PanelLight>(
             led(Led::VOICE_L), module, AlloyFlux::LED1_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::VOICE_R), module, AlloyFlux::LED7_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::MOD_L), module, AlloyFlux::LED2_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::MOD_R), module, AlloyFlux::LED6_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::MODE), module, AlloyFlux::LED3_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::SHIFT), module, AlloyFlux::LED5_R_LIGHT));
-        addChild(createLightCentered<MediumLight<RedGreenBlueLight>>(
+        addChild(createLightCentered<PanelLight>(
             led(Led::CENTRE), module, AlloyFlux::LED4_R_LIGHT));
     }
 
