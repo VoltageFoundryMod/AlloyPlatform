@@ -425,6 +425,26 @@ PANEL_HIDE_LAYERS ?= components
 # file: make panels PANEL_ACTIONS="..."
 PANEL_ACTIONS ?= select-all; object-to-path; export-plain-svg; export-filename:$@; export-do
 
+# ⚠ Give the build its own Inkscape application ID. This is what makes the
+# panel step safe to run while you have Inkscape open, and it is not optional.
+#
+# Inkscape is a GApplication with a fixed ID, `org.inkscape.Inkscape`. The first
+# process to claim that ID becomes the primary; every later `inkscape` command
+# becomes a *remote* instance that forwards its arguments to the primary and
+# then waits for it. So without a tag, `make panels` does not run Inkscape — it
+# asks whatever Inkscape already exists to do the work, and blocks. If that is
+# your editor, the actions run in your editing session; if it is a wedged batch
+# process from an earlier build, nothing happens at all and make waits forever.
+#
+# It gets worse: `--batch-process` is documented as "Close GUI after executing
+# all actions". Forwarded into your open editor, that is an instruction to run
+# select-all + object-to-path on whatever you have open and then close it.
+#
+# `--app-id-tag=TAG` gives this invocation the ID `org.inkscape.Inkscape.TAG`,
+# so it always starts its own private instance, never attaches to the GUI, and
+# cannot be held up by an orphan of the untagged one.
+PANEL_APP_TAG ?= alloybuild
+
 # ⚠ Hard wall-clock limit on Inkscape, because every other guard here stops a
 # *known* hang and this one stops the unknown next one.
 #
@@ -502,13 +522,14 @@ else
 	@mkdir -p $(PANEL_TMP)
 	@$(PYTHON) tools/prep_panel.py $< $(PANEL_TMP)/$(notdir $<) $(PANEL_HIDE_LAYERS)
 	@$(if $(PANEL_TIMEOUT),"$(PANEL_TIMEOUT)" -k 5 $(PANEL_TIMEOUT_S),) \
-	  "$(INKSCAPE)" --batch-process $(PANEL_TMP)/$(notdir $<) \
+	  "$(INKSCAPE)" --app-id-tag=$(PANEL_APP_TAG) \
+	  --batch-process $(PANEL_TMP)/$(notdir $<) \
 	  --actions="$(PANEL_ACTIONS)" \
 	  >/dev/null 2>&1 </dev/null \
 	  || { echo "  ERROR: Inkscape failed or exceeded $(PANEL_TIMEOUT_S)s."; \
-	       echo "  Inkscape is single-instance on Windows, so this is usually an"; \
-	       echo "  orphan holding the lock, or the editor open on this file."; \
-	       echo "  Close Inkscape, check for a stray process, and retry:"; \
+	       echo "  The build runs Inkscape under its own application ID"; \
+	       echo "  (org.inkscape.Inkscape.$(PANEL_APP_TAG)), so your open editor is"; \
+	       echo "  not the cause. Look for a stray process with that tag:"; \
 	       echo "      Get-Process inkscape | Stop-Process -Force"; \
 	       exit 1; }
 	@$(PYTHON) tools/prep_panel.py --check $@
