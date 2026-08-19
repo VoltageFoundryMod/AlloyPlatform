@@ -48,6 +48,15 @@ extern float
 extern float gCurve; // 0.0 = pluck … 1.0 = swell
 extern float
     gCurveTime; // envelope time scale: 0.25=4×faster  1.0=default  4.0=4×slower
+// GATE jack note length, ms. 0 = follow the gate: the note is released when the
+// gate falls, which is the classic behaviour. Above 0 the gate is treated as a
+// trigger and the note lasts this long regardless of how wide the gate is.
+//
+// The point of it is POLY. Below CURVE 0.20 the AR envelope already ignores the
+// gate (see CurveEngine.h), so short gates already stack into a chord — but at
+// sustaining CURVE settings a gate holds its voice, and you cannot build a pad
+// up from an arpeggio. A fixed length gives that, bounded, at any CURVE.
+extern float         gGateLength;
 extern volatile bool gGateHigh; // true while gate is asserted (attack phase)
 extern volatile bool
     gGatePatched; // false = drone (bypass VCA); true = AR envelope active
@@ -149,19 +158,33 @@ extern float gDelayMix; // 0.0 (off) – 1.0 (full wet), default 0.0
 // ---------------------------------------------------------------------------
 // POLY mode voice allocator (M2x)
 //
-// 4 independent voice slots — each carries its own MIDI note number, frequency,
+// 6 independent voice slots — each carries its own MIDI note number, frequency,
 // and velocity.  Written by MIDI handlers inside usbMidi_update(), read by
 // updateControl() for freq/velocity and by renderAudio() via sPolyEnvs[].
 // All fields accessed from a single core (Core 0), so no mutex is needed; 32-bit
 // aligned float writes are atomic on Cortex-M33.
+//
+// MIDI, the serial `trig` command and the GATE jack all draw from this one
+// pool. `midiNote` doubles as the slot's occupancy state, which is why the
+// sentinels below sit above the 0..127 MIDI range — a real note number can
+// never collide with one.
 // ---------------------------------------------------------------------------
+
+/// Slot is silent and free to claim.
+static constexpr uint8_t kPolySlotFree = 255;
+/// Claimed by a CV gate that is still high. Released on the falling edge.
+static constexpr uint8_t kPolySlotCvHeld = 128;
+/// CV gate has fallen and the voice is ringing out. Still audible, so it is
+/// reaped only once its envelope reaches silence — but it is the first thing
+/// a new note takes if no slot is genuinely free.
+static constexpr uint8_t kPolySlotReleasing = 129;
 
 struct PolySlot
 {
     float freq;     // Hz — voice frequency set by Note On
     float velocity; // 0.0–1.0 — MIDI velocity scale
     uint8_t
-        midiNote; // MIDI note number — used for Note Off matching; 255 = free
+        midiNote; // MIDI note number, or one of the kPolySlot* sentinels above
 };
 
 // Defined in main.cpp — accessed by usb_midi.cpp for note allocation.

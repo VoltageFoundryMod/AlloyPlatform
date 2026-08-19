@@ -291,8 +291,12 @@ class SynthEngine
 
     // Stereo pan weights (set by control(), read by audio()).
     uint8_t _activeVoices = 2u;
-    int16_t _panL[6]      = {256, 0, 0, 0, 0, 0};
-    int16_t _panR[6]      = {0, 256, 0, 0, 0, 0};
+    /// FM carrier/modulator pairs the audio path renders: 1 in PAIR, 2 in
+    /// CASCADE, where the second pair is what makes the mode stereo at all.
+    /// Read only when the mode is an FM one; other modes leave it alone.
+    uint8_t _fmPairs = 1u;
+    int16_t _panL[6] = {256, 0, 0, 0, 0, 0};
+    int16_t _panR[6] = {0, 256, 0, 0, 0, 0};
 
     // Gate edge detection (control()).
     bool _prevGate = false;
@@ -328,6 +332,14 @@ class SynthEngine
     float _cachedRelStr      = -99.0f;
     float _cachedBaseStr     = -1.0f;
     float _cachedFreqsStr[4] = {440.0f, 440.0f, 440.0f, 440.0f};
+
+    // POLY — the other modes cache absolute frequencies, but every poly slot
+    // carries its own note, so what is cached here is the per-slot detune
+    // *ratio*. It depends only on RELATION, which makes the cache cheaper than
+    // the others: six powf() calls when the knob moves, one multiply per voice
+    // per tick otherwise.
+    float _cachedRelPoly    = -99.0f;
+    float _polyDetuneMul[6] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 
     // -----------------------------------------------------------------------
     // Constants

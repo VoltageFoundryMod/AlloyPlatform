@@ -86,7 +86,7 @@ void moduleHook_noteOff(uint8_t note)
             if(sPolySlots[i].midiNote == note)
             {
                 sPolyEnvs[i]->setGate(false);
-                sPolySlots[i].midiNote = 255;
+                sPolySlots[i].midiNote = kPolySlotFree;
             }
         }
         return;
@@ -131,7 +131,7 @@ bool moduleHook_controlChange(uint8_t cc, uint8_t value)
                     sPolyEnvs[i]->setGate(false);
                     sPolyEnvs[i]->reset();
                 }
-                sPolySlots[i].midiNote = 255;
+                sPolySlots[i].midiNote = kPolySlotFree;
             }
             sPolyRR = 0;
             return true;

@@ -41,7 +41,7 @@ A single shared port does work when the physical module is not involved and Rack
 
 ## Documentation
 
-- [User Manual](../Manual.md): Panel controls, voice modes, MIDI CC map
+- [User Manual](../modules/alloyflux/MANUAL.md): Panel controls, voice modes, MIDI CC map
 - [Serial Reference](AlloyFlux-serial-reference.md): USB serial console commands and configuration
 - [Web Configurator](../web-configurator/README.md): Instructions for using the browser-based editor to manage patches and control the module
 

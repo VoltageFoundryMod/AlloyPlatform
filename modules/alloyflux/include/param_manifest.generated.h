@@ -23,6 +23,7 @@ static const ParamDescriptor kParamManifest[] = {
     {  82, "adsrdecay"     , "Decay"                   , "Envelope"    ,                 0.001f,                       4.0f,       0.1f, ParamScale::Linear, "s"   , &gAdsrDecay, 1.0f },
     {  83, "adsrsustain"   , "Sustain"                 , "Envelope"    ,                   0.0f,                       1.0f,       0.8f, ParamScale::Linear, nullptr, &gAdsrSustain, 1.0f },
     {  84, "fat"           , "Fatness"                 , "Oscillator"  ,                   0.0f,                       1.0f,       0.4f, ParamScale::Linear, nullptr, &gFatness, 1.0f },
+    {  85, "gatelen"       , "Gate Length"             , "Envelope"    ,                   0.0f,                    2000.0f,       0.0f, ParamScale::Linear, "ms"  , &gGateLength, 1.0f },
     {  86, "delaytime"     , "Time"                    , "Delay"       ,                  10.0f,        (float)DELAY_MAX_MS,     100.0f, ParamScale::Linear, "ms"  , &gDelayTime, 1.0f },
     {  87, "delayfb"       , "Feedback"                , "Delay"       ,                   0.0f,                      0.95f,       0.5f, ParamScale::Linear, nullptr, &gDelayFeedback, 1.0f },
     {  88, "curvetime"     , "Time Scale"              , "Envelope"    ,                  0.25f,                       4.0f,       1.0f, ParamScale::Linear, "×"   , &gCurveTime, 1.0f },

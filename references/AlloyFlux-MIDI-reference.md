@@ -1,6 +1,6 @@
 # MIDI & SysEx Reference
 
-For MIDI CC implementation table, check the user manual: [Manual.md](../Manual.md#midi-cc-map).
+For MIDI CC implementation table, check the user manual: [MANUAL.md](../modules/alloyflux/MANUAL.md#midi-cc-map).
 
 ## Patch Management & SysEx
 
@@ -139,4 +139,4 @@ CC 16 (ROOT pitch, ±4 V/Oct) is part of both the dump and the feedback diff, so
 
 Every parameter in the CC map can be automated directly. Since Alloy Flux appears as a standard USB MIDI device, any DAW can record and play back CC automation on the Alloy Flux MIDI track. No SysEx is needed for per-parameter automation — use standard MIDI CC messages.
 
-For parameters with unusual ranges (e.g. CC 104 Transpose encodes −24…+24 st as CC values 0–48, with CC 24 = 0 semitones) refer to the MIDI CC Map at the user manual: [Manual.md#midi-cc-map](../Manual.md#midi-cc-map).
+For parameters with unusual ranges (e.g. CC 104 Transpose encodes −24…+24 st as CC values 0–48, with CC 24 = 0 semitones) refer to the MIDI CC Map at the user manual: [MANUAL.md#midi-cc-map](../modules/alloyflux/MANUAL.md#midi-cc-map).

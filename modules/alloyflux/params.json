@@ -298,6 +298,19 @@
       "target": "gCurveTime"
     },
     {
+      "cc": 85,
+      "name": "gatelen",
+      "label": "Gate Length",
+      "category": "Envelope",
+      "kind": "float",
+      "min": 0.0,
+      "max": 2000.0,
+      "default": 0.0,
+      "scale": "linear",
+      "unit": "ms",
+      "target": "gGateLength"
+    },
+    {
       "cc": 73,
       "name": "adsrattack",
       "label": "Attack",

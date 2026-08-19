@@ -64,6 +64,7 @@ void packAlloyConfig(AlloyConfig &cfg)
     cfg.transpose     = gTranspose;
     // Knob takeover (M62)
     cfg.potTakeover = (uint8_t)gPotTakeoverMode;
+    cfg.gateLength  = gGateLength;
 }
 
 void applyAlloyConfig(const AlloyConfig &cfg)
@@ -124,6 +125,7 @@ void applyAlloyConfig(const AlloyConfig &cfg)
     gPotTakeoverMode = (cfg.potTakeover <= (uint8_t)PotTakeoverMode::SCALE)
                            ? (PotTakeoverMode)cfg.potTakeover
                            : PotTakeoverMode::SCALE;
+    gGateLength      = constrain(cfg.gateLength, 0.0f, 2000.0f);
 }
 
 void applyAlloyDefaults()
@@ -172,5 +174,6 @@ void applyAlloyDefaults()
     d.quantizeScale      = (uint8_t)ScaleId::CHROMATIC;
     d.transpose          = 0;
     d.potTakeover        = (uint8_t)PotTakeoverMode::SCALE;
+    d.gateLength         = 0.0f;
     applyAlloyConfig(d);
 }

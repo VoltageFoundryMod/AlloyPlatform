@@ -4,7 +4,7 @@
 
 This document covers serial console commands, flash preset management, and configuration details for Alloy Flux. These features are primarily intended for development, testing, and advanced users willing to use a USB serial terminal.
 
-For the user-facing manual (panel controls, voice modes, MIDI CC map), see [Manual.md](../Manual.md).
+For the user-facing manual (panel controls, voice modes, MIDI CC map), see [MANUAL.md](../modules/alloyflux/MANUAL.md).
 
 ---
 

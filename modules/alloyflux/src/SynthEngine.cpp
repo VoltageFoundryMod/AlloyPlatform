@@ -274,6 +274,7 @@ void SynthEngine::control(const SynthParams  &p,
                 _subVoices[1].setFreq(voiceFreqs[1] * sm);
             }
             _activeVoices = 2;
+            _fmPairs      = 1; // PAIR sums its modulator; one pair only
             _panL[0]      = 256;
             _panL[1]      = 0;
             _panL[2]      = 0;
@@ -394,31 +395,62 @@ void SynthEngine::control(const SynthParams  &p,
                 = {1.0f, 1.333f, 1.5f, 2.0f, 2.5f, 3.0f};
             const int zoneIdx
                 = (_sRelation / 4.0f < 5.0f) ? (int)(_sRelation / 4.0f) : 5;
-            voiceFreqs[0] = _sGlidedFreq + _drift.offset(0);
+            const float ratio = kCascadeRatios[zoneIdx];
+            // Two carrier/modulator pairs, panned apart. FM sums only the
+            // carrier — the modulator is never heard directly — so a single
+            // pair is one mono source and no pan weight can widen it. A second
+            // pair is what gives CASCADE a stereo image at all.
+            //
+            // The pairs are detuned a fixed ±1.4 cents against each other, on
+            // top of whatever drift MOTION adds. Without that they would be
+            // sample-identical at MOTION = 0 and collapse straight back to
+            // mono. The detune is applied to the *pair*, so the FM ratio inside
+            // each one stays exact — that ratio is what keeps CASCADE harmonic.
+            static constexpr float kPairDetuneA = 0.9992f; // −1.4 cents
+            static constexpr float kPairDetuneB = 1.0008f; // +1.4 cents
+            const float            baseA        = _sGlidedFreq * kPairDetuneA;
+            const float            baseB        = _sGlidedFreq * kPairDetuneB;
+
+            voiceFreqs[0] = baseA + _drift.offset(0);
             if(voiceFreqs[0] < 20.0f)
                 voiceFreqs[0] = 20.0f;
-            voiceFreqs[1]
-                = _sGlidedFreq * kCascadeRatios[zoneIdx] + _drift.offset(1);
+            voiceFreqs[1] = baseA * ratio + _drift.offset(1);
             if(voiceFreqs[1] < 20.0f)
                 voiceFreqs[1] = 20.0f;
-            _voices[0].setFreq(voiceFreqs[0]);
-            _voices[1].setFreq(voiceFreqs[1]);
-            _voices[0].setShape(_sShape);
-            _voices[1].setShape(_sShape);
+            voiceFreqs[2] = baseB + _drift.offset(2);
+            if(voiceFreqs[2] < 20.0f)
+                voiceFreqs[2] = 20.0f;
+            voiceFreqs[3] = baseB * ratio + _drift.offset(3);
+            if(voiceFreqs[3] < 20.0f)
+                voiceFreqs[3] = 20.0f;
+
             {
                 const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-                _subVoices[0].setFreq(voiceFreqs[0] * sm);
-                _subVoices[1].setFreq(voiceFreqs[1] * sm);
+                for(int i = 0; i < 4; i++)
+                {
+                    _voices[i].setFreq(voiceFreqs[i]);
+                    _voices[i].setShape(_sShape);
+                    _subVoices[i].setFreq(voiceFreqs[i] * sm);
+                }
             }
-            _activeVoices = 2;
-            _panL[0]      = 256;
-            _panL[1]      = 0;
-            _panL[2]      = 0;
-            _panL[3]      = 0;
-            _panR[0]      = 256;
-            _panR[1]      = 0;
-            _panR[2]      = 0;
-            _panR[3]      = 0;
+            _activeVoices = 4;
+            // Carriers soft-panned opposite; L+R per pair = 256, so the summed
+            // level matches the single centred carrier this replaced.
+            // Modulators stay silent — they are heard only through the phase
+            // modulation they apply.
+            _panL[0] = 192;
+            _panR[0] = 64;
+            _panL[1] = 0;
+            _panR[1] = 0;
+            _panL[2] = 64;
+            _panR[2] = 192;
+            _panL[3] = 0;
+            _panR[3] = 0;
+            // Set last: this is the flag the audio core reads to start
+            // rendering pair B, so its frequencies and pans must already be in
+            // place. The reverse switch is safe for the same reason — the pans
+            // it would read are zero.
+            _fmPairs = 2;
             break;
         }
         case VoiceMode::STRING:
@@ -468,16 +500,59 @@ void SynthEngine::control(const SynthParams  &p,
                 = {-0.5f, -0.3f, -0.1f, 0.1f, 0.3f, 0.5f};
             const float polyColorHz = _sColor * 50.0f;
             _activeVoices           = 6;
+
+            // RELATION — detune spread across the slots, ±15 cents at full CW,
+            // matching STRING's range. In *cents*, not Hz: poly notes span the
+            // keyboard, and a fixed Hz offset would be an inaudible nudge in
+            // the top octave and a sour interval in the bottom one. COLOR keeps
+            // its absolute-Hz spread, so the two layer the way they do in the
+            // ensemble modes — proportional detune underneath, constant-rate
+            // beating on top.
+            //
+            // The spread runs flat-to-sharp in the same order the pan table
+            // runs left-to-right, so the detune reads as width rather than as
+            // mistuning.
+            if(fabsf(_sRelation - _cachedRelPoly) > 0.05f || modeChanged)
+            {
+                const float spreadCents = (_sRelation / 24.0f) * 30.0f;
+                for(int i = 0; i < 6; i++)
+                    _polyDetuneMul[i]
+                        = powf(2.0f, spreadCents * kColorOff[i] / 1200.0f);
+                _cachedRelPoly = _sRelation;
+            }
             // Fixed normalisation: scale by 1/sqrt(6) — equal-power headroom for
             // the maximum voice count.  A DYNAMIC sounding-based scale is tempting
             // for loudness stability but causes retroactive gain changes on existing
             // notes every time a new note starts, which sounds like notes "dying".
             // Fixed scale means each voice always contributes the same amount;
             // the user's master volume knob compensates for the −7.8 dB headroom.
+            //
+            // Slots sit at fixed stereo positions so a held chord opens out
+            // across the field instead of stacking in the centre. The law is
+            // **constant power** — cos/sin of an angle sweeping 5°..85°, so
+            // L² + R² is identical for every slot. That matters here and not in
+            // the ensemble modes: allocation is round-robin, so the same note
+            // lands in a different slot each time it is played, and the
+            // constant-sum law those modes use would make it audibly louder at
+            // the edges than in the middle. Precomputed — no trig at runtime.
+            //
+            // The arc stops just short of hard L/R on purpose. A single note
+            // played on its own still reaches both channels instead of coming
+            // out of one speaker, while a full chord spans nearly the whole
+            // field. SPACE is a mid/side stage downstream and this is what
+            // gives it something to act on: SPACE 0 collapses the spread back
+            // to mono, 1 leaves it as voiced, 2 throws it wider than the arc.
             static constexpr float wScale = 256.0f / 2.449f; // 2.449 ≈ sqrt(6)
+            // cos/sin(5° + i·16°) × sqrt(2) — the sqrt(2) puts a centred slot
+            // on exactly wScale, matching the level this replaced.
+            static constexpr float kPanL[6]
+                = {1.4088f, 1.3203f, 1.1294f, 0.8511f, 0.5068f, 0.1233f};
+            static constexpr float kPanR[6]
+                = {0.1233f, 0.5068f, 0.8511f, 1.1294f, 1.3203f, 1.4088f};
             for(int i = 0; i < 6; i++)
             {
-                float f = polySlots[i].freq + _drift.offset(i) * 0.3f
+                float f = polySlots[i].freq * _polyDetuneMul[i]
+                          + _drift.offset(i) * 0.3f
                           + polyColorHz * kColorOff[i];
                 if(f < 20.0f)
                     f = 20.0f;
@@ -487,9 +562,9 @@ void SynthEngine::control(const SynthParams  &p,
                 _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f
                                                             : f * subMult);
                 _subVoices[i].setShape(0.75f);
-                const int16_t w = (int16_t)(wScale * polySlots[i].velocity);
-                _panL[i]        = w;
-                _panR[i]        = w;
+                const float w = wScale * polySlots[i].velocity;
+                _panL[i]      = (int16_t)(w * kPanL[i]);
+                _panR[i]      = (int16_t)(w * kPanR[i]);
             }
             break;
         }
@@ -501,7 +576,7 @@ void SynthEngine::control(const SynthParams  &p,
         for(int i = 0; i < 6; i++)
         {
             _polyEnvArr[i].reset();
-            sPolySlots[i].midiNote = 255;
+            sPolySlots[i].midiNote = kPolySlotFree;
         }
         sPolyRR = 0;
     }
@@ -652,6 +727,22 @@ void SynthEngine::audio(int32_t  revWetL,
         const int32_t m1 = (int32_t)((float)modSample + (float)sub1 * _sSubWf);
         left             = ((m0 * _panL[0]) + (m1 * _panL[1])) >> 8;
         right            = ((m0 * _panR[0]) + (m1 * _panR[1])) >> 8;
+        if(_fmPairs == 2)
+        {
+            // CASCADE's second pair — voices 2/3, detuned against 0/1 and
+            // panned opposite. Only the carrier is summed, exactly as above.
+            const int16_t modSampleB = _voices[3].next();
+            const int32_t sub3       = _subVoices[3].next();
+            const int32_t pmOffsetB  = (int32_t)((float)modSampleB * _sFmDepth);
+            const int32_t carrierB   = _voices[2].nextPM(pmOffsetB);
+            const int32_t sub2       = _subVoices[2].next();
+            const int32_t m2
+                = (int32_t)((float)carrierB + (float)sub2 * _sSubWf);
+            const int32_t m3
+                = (int32_t)((float)modSampleB + (float)sub3 * _sSubWf);
+            left += ((m2 * _panL[2]) + (m3 * _panL[3])) >> 8;
+            right += ((m2 * _panR[2]) + (m3 * _panR[3])) >> 8;
+        }
     }
     else if(isPolyMode)
     {

@@ -178,6 +178,16 @@ export const PARAM_MAP: CCParam[] = [
     unit: "×",
   },
   {
+    cc: 85,
+    name: "gatelen",
+    label: "Gate Length",
+    category: "Envelope",
+    min: 0.0,
+    max: 2000.0,
+    default: 0.0,
+    unit: "ms",
+  },
+  {
     cc: 73,
     name: "adsrattack",
     label: "Attack",

@@ -63,20 +63,32 @@ constexpr uint8_t kCount = 15;
  *
  * The panel numbers its four modulation jacks CV 1..CV 4 and they map onto the
  * HAL in order, CV 1..CV 4 -> CV_3..CV_6; CV_1 and CV_2 are V/Oct and Gate.
- * Physically (board designators from hardware/MainPCB, left to right):
+ * Physically, left to right as the panel reads:
  *
  *   upper row:  V/OCT   GATE   MIDI IN   CV 1      CV 2
  *               J3      J4     J2        J5        J6
  *               CV_1    CV_2   —         CV_3      CV_4
  *               —       —      —         RELATION  SHAPE
  *
- *   lower row:  CV 3    FM IN  CV 4      OUT L     OUT R
- *               J7      J9     J8        J10       J11
- *               CV_5    CV_7   CV_6      —         —
- *               MOTION  FM     SPACE     —         —
+ *   lower row:  FM IN   CV 3     CV 4     OUT L     OUT R
+ *               (J7)    (J9)     J8       J10       J11
+ *               CV_7    CV_5     CV_6     —         —
+ *               FM      MOTION   SPACE    —         —
  *
- * FM IN sits *between* CV 3 and CV 4, so the lower row is not in slot order.
- * MIDI IN is a MIDI jack, not a CV one, and has no slot at all.
+ * FM IN is at the LEFT end of the lower row; the row is otherwise in slot
+ * order. MIDI IN is a MIDI jack, not a CV one, and has no slot at all.
+ *
+ * ⚠ The two parenthesised designators are the one place the board and the
+ * panel disagree, and it is not a silkscreen fix. Electrically J9 *is* FM IN —
+ * the only jack on a direct ADC pin (GP27, deliberately off the analogue mux
+ * so the exciter can be sampled at audio rate) — and J7 is an ordinary mux
+ * channel. But `MainPCB.kicad_pcb` still places J7 at the left end and J9 one
+ * position to its right, so the board has the two swapped relative to the art.
+ * Correcting it means moving that net and its conditioning stage, which is not
+ * the generic one: FM IN is ±8 V with a 100 pF cap, the CV jacks are ±5 V
+ * through the mux. Until the board moves, Rack and the panel agree with each
+ * other and not with the PCB. `platform/vcv/PanelLayout.h` owns the
+ * coordinates and carries the full note.
  */
 namespace Cv
 {

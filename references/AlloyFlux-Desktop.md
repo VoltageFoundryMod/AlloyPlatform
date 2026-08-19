@@ -4,14 +4,12 @@ This doc evaluates the gaps and needs to create a desktop version of the Alloy F
 
 ## Hardware
 
-- Power supply - Only 5V since no need to output eurorack levels
+- Power supply - Figure this out since the desktop might have battery or only USB power and we need -10V for references.
 - Headphone/line output with volume control (output amp) and 3.5mm stereo jack
 - Expose the mappable CV Input
 - MIDI Out/Thru (TRS)
 
 ## Firmware
-
-
 
 ## Software
 
@@ -25,7 +23,6 @@ This doc evaluates the gaps and needs to create a desktop version of the Alloy F
 - Envelope Section
 - VCA
 - Effects (Delay, Reverb, Chorus)
-
 
 ## To do
 

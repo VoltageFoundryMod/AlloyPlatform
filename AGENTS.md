@@ -163,5 +163,6 @@ SynthEngine::audio()   @ 48000 Hz  ← oscillators, filters, reverb, output summ
 - [`references/AlloyFlux-module-reference.md`](references/AlloyFlux-module-reference.md) — full parameter/CV specification
 - [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) — CC map and SysEx protocol
 - [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md) — serial console commands
-- [`Manual.md`](Manual.md) — end-user manual
+- [`modules/alloyflux/MANUAL.md`](modules/alloyflux/MANUAL.md) — Alloy Flux end-user manual
+- [`modules/audrey/MANUAL.md`](modules/audrey/MANUAL.md) — Audrey II end-user manual
 - [`references/ai-notes/`](references/ai-notes/) — AI-generated notes on debugging, refactors, and optimizations (e.g. reverb concurrency, MIDI handling, etc.)

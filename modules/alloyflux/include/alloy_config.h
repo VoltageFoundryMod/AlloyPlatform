@@ -40,7 +40,7 @@ static constexpr uint16_t kAlloyFluxEngineId = 0x4146;
 /// Layout version of the AlloyConfig payload.  Continues the old
 /// kConfigVersion sequence (which reached 6) rather than restarting, so no
 /// stale slot from a pre-M63d build can ever match by coincidence.
-static constexpr uint16_t kAlloyFluxEngineVersion = 7;
+static constexpr uint16_t kAlloyFluxEngineVersion = 8;
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
 // on the log 20–16000 Hz scale.  CC 74 → 20 × (16000/20)^(74/127) ≈ 983.2 Hz.
@@ -111,6 +111,8 @@ struct AlloyConfig
     int8_t  transpose;     // semitone offset −24…+24; 0 = no transpose
     // Knob takeover (M62)
     uint8_t potTakeover; // cast of PotTakeoverMode; 2 = SCALE (default)
+    // GATE jack note length, ms; 0 = follow the gate
+    float gateLength;
 };
 
 static_assert(sizeof(AlloyConfig) <= kSlotBlobBytes,

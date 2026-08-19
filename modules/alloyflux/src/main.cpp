@@ -100,9 +100,10 @@ uint8_t gSubOctave
 float     gMotion     = 0.0f;           // 0.0 = static  …  1.0 = full drift
 float     gDriftSpeed = 0.04f;          // one-pole glide coeff: 0.001–0.10
 VoiceMode gVoiceMode = VoiceMode::PAIR; // synthesis personality (default: PAIR)
-float     gRelation  = 0.0f; // 0.0 = unison, 1.0 = +2 octaves (PAIR mode)
-float     gCurve     = 0.5f; // 0.0 = pluck, 0.5 = natural, 1.0 = swell
-float     gCurveTime = 1.0f; // overall envelope time scale (0.25–4.0)
+float     gRelation  = 0.0f;       // 0.0 = unison, 1.0 = +2 octaves (PAIR mode)
+float     gCurve     = 0.5f;       // 0.0 = pluck, 0.5 = natural, 1.0 = swell
+float     gCurveTime = 1.0f;       // overall envelope time scale (0.25–4.0)
+float     gGateLength      = 0.0f; // GATE note length ms; 0 = follow the gate
 volatile bool gGateHigh    = false; // true while gate is asserted
 volatile bool gGatePatched = false; // false = drone (bypass VCA)
 float         gVolume      = 1.0f;
@@ -127,6 +128,26 @@ uint32_t sTrigReleaseAt = 0;
 // Poly voice slot claimed by a trig pulse; 255 = not set (non-poly or no active trig).
 uint8_t sTrigPolySlot = 255;
 
+// POLY + GATE jack. The slot the current CV gate owns, and the previous gate
+// level for edge detection. 255 = no gate-owned slot.
+//
+// Each rising edge on GATE claims the next slot round-robin and plays the
+// pitch on V/OCT, so a sequence of gates stacks voices that ring together
+// rather than one voice retriggering — the behaviour the VCV build has had
+// since M37i. The falling edge releases that voice but leaves the slot marked
+// kPolySlotReleasing, so the tail is audible and the slot is still preferred
+// for reuse over stealing a held note.
+static uint8_t sCvPolySlot = 255;
+static bool    sPrevCvGate = false;
+
+// Per-slot auto-release deadlines for gGateLength > 0, in millis(). 0 = the
+// slot has no timed release pending.
+//
+// One per slot rather than the single sTrigReleaseAt the serial `trig` command
+// uses, because the whole point is that timed notes overlap: six of them can be
+// counting down at once, which a single deadline cannot express.
+static uint32_t sCvPolyReleaseAt[6] = {0, 0, 0, 0, 0, 0};
+
 // The firmware's engine instance.  File-scope, not a shared global: nothing
 // outside this file needs to know the engine exists (M63d).
 static SynthEngine gSynthEngine;
@@ -145,20 +166,33 @@ void potsReattach()
 // Declared in params.h; defined here because this is where the engine lives.
 // usb_midi.cpp and commands.cpp used to hold identical copies of this allocator
 // and each reached into gSynthEngine directly to finish the job.
+//
+// MIDI, the serial `trig` command and the GATE jack all come through here, and
+// they share one pool of six slots rather than each owning a fixed subset — a
+// gate is simply another note source. Preference order matters: a slot still
+// ringing out its release tail (kPolySlotReleasing) is a worse choice than a
+// silent one but a better choice than stealing a note that is still held, so it
+// sits between the two.
 uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag)
 {
-    uint8_t slot = 255;
+    uint8_t slot    = 255;
+    uint8_t relSlot = 255;
     for(uint8_t i = 0; i < 6; i++)
     {
         const uint8_t idx = (sPolyRR + i) % 6;
-        if(sPolySlots[idx].midiNote == 255)
+        if(sPolySlots[idx].midiNote == kPolySlotFree)
         {
             slot = idx;
             break;
         }
+        if(sPolySlots[idx].midiNote == kPolySlotReleasing && relSlot == 255)
+            relSlot = idx;
     }
     if(slot == 255)
-        slot = sPolyRR % 6; // all busy — steal the oldest
+    {
+        // Nothing free: take the oldest release tail, else steal round-robin.
+        slot = (relSlot != 255) ? relSlot : (uint8_t)(sPolyRR % 6);
+    }
     sPolyRR = (sPolyRR + 1) % 6;
 
     sPolySlots[slot].freq     = freq;
@@ -422,7 +456,7 @@ void updateControl()
         if(sTrigPolySlot != 255)
         {
             sPolyEnvs[sTrigPolySlot]->setGate(false);
-            sPolySlots[sTrigPolySlot].midiNote = 255; // free the slot
+            sPolySlots[sTrigPolySlot].midiNote = kPolySlotFree; // free the slot
             sTrigPolySlot                      = 255;
         }
         else
@@ -495,6 +529,109 @@ void updateControl()
         gSynthEngine.control(p, sPolySlots, co);
 
         // -------------------------------------------------------------------
+        // POLY + GATE jack — round-robin note allocation from CV.
+        //
+        // Each rising edge claims the next slot and plays whatever pitch is on
+        // V/OCT, so a run of gates stacks voices that ring together instead of
+        // one voice retriggering. The falling edge releases that voice but
+        // leaves the slot marked releasing, so its tail stays audible.
+        //
+        // Runs *after* control() on purpose: control() frees every slot on the
+        // tick it sees a mode change, so a voice claimed before it would be
+        // erased on the way into POLY. Ordering it here costs nothing, because
+        // polyRetrigger() sets the oscillator frequency, resets phase and arms
+        // the envelope immediately — exactly the path a MIDI note already
+        // takes when it arrives between two control ticks.
+        //
+        // In POLY the mono envelope is unused (control() skips its gate
+        // handling), so the gate's only job here is per-voice envelopes.
+        //
+        // gGateLength splits this into two behaviours:
+        //   0  — follow the gate. The falling edge releases the voice.
+        //   >0 — trigger. The gate width is ignored and the voice is released
+        //        gGateLength ms after it started, so an arpeggio builds into a
+        //        chord even at sustaining CURVE settings, where the envelope
+        //        would otherwise hold each voice until its gate fell.
+        // -------------------------------------------------------------------
+        {
+            // Shared by both branches; a slot's release is identical either way.
+            auto releaseCvSlot = [](uint8_t slot)
+            {
+                // Only release if the slot is still ours. A panic (CC 123) or a
+                // mode change can free it underneath us, and it may already
+                // have been re-claimed by a MIDI note we must not cut off.
+                if(slot < 6 && sPolySlots[slot].midiNote == kPolySlotCvHeld)
+                {
+                    if(sPolyEnvs[slot])
+                        sPolyEnvs[slot]->setGate(false);
+                    sPolySlots[slot].midiNote = kPolySlotReleasing;
+                }
+                if(slot < 6)
+                    sCvPolyReleaseAt[slot] = 0;
+            };
+
+            if(p.voiceMode == VoiceMode::POLY)
+            {
+                const bool     timed   = (gGateLength > 0.5f);
+                const bool     gateNow = p.gateHigh;
+                const uint32_t now     = millis();
+
+                if(gateNow && !sPrevCvGate)
+                {
+                    const float   subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
+                    const uint8_t slot    = polyNoteOn(
+                        p.baseFreq, 1.0f, subMult, kPolySlotCvHeld);
+                    if(timed)
+                    {
+                        // Trigger mode: arm this slot's own deadline and do not
+                        // track it as "the" gate-held slot, so the next gate is
+                        // free to claim another voice while this one runs on.
+                        sCvPolyReleaseAt[slot] = now + (uint32_t)gGateLength;
+                        sCvPolySlot            = 255;
+                    }
+                    else
+                    {
+                        sCvPolyReleaseAt[slot] = 0;
+                        sCvPolySlot            = slot;
+                    }
+                }
+                else if(!gateNow && sPrevCvGate && !timed)
+                {
+                    releaseCvSlot(sCvPolySlot);
+                    sCvPolySlot = 255;
+                }
+                sPrevCvGate = gateNow;
+
+                // Timed releases. Compare as a signed difference so the
+                // millis() rollover at ~49.7 days is a non-event.
+                for(uint8_t i = 0; i < 6; i++)
+                {
+                    if(sCvPolyReleaseAt[i]
+                       && (int32_t)(now - sCvPolyReleaseAt[i]) >= 0)
+                        releaseCvSlot(i);
+                }
+            }
+            else
+            {
+                // Leaving POLY abandons any gate-owned slot; control() frees
+                // the slots themselves on the mode-change tick.
+                sCvPolySlot = 255;
+                sPrevCvGate = false;
+                for(uint8_t i = 0; i < 6; i++)
+                    sCvPolyReleaseAt[i] = 0;
+            }
+        }
+
+        // Reap gate-owned slots whose release tail has decayed to silence.
+        // Held slots and MIDI notes are left alone.
+        for(uint8_t i = 0; i < 6; i++)
+        {
+            if(sPolySlots[i].midiNote == kPolySlotReleasing && sPolyEnvs[i]
+               && sPolyEnvs[i]->level() < 0.001f)
+                sPolySlots[i].midiNote = kPolySlotFree;
+        }
+
+        // -------------------------------------------------------------------
         // M30/M37k — LED language. All colour decisions live in LedEngine so
         // hardware and VCV behave identically; only the transport differs.
         // -------------------------------------------------------------------
@@ -510,7 +647,7 @@ void updateControl()
             {
                 for(uint8_t i = 0; i < 6; i++)
                 {
-                    if(sPolySlots[i].midiNote != 255)
+                    if(sPolySlots[i].midiNote != kPolySlotFree)
                         sig.activeVoices++;
                     if(gSynthEngine.polyEnvs[i]
                        && gSynthEngine.polyEnvs[i]->level() > sig.envLevel)

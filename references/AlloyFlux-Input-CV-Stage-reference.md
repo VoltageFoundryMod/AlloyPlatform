@@ -8,24 +8,24 @@ Use a 1n in the feedback loop except for FM where a 100pF is recommended to redu
 
 | Input Voltage         | Input Resistor | Reference Resistor | Feedback Resistor | Feedback Capacitor |
 | --------------------- | -------------- | ------------------ | ----------------- | ------------------ |
-| Bipolar -5/+5V        | 100k           | 91k                | 33k               | 1nF                |
-| Bipolar -5/+5V for FM | 100k           | 91k                | 33k               | 100pF              |
+| Bipolar -5/+5V        | 100k           | 200k               | 33k               | 1nF                |
+| Bipolar -8/+8V for FM | 100k           | 120k               | 20k               | 1nF                |
 | Unipolar 0/10V        | 100k           | 43k                | 33k               | 1nF                |
-| VOct 0/+6V (6 oct)    | 62k            | 47k                | 33k               | 1nF                |
-| Gate Input 0/5V       | 51k            | 47k                | 33k               | 1nF                |
+| VOct -3/+7V           | 100k           | 140k               | 33k               | 1nF                |
+| Gate Input -0.8/8V    | 100k           | 110k               | 33k               | 1nF                |
 
 CV Input voltage ranges:
 
-| CV Input  | Voltage Range  |
-| --------- | -------------- |
-| V/Oct     | 0/6V           |
-| GATE      | 0/5V           |
-| REL CV    | -5/+5V         |
-| SHAPE CV  | -5/+5V         |
-| MOTION CV | -5/+5V         |
-| SPACE CV  | -5/+5V         |
-| FM IN     | -5/+5V (100pF) |
+| CV Input  | Voltage Range |
+| --------- | ------------- |
+| V/Oct     | -8/7V         |
+| GATE      | -0.8/8V       |
+| REL CV    | -5/+5V        |
+| SHAPE CV  | -5/+5V        |
+| MOTION CV | -5/+5V        |
+| SPACE CV  | -5/+5V        |
+| FM IN     | -8/+8V        |
 
 Since our potentiometers work as attenuators when the CVs are patched, the CV inputs are designed to be bipolar (±5V) to allow for a wider range of modulation possibilities. The V/Oct input is unipolar (0-6V) to accommodate standard pitch control voltages.
 
-Gate input is clamped to 0-5V range, with a threshold around 2.5V for reliable triggering.
+All input CVs are inverted by the op-amp stage, so the firmware must account for this inversion when processing the CV signals.

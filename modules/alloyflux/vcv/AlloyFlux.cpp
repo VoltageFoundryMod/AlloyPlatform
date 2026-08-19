@@ -89,6 +89,7 @@ struct AlloyFlux : Module
         SUB_OCTAVE_PARAM,   // 0=1 oct below, 1=2 oct below
         REV_FROZEN_PARAM,   // 0=off, 1=frozen
         VEL_SENS_PARAM,     // 0=off (fixed 1.0), 1=on (follows MIDI vel)
+        GATE_LENGTH_PARAM,  // [0, 2000] ms; 0 = follow the gate (POLY only)
         PARAMS_LEN
     };
 
@@ -157,7 +158,13 @@ struct AlloyFlux : Module
         {440.0f, 1.0f, 255},
         {440.0f, 1.0f, 255},
     };
-    uint8_t _polyRR = 0;
+    uint8_t _polyRR           = 0;
+    float _cvPolyReleaseIn[6] = {0.f,
+                                 0.f,
+                                 0.f,
+                                 0.f,
+                                 0.f,
+                                 0.f}; // seconds left on a timed note; 0 = none
     uint8_t _cvPolySlot
         = 255; // poly slot currently held by a CV gate trigger (255 = none)
     float _midiVelocity = 1.0f; // mono-mode last note velocity (0–1)
@@ -392,6 +399,12 @@ struct AlloyFlux : Module
         configSwitch(
             GLIDE_ENABLE_PARAM, 0.f, 1.f, 0.f, "Portamento", {"Off", "On"});
         configParam(GLIDE_TIME_PARAM, 0.0f, 2.0f, 0.0f, "Glide time", " s");
+        configParam(GATE_LENGTH_PARAM,
+                    0.0f,
+                    2000.0f,
+                    0.0f,
+                    "Gate length (0 = follow gate)",
+                    " ms");
         configSwitch(SUB_OCTAVE_PARAM,
                      0.f,
                      1.f,
@@ -692,6 +705,7 @@ struct AlloyFlux : Module
             out.push_back({115, kVMMid[vm]});
         }
         cc7(5, 0.f, 2.f, params[GLIDE_TIME_PARAM].getValue());
+        cc7(85, 0.f, 2000.f, params[GATE_LENGTH_PARAM].getValue());
         out.push_back({65,
                        params[GLIDE_ENABLE_PARAM].getValue() >= 0.5f
                            ? (uint8_t)96
@@ -844,6 +858,7 @@ struct AlloyFlux : Module
                 break;
             }
             case 5: params[GLIDE_TIME_PARAM].setValue(norm * 2.0f); break;
+            case 85: params[GATE_LENGTH_PARAM].setValue(norm * 2000.0f); break;
             case 65:
                 params[GLIDE_ENABLE_PARAM].setValue(value >= 64 ? 1.f : 0.f);
                 break;
@@ -869,7 +884,7 @@ struct AlloyFlux : Module
                         _engine.polyEnvs[i]->setGate(false);
                         _engine.polyEnvs[i]->reset();
                     }
-                    _polySlots[i].midiNote = 255;
+                    _polySlots[i].midiNote = kPolySlotFree;
                 }
                 _cvPolySlot = 255;
                 _droneMode  = false;
@@ -903,7 +918,7 @@ struct AlloyFlux : Module
                         for(uint8_t i = 0; i < 6; i++)
                         {
                             uint8_t idx = (_polyRR + i) % 6;
-                            if(_polySlots[idx].midiNote == 255)
+                            if(_polySlots[idx].midiNote == kPolySlotFree)
                             {
                                 slot = idx;
                                 break;
@@ -944,7 +959,7 @@ struct AlloyFlux : Module
                             {
                                 if(_engine.polyEnvs[i])
                                     _engine.polyEnvs[i]->setGate(false);
-                                _polySlots[i].midiNote = 255;
+                                _polySlots[i].midiNote = kPolySlotFree;
                             }
                         }
                     }
@@ -1072,7 +1087,7 @@ struct AlloyFlux : Module
                     // Reset poly allocator state on mode change (clear stuck notes).
                     for(int i = 0; i < 6; i++)
                     {
-                        _polySlots[i].midiNote = 255;
+                        _polySlots[i].midiNote = kPolySlotFree;
                         if(_engine.polyEnvs[i])
                             _engine.polyEnvs[i]->setGate(false);
                     }
@@ -1153,10 +1168,12 @@ struct AlloyFlux : Module
         }
 
         // POLY mode + CV gate.
-        // Sentinels: 255=free, 128=CV gate held, 129=CV releasing (ringing out).
+        // Sentinels are kPolySlotFree / kPolySlotCvHeld / kPolySlotReleasing, shared
+        // with the firmware allocator via params.h.
         // Rising edge  → allocate round-robin; prefer free (255) then releasing (129).
         // Falling edge → call setGate(false) but keep slot as 129 so tail rings out.
         // Control tick → scan 129 slots; free when envelope level drops to silence.
+        const float gateLenMs = params[GATE_LENGTH_PARAM].getValue();
         if(_voiceMode == VoiceMode::POLY && inputs[GATE_INPUT].isConnected())
         {
             if(gateRising)
@@ -1166,12 +1183,13 @@ struct AlloyFlux : Module
                 uint8_t relSlot = 255;
                 for(uint8_t i = 0; i < 6; i++)
                 {
-                    if(_polySlots[i].midiNote == 255)
+                    if(_polySlots[i].midiNote == kPolySlotFree)
                     {
                         slot = i;
                         break;
                     }
-                    if(_polySlots[i].midiNote == 129 && relSlot == 255)
+                    if(_polySlots[i].midiNote == kPolySlotReleasing
+                       && relSlot == 255)
                         relSlot = i;
                 }
                 if(slot == 255)
@@ -1179,18 +1197,52 @@ struct AlloyFlux : Module
                 _polyRR                   = (_polyRR + 1) % 6;
                 _polySlots[slot].freq     = _params.baseFreq;
                 _polySlots[slot].velocity = 1.0f;
-                _polySlots[slot].midiNote = 128; // gate held
+                _polySlots[slot].midiNote = kPolySlotCvHeld;
                 if(_engine.polyEnvs[slot])
                     _engine.polyEnvs[slot]->setGate(true);
-                _cvPolySlot = slot;
+                // Gate length > 0 turns the gate into a trigger: arm this
+                // slot's own countdown and stop tracking it as "the" held
+                // slot, so the next gate is free to claim another voice while
+                // this one runs on. Same rule as the firmware.
+                if(gateLenMs > 0.5f)
+                {
+                    _cvPolyReleaseIn[slot] = gateLenMs * 0.001f;
+                    _cvPolySlot            = 255;
+                }
+                else
+                {
+                    _cvPolyReleaseIn[slot] = 0.f;
+                    _cvPolySlot            = slot;
+                }
             }
-            else if(gateFalling && _cvPolySlot < 6)
+            else if(gateFalling && _cvPolySlot < 6 && gateLenMs <= 0.5f)
             {
                 // Release envelope but keep slot occupied so the tail rings out.
                 if(_engine.polyEnvs[_cvPolySlot])
                     _engine.polyEnvs[_cvPolySlot]->setGate(false);
-                _polySlots[_cvPolySlot].midiNote = 129; // releasing
+                _polySlots[_cvPolySlot].midiNote = kPolySlotReleasing;
                 _cvPolySlot                      = 255;
+            }
+
+            // Timed releases. Counted down in seconds off the audio clock
+            // rather than a wall clock, so it stays correct at any sample rate
+            // and when Rack runs faster or slower than real time.
+            for(uint8_t i = 0; i < 6; i++)
+            {
+                if(_cvPolyReleaseIn[i] > 0.f)
+                {
+                    _cvPolyReleaseIn[i] -= args.sampleTime;
+                    if(_cvPolyReleaseIn[i] <= 0.f)
+                    {
+                        _cvPolyReleaseIn[i] = 0.f;
+                        if(_polySlots[i].midiNote == kPolySlotCvHeld)
+                        {
+                            if(_engine.polyEnvs[i])
+                                _engine.polyEnvs[i]->setGate(false);
+                            _polySlots[i].midiNote = kPolySlotReleasing;
+                        }
+                    }
+                }
             }
         }
 
@@ -1242,12 +1294,13 @@ struct AlloyFlux : Module
             SynthControlOutput out;
             _engine.control(_params, _polySlots, out);
             sendCCFeedback();
-            // Free CV poly slots that have fully decayed (sentinel 129 = releasing).
+            // Free CV poly slots that have fully decayed.
             for(int i = 0; i < 6; i++)
             {
-                if(_polySlots[i].midiNote == 129 && _engine.polyEnvs[i]
+                if(_polySlots[i].midiNote == kPolySlotReleasing
+                   && _engine.polyEnvs[i]
                    && _engine.polyEnvs[i]->level() < 0.001f)
-                    _polySlots[i].midiNote = 255;
+                    _polySlots[i].midiNote = kPolySlotFree;
             }
 
             // --- M37k: LED language ---------------------------------------
@@ -1264,7 +1317,7 @@ struct AlloyFlux : Module
             {
                 for(int i = 0; i < 6; i++)
                 {
-                    if(_polySlots[i].midiNote != 255)
+                    if(_polySlots[i].midiNote != kPolySlotFree)
                         sig.activeVoices++;
                     if(_engine.polyEnvs[i]
                        && _engine.polyEnvs[i]->level() > sig.envLevel)
@@ -1971,6 +2024,11 @@ struct AlloyFluxWidget : ModuleWidget
                 sl->text     = "Glide time";
                 sl->quantity = m->getParamQuantity(AlloyFlux::GLIDE_TIME_PARAM);
                 submenu->addChild(sl);
+                auto *gl = new SubMenuSlider;
+                gl->text = "Gate length (POLY, 0 = follow gate)";
+                gl->quantity
+                    = m->getParamQuantity(AlloyFlux::GATE_LENGTH_PARAM);
+                submenu->addChild(gl);
             }));
 
         // --- Velocity sensitivity ---
