@@ -1,4 +1,4 @@
-// Host build check for the vendored Audrey engine (M63e).
+// Host build check for the vendored Audrey II engine (M63e).
 //
 // Proves the engine compiles and runs with no Daisy headers, no SDRAM
 // allocator and no heap — which is the whole point of the vendoring step, and
@@ -6,10 +6,10 @@
 //
 // It also prints the static footprint, which is the number that decides
 // whether M63f is possible at all: the RP2350 has 520 KB total and AlloyFlux
-// already uses ~348 KB of it, so Audrey has to fit in what a *separate*
+// already uses ~348 KB of it, so Alloy Coil has to fit in what a *separate*
 // firmware image leaves after the platform's own overhead.
 //
-//   make audrey-host
+//   make coil-host
 
 #include "FeedbackSynthEngine.h"
 
@@ -34,14 +34,14 @@ int main()
     auto kib = [](size_t b) { return b / 1024.0; };
     std::printf("--- static footprint (RP2350 has 520 KB total) ---\n");
     std::printf("  build: echo %d s, decimation /%d, %s storage, shaping %s\n",
-                (int)AUDREY_ECHO_MAX_S,
-                (int)AUDREY_ECHO_DECIMATION,
-                AUDREY_ECHO_Q15 ? "int16" : "float",
-                AUDREY_ECHO_NOISE_SHAPE ? "on" : "off");
+                (int)COIL_ECHO_MAX_S,
+                (int)COIL_ECHO_DECIMATION,
+                COIL_ECHO_Q15 ? "int16" : "float",
+                COIL_ECHO_NOISE_SHAPE ? "on" : "off");
     std::printf("  EchoDelay<%ds>      x2 = %8zu B  (%7.1f KiB)\n",
-                (int)AUDREY_ECHO_MAX_S,
-                sizeof(infrasonic::EchoDelay<48000 * AUDREY_ECHO_MAX_S>) * 2,
-                kib(sizeof(infrasonic::EchoDelay<48000 * AUDREY_ECHO_MAX_S>) * 2));
+                (int)COIL_ECHO_MAX_S,
+                sizeof(infrasonic::EchoDelay<48000 * COIL_ECHO_MAX_S>) * 2,
+                kib(sizeof(infrasonic::EchoDelay<48000 * COIL_ECHO_MAX_S>) * 2));
     std::printf("  daisysp::ReverbSc     = %8zu B  (%7.1f KiB)\n",
                 sizeof(daisysp::ReverbSc),
                 kib(sizeof(daisysp::ReverbSc)));
@@ -85,7 +85,7 @@ int main()
         // Impulse at the start, silence after — the engine has to sustain
         // itself on its own feedback from there.
         gEngine.Process(i == 0 ? 1.0f : 0.0f, outL, outR);
-#if AUDREY_OUTPUT_SOFTCLIP
+#if COIL_OUTPUT_SOFTCLIP
         // Mirror what renderAudio() does at the module's output edge, so the
         // clip count below reflects what actually reaches the DAC.
         outL = daisysp::SoftClip(outL);

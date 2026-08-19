@@ -34,11 +34,11 @@ redistributed freely.
 The names are not licensed at all. No licence in this plugin grants any right
 to use them; a fork must rename.
 
-"Audrey II" is not ours. The name and the engine belong to Synthux Academy
-(Nick Donaldson, Roey Tsemah); the engine is used under MIT with attribution,
-and the name is theirs regardless of the code licence. The Audrey panel artwork
-in this repository is original work built on the Alloy Platform layout, so the
-drawing is ours while the name it carries is not.
+"Audrey II" is not ours and is not used as a module name here. Alloy Coil's
+engine derives from Synthux Academy's Audrey II (Nick Donaldson, Roey Tsemah)
+and is used under MIT with attribution; the name stays theirs and this port
+does not carry it. The Alloy Coil panel artwork is original work built on the
+Alloy Platform layout.
 
 The Rack Component Library graphics drawn by this plugin's widgets are
 copyright (C) VCV under CC BY-NC 4.0 and are not ours to relicense.
@@ -49,7 +49,8 @@ Third-party components distributed in this plugin
 
 Audrey II engine — Copyright (c) 2026 Synthux Academy. MIT.
   Nick Donaldson (concept and firmware), Roey Tsemah (visual and hardware
-  design). See modules/audrey/LICENSE and modules/audrey/CREDITS.md.
+  design). Ported here as Alloy Coil; see modules/alloycoil/LICENSE and
+  modules/alloycoil/CREDITS.md.
 
 DaisySP — Copyright (c) 2020 Electrosmith, Corp. MIT.
   See vendor/daisysp/LICENSE.

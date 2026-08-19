@@ -11,7 +11,7 @@
   //
   //   Firmware — ONE IMAGE PER MODULE. The engines cannot be co-resident in
   //              520 KB, so each module is its own PlatformIO env, selected
-  //              with ENV=<module>. Hence "AlloyFlux:" and "Audrey:" tasks.
+  //              with ENV=<module>. Hence "AlloyFlux:" and "Alloy Coil:" tasks.
   //
   //   VCV      — ONE PLUGIN, ALL MODULES. plugin.dll carries every module and
   //              Rack offers them all in the browser, so there is nothing
@@ -53,43 +53,43 @@
       "problemMatcher": ["$gcc"]
     },
 
-    // ── Audrey II firmware ───────────────────────────────────────────────────
+    // ── Alloy Coil firmware ───────────────────────────────────────────────────
     // Note the clock: this env runs the RP2350 at 192 MHz, not the stock 150.
     // The engine needs ~690 us per block against a 666 us budget at 150, and
     // 192 is the next step that keeps the I2S divider exact. See platformio.ini.
     {
-      "label": "Audrey: Build firmware",
-      "detail": "make firmware ENV=audrey — .pio/build/audrey/firmware.uf2 (192 MHz)",
+      "label": "Alloy Coil: Build firmware",
+      "detail": "make firmware ENV=alloycoil — .pio/build/alloycoil/firmware.uf2 (192 MHz)",
       "type": "shell",
       "command": "make",
-      "args": ["firmware", "ENV=audrey"],
+      "args": ["firmware", "ENV=alloycoil"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
     {
-      "label": "Audrey: Upload",
-      "detail": "make upload ENV=audrey — builds, then flashes over USB",
+      "label": "Alloy Coil: Upload",
+      "detail": "make upload ENV=alloycoil — builds, then flashes over USB",
       "type": "shell",
       "command": "make",
-      "args": ["upload", "ENV=audrey"],
+      "args": ["upload", "ENV=alloycoil"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
     {
-      "label": "Audrey: Upload and monitor",
-      "detail": "make upload-monitor ENV=audrey — flashes, then opens the serial console",
+      "label": "Alloy Coil: Upload and monitor",
+      "detail": "make upload-monitor ENV=alloycoil — flashes, then opens the serial console",
       "type": "shell",
       "command": "make",
-      "args": ["upload-monitor", "ENV=audrey"],
+      "args": ["upload-monitor", "ENV=alloycoil"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
     {
-      "label": "Audrey: Host-build engine",
-      "detail": "make audrey-host — compiles the engine against nothing but the vendored DaisySP, runs it 10 s at unity feedback, prints its static footprint",
+      "label": "Alloy Coil: Host-build engine",
+      "detail": "make coil-host — compiles the engine against nothing but the vendored DaisySP, runs it 10 s at unity feedback, prints its static footprint",
       "type": "shell",
       "command": "make",
-      "args": ["audrey-host"],
+      "args": ["coil-host"],
       "group": "test",
       "problemMatcher": ["$gcc"]
     },
@@ -106,7 +106,7 @@
     },
     {
       "label": "Firmware: Serial monitor",
-      "detail": "make monitor — 115200 baud. Add ENV=audrey if that is what is flashed; the port is the same either way.",
+      "detail": "make monitor — 115200 baud. Add ENV=alloycoil if that is what is flashed; the port is the same either way.",
       "type": "shell",
       "command": "make",
       "args": ["monitor"],
@@ -158,7 +158,7 @@
     // ── VCV Rack plugin — one plugin, both modules ────────────────────────────
     {
       "label": "VCV: Build plugin (both modules)",
-      "detail": "make vcv — one vcv-plugin/plugin.dll containing AlloyFlux and Audrey II. There is no per-module VCV build.",
+      "detail": "make vcv — one vcv-plugin/plugin.dll containing AlloyFlux and Alloy Coil. There is no per-module VCV build.",
       "type": "shell",
       "command": "make",
       "args": ["vcv"],
@@ -203,7 +203,7 @@
 
     // ── Web Configurator — one build per module ───────────────────────────────
     // The build picks its parameter map and SysEx signature from VITE_MODULE, and
-    // fails closed: an AlloyFlux build will not connect to an Audrey module
+    // fails closed: an AlloyFlux build will not connect to an Alloy Coil module
     // rather than showing the wrong controls. The header names which it is.
     {
       "label": "Web: Build (AlloyFlux)",
@@ -215,11 +215,11 @@
       "problemMatcher": ["$tsc"]
     },
     {
-      "label": "Web: Build (Audrey)",
-      "detail": "make web MODULE=audrey — production build into web-configurator/dist",
+      "label": "Web: Build (Alloy Coil)",
+      "detail": "make web MODULE=alloycoil — production build into web-configurator/dist",
       "type": "shell",
       "command": "make",
-      "args": ["web", "MODULE=audrey"],
+      "args": ["web", "MODULE=alloycoil"],
       "group": "build",
       "problemMatcher": ["$tsc"]
     },
@@ -258,11 +258,11 @@
       }
     },
     {
-      "label": "Web: Dev server (Audrey)",
-      "detail": "make web-dev MODULE=audrey — vite on localhost:5173",
+      "label": "Web: Dev server (Alloy Coil)",
+      "detail": "make web-dev MODULE=alloycoil — vite on localhost:5173",
       "type": "shell",
       "command": "make",
-      "args": ["web-dev", "MODULE=audrey"],
+      "args": ["web-dev", "MODULE=alloycoil"],
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",
@@ -312,11 +312,11 @@
       "problemMatcher": []
     },
     {
-      "label": "Params: Regenerate (Audrey)",
-      "detail": "make params MODULE=audrey — param_manifest.generated.h + paramMapAudrey.ts",
+      "label": "Params: Regenerate (Alloy Coil)",
+      "detail": "make params MODULE=alloycoil — param_manifest.generated.h + paramMapAlloyCoil.ts",
       "type": "shell",
       "command": "make",
-      "args": ["params", "MODULE=audrey"],
+      "args": ["params", "MODULE=alloycoil"],
       "problemMatcher": []
     },
     {
@@ -341,7 +341,7 @@
     },
     {
       "label": "Format C/C++ (all tracked)",
-      "detail": "make format — clang-format -i per .clang-format. Vendored trees (vendor/, modules/audrey/) are excluded on purpose.",
+      "detail": "make format — clang-format -i per .clang-format. Vendored trees (vendor/, modules/alloycoil/) are excluded on purpose.",
       "type": "shell",
       "command": "make",
       "args": ["format"],

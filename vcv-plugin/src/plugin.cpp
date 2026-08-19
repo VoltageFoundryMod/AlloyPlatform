@@ -6,5 +6,5 @@ void init(Plugin *p)
 {
     pluginInstance = p;
     p->addModel(modelAlloyFlux);
-    p->addModel(modelAudrey);
+    p->addModel(modelAlloyCoil);
 }

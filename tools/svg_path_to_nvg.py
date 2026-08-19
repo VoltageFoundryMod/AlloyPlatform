@@ -7,7 +7,7 @@ colour. Transcribing a 1200-character bezier by hand is not a plan, and neither
 is eyeballing an approximation — so generate it, the same way panel_coords.py
 generates positions.
 
-    python tools/svg_path_to_nvg.py panel-src/Audrey_src.svg LED1 \\
+    python tools/svg_path_to_nvg.py panel-src/AlloyCoil_src.svg LED1 \\
         platform/vcv/PanelLedShape.generated.h AlloyPanelLed [verify.svg ...]
 
 The path is emitted with its bounding box normalised to the origin, so the
@@ -18,7 +18,7 @@ Any extra SVGs are **verified, not generated from**: every module on this
 platform shares one aperture shape because they share one panel, so the same
 label is looked up in each and compared against what was just emitted. A panel
 that has not been drawn yet is skipped quietly; one that disagrees is reported
-loudly, because the failure it prevents is a plugin drawing Audrey's LED outline
+loudly, because the failure it prevents is a plugin drawing Alloy Coil's LED outline
 on AlloyFlux's panel and looking almost right.
 
 Only the commands Inkscape actually emits for this shape are handled (M/m, L/l,

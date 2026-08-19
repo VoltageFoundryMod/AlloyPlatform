@@ -9,7 +9,7 @@
 // Platform code, not a module''s: it maps the positional PotId/CVId/ButtonId/
 // LightId slots onto Rack param/input/light indices through assignment tables
 // that each module fills in its own constructor. Nothing here knows what a
-// slot means, which is what lets AlloyFlux and Audrey share it.
+// slot means, which is what lets AlloyFlux and Alloy Coil share it.
 //
 // Pot normalisation:  readPot() maps the param's [minVal, maxVal] range → 0–1
 //                     so that IOBridge::fillSynthParams() sees the same 0–1

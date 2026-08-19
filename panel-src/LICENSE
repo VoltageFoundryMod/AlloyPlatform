@@ -24,12 +24,14 @@ were ours. Fork the module; draw your own front.
 
 WHAT IS NOT COVERED HERE
 
-  "Alloy Platform", "Alloy Flux" and "Voltage Foundry Modular" are names and
-  marks, not artwork, and no licence to use them is granted by CC BY-NC-ND or
-  by any other licence in this repository.
+  "Alloy Platform", "Alloy Flux", "Alloy Coil" and "Voltage Foundry Modular"
+  are names and marks, not artwork, and no licence to use them is granted by
+  CC BY-NC-ND or by any other licence in this repository.
 
-  "Audrey II" is Synthux Academy's module name, not ours. The Audrey panel
-  drawing in this directory is original work on the Alloy Platform layout and
-  is covered by the notice above; the name it carries is not ours to license.
+  "Audrey II" is Synthux Academy's module name and is not used here. Alloy
+  Coil runs an engine derived from theirs, credited under MIT, but the name,
+  the panel drawing and the module identity are ours: the panel in this
+  directory is original work on the Alloy Platform layout and is covered by
+  the notice above.
 
   See LICENSING.md at the root of the repository for the whole picture.

@@ -40,7 +40,7 @@ struct ParamDescriptor
      *
      * This exists for the case where a range is honest but its *useful* part
      * is bunched at one end, so most of the control does nothing audible.
-     * Audrey's feedback gain is the example: −60…+12 dB is the real range, but
+     * Alloy Coil's feedback gain is the example: −60…+12 dB is the real range, but
      * a feedback loop does not start ringing until roughly −15 dB, so with a
      * plain linear mapping the bottom 62 % of the travel is dead.
      *

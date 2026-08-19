@@ -18,8 +18,9 @@ The graphics drawn by Rack's own widgets — knobs, ports, buttons, lights,
 screws — are not in this directory and are not ours: they are copyright (C) VCV
 under CC BY-NC 4.0, supplied by the Rack Component Library.
 
-"Alloy Platform", "Alloy Flux" and "Voltage Foundry Modular" are names and
-marks; no licence to use them is granted here. "Audrey II" is Synthux Academy's
-name, used with attribution.
+"Alloy Platform", "Alloy Flux", "Alloy Coil" and "Voltage Foundry Modular" are
+names and marks; no licence to use them is granted here. "Audrey II" is Synthux
+Academy's name and is not used for any module here; their engine is credited in
+LICENSE.txt.
 
 See LICENSE.txt in the plugin root, and LICENSING.md in the source repository.

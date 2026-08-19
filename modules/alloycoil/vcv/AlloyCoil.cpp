@@ -1,4 +1,4 @@
-// Audrey II — VCV Rack module.
+// Alloy Coil — VCV Rack module.
 //
 // The same engine the firmware runs, driven through the same IOBridge, so the
 // plugin and the hardware are one implementation with two front ends. What
@@ -6,14 +6,14 @@
 // the firmware currently reads that jack at the control tick.
 //
 // Engine by Synthux Academy (Nick Donaldson / Roey Tsemah) — see
-// modules/audrey/README.md, CREDITS.md and LICENSE.
+// modules/alloycoil/README.md, CREDITS.md and LICENSE.
 
 #include "FeedbackSynthEngine.h"
 #include "SubMenuSlider.hpp" // shift-secondaries as context-menu sliders
 #include "PanelLayout.h"     // shared panel geometry (all modules, one PCB)
 #include "PanelLed.hpp"      // aperture-shaped lights, matching the panel art
 #include "VCVRackIO.h"       // platform: positional slots -> Rack indices
-#include "io/AudreyLeds.h"   // the LED language, shared with the firmware
+#include "io/CoilLeds.h"   // the LED language, shared with the firmware
 #include "io/IOBridge.h"
 #include "io/PanelMap.h"
 #include "params.h"
@@ -23,7 +23,7 @@
 // Globals declared extern in params.h. main.cpp is not compiled into the
 // plugin, so the definitions live here.
 //
-// One set per process, not per Module — a second Audrey in the same rack
+// One set per process, not per Module — a second AlloyCoil in the same rack
 // shares them. That is a real limitation and it is the same one AlloyFlux has;
 // the engine instance itself is per-Module, so only the goal values collide,
 // and they are overwritten from this module's own knobs every process() call.
@@ -43,7 +43,7 @@ float gExciterLevel  = 1.0f;
 
 volatile float gExciterIn = 0.0f;
 
-struct Audrey : Module
+struct AlloyCoil : Module
 {
     enum ParamId
     {
@@ -127,7 +127,7 @@ struct Audrey : Module
         LIGHTS_LEN
     };
 
-    Audrey() : _io(this)
+    AlloyCoil() : _io(this)
     {
         config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 
@@ -249,7 +249,7 @@ struct Audrey : Module
         if(_controlPhase++ >= kControlDiv)
         {
             _controlPhase = 0;
-            fillAudreyParams(_io);
+            fillCoilParams(_io);
             _engine.SetStringPitch(gStringPitch);
             _engine.SetFeedbackGain(gFeedbackGain);
             _engine.SetFeedbackDelay(gFeedbackDelay);
@@ -264,8 +264,8 @@ struct Audrey : Module
             _engine.SetExciterLevel(gExciterLevel);
 
             // LEDs, from the peaks accumulated since the previous tick. Same
-            // call the firmware will make once Audrey has an IHardwareIO.
-            AudreyLed::Signals sig;
+            // call the firmware will make once AlloyCoil has an IHardwareIO.
+            CoilLed::Signals sig;
             sig.peakL          = _peakL;
             sig.peakR          = _peakR;
             sig.exciter        = _peakExc;
@@ -294,7 +294,7 @@ struct Audrey : Module
 
         // Same master soft clip the firmware applies at its output edge, for
         // the same reason: the engine peaks past unity at useful settings.
-#if AUDREY_OUTPUT_SOFTCLIP
+#if COIL_OUTPUT_SOFTCLIP
         outL = daisysp::SoftClip(outL);
         outR = daisysp::SoftClip(outR);
 #endif
@@ -321,7 +321,7 @@ struct Audrey : Module
 
     infrasonic::FeedbackSynth::Engine _engine;
     VCVRackIO                         _io;
-    AudreyLed::Engine                 _leds;
+    CoilLed::Engine                 _leds;
     int                               _controlPhase = 0;
 
     // Peak-hold accumulators, drained and reset on every control tick.
@@ -330,12 +330,12 @@ struct Audrey : Module
     float _peakExc = 0.f;
 };
 
-struct AudreyWidget : ModuleWidget
+struct AlloyCoilWidget : ModuleWidget
 {
-    AudreyWidget(Audrey *module)
+    AlloyCoilWidget(AlloyCoil *module)
     {
         setModule(module);
-        setPanel(createPanel(asset::plugin(pluginInstance, "res/Audrey.svg")));
+        setPanel(createPanel(asset::plugin(pluginInstance, "res/AlloyCoil.svg")));
 
         addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));
         addChild(
@@ -347,25 +347,25 @@ struct AudreyWidget : ModuleWidget
                                          RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
         // Positions come from PanelLayout, indexed by the same positional slot
-        // the HAL uses. Audrey and AlloyFlux share one PCB, so they share one
+        // the HAL uses. AlloyCoil and AlloyFlux share one PCB, so they share one
         // geometry — this is the only place it is written down.
         using namespace PanelLayout;
 
         // Top row: the resonator and its feedback loop.
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::PITCH), module, Audrey::PITCH_PARAM));
+            pot(Pot::PITCH), module, AlloyCoil::PITCH_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::FBBODY), module, Audrey::FBBODY_PARAM));
+            pot(Pot::FBBODY), module, AlloyCoil::FBBODY_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::FBGAIN), module, Audrey::FBGAIN_PARAM));
+            pot(Pot::FBGAIN), module, AlloyCoil::FBGAIN_PARAM));
 
         // Mid row: the echo.
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::ECHOTIME), module, Audrey::ECHOTIME_PARAM));
+            pot(Pot::ECHOTIME), module, AlloyCoil::ECHOTIME_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::ECHOSEND), module, Audrey::ECHOSEND_PARAM));
+            pot(Pot::ECHOSEND), module, AlloyCoil::ECHOSEND_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::ECHOFB), module, Audrey::ECHOFB_PARAM));
+            pot(Pot::ECHOFB), module, AlloyCoil::ECHOFB_PARAM));
 
         // Low row: space and tone. REV MIX and FB LPF each carry a
         // shift-secondary, exposed in the context menu below.
@@ -377,45 +377,45 @@ struct AudreyWidget : ModuleWidget
         // identical on screen and quietly breaks everything else that indexes
         // by slot — the shift pairs, PotTakeover, the future ADC driver.
         addParam(createParamCentered<Trimpot>(
-            pot(Pot::REVDECAY), module, Audrey::REVDECAY_PARAM));
+            pot(Pot::REVDECAY), module, AlloyCoil::REVDECAY_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
-            pot(Pot::REVMIX), module, Audrey::REVMIX_PARAM));
+            pot(Pot::REVMIX), module, AlloyCoil::REVMIX_PARAM));
         addParam(createParamCentered<Trimpot>(
-            pot(Pot::FBLPF), module, Audrey::FBLPF_PARAM));
+            pot(Pot::FBLPF), module, AlloyCoil::FBLPF_PARAM));
 
         // --- Buttons (SW2 / SW3) ---
         addParam(createParamCentered<VCVButton>(
-            button(Btn::WARP), module, Audrey::WARP_PARAM));
+            button(Btn::WARP), module, AlloyCoil::WARP_PARAM));
         addParam(createParamCentered<VCVButton>(
-            button(Btn::SHIFT), module, Audrey::SHIFT_PARAM));
+            button(Btn::SHIFT), module, AlloyCoil::SHIFT_PARAM));
 
         // --- Jacks, in panel order (left to right, upper row then lower) ---
         // The panel labels the four modulation inputs CV 1..CV 4; what they
         // modulate is this module's choice. GATE stays unused, and FM IN is the
         // exciter — it sits between CV 3 and CV 4, not at the row's left end.
         addInput(createInputCentered<PJ301MPort>(
-            at(kVOctMm), module, Audrey::VOCT_INPUT));
+            at(kVOctMm), module, AlloyCoil::VOCT_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kGateMm), module, Audrey::GATE_INPUT));
+            at(kGateMm), module, AlloyCoil::GATE_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kMidiMm), module, Audrey::MIDI_INPUT));
+            at(kMidiMm), module, AlloyCoil::MIDI_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv1Mm), module, Audrey::FBBODY_CV_INPUT));
+            at(kCv1Mm), module, AlloyCoil::FBBODY_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv2Mm), module, Audrey::FBGAIN_CV_INPUT));
+            at(kCv2Mm), module, AlloyCoil::FBGAIN_CV_INPUT));
 
         addInput(createInputCentered<PJ301MPort>(
-            at(kFmInMm), module, Audrey::EXCITER_INPUT));
+            at(kFmInMm), module, AlloyCoil::EXCITER_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv3Mm), module, Audrey::ECHOSEND_CV_INPUT));
+            at(kCv3Mm), module, AlloyCoil::ECHOSEND_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv4Mm), module, Audrey::REVMIX_CV_INPUT));
+            at(kCv4Mm), module, AlloyCoil::REVMIX_CV_INPUT));
         addOutput(createOutputCentered<PJ301MPort>(
-            at(kOutLMm), module, Audrey::L_OUTPUT));
+            at(kOutLMm), module, AlloyCoil::L_OUTPUT));
         addOutput(createOutputCentered<PJ301MPort>(
-            at(kOutRMm), module, Audrey::R_OUTPUT));
+            at(kOutRMm), module, AlloyCoil::R_OUTPUT));
 
-        // --- LEDs (7 × RGB) — colour driven by AudreyLed::Engine ---
+        // --- LEDs (7 × RGB) — colour driven by CoilLed::Engine ---
         //
         // Aperture-shaped rather than Rack's round MediumLight: on the hardware
         // these are openings in the panel PCB's solder mask and the LED shines
@@ -423,19 +423,19 @@ struct AudreyWidget : ModuleWidget
         // the panel artwork itself — see platform/vcv/PanelLed.hpp.
         using PanelLight = AlloyPanelLight<RedGreenBlueLight>;
         addChild(createLightCentered<PanelLight>(
-            led(Led::LEVEL_L), module, Audrey::LED1_R_LIGHT));
+            led(Led::LEVEL_L), module, AlloyCoil::LED1_R_LIGHT));
         addChild(createLightCentered<PanelLight>(
-            led(Led::LEVEL_R), module, Audrey::LED7_R_LIGHT));
+            led(Led::LEVEL_R), module, AlloyCoil::LED7_R_LIGHT));
         addChild(createLightCentered<PanelLight>(
-            led(Led::LOOP_L), module, Audrey::LED2_R_LIGHT));
+            led(Led::LOOP_L), module, AlloyCoil::LED2_R_LIGHT));
         addChild(createLightCentered<PanelLight>(
-            led(Led::LOOP_R), module, Audrey::LED6_R_LIGHT));
+            led(Led::LOOP_R), module, AlloyCoil::LED6_R_LIGHT));
         addChild(createLightCentered<PanelLight>(
-            led(Led::ECHO), module, Audrey::LED3_R_LIGHT));
+            led(Led::ECHO), module, AlloyCoil::LED3_R_LIGHT));
         addChild(createLightCentered<PanelLight>(
-            led(Led::SPACE), module, Audrey::LED5_R_LIGHT));
+            led(Led::SPACE), module, AlloyCoil::LED5_R_LIGHT));
         addChild(createLightCentered<PanelLight>(
-            led(Led::CENTRE), module, Audrey::LED4_R_LIGHT));
+            led(Led::CENTRE), module, AlloyCoil::LED4_R_LIGHT));
     }
 
     // The two SHIFT-secondaries. On hardware these are the same physical knob
@@ -443,7 +443,7 @@ struct AudreyWidget : ModuleWidget
     // the context menu — the same arrangement AlloyFlux uses for its six.
     void appendContextMenu(Menu *menu) override
     {
-        auto *m = dynamic_cast<Audrey *>(module);
+        auto *m = dynamic_cast<AlloyCoil *>(module);
         if(!m)
             return;
 
@@ -452,19 +452,19 @@ struct AudreyWidget : ModuleWidget
 
         menu->addChild(createMenuLabel("Volume  (SHIFT + REV MIX)"));
         auto *volSlider     = new SubMenuSlider;
-        volSlider->quantity = m->getParamQuantity(Audrey::VOL_PARAM);
+        volSlider->quantity = m->getParamQuantity(AlloyCoil::VOL_PARAM);
         menu->addChild(volSlider);
 
         menu->addChild(createMenuLabel("Feedback HPF  (SHIFT + FB LPF)"));
         auto *hpfSlider     = new SubMenuSlider;
-        hpfSlider->quantity = m->getParamQuantity(Audrey::FBHPF_PARAM);
+        hpfSlider->quantity = m->getParamQuantity(AlloyCoil::FBHPF_PARAM);
         menu->addChild(hpfSlider);
 
         menu->addChild(createMenuLabel("Exciter level  (SHIFT + FB GAIN)"));
         auto *excSlider     = new SubMenuSlider;
-        excSlider->quantity = m->getParamQuantity(Audrey::EXCITE_PARAM);
+        excSlider->quantity = m->getParamQuantity(AlloyCoil::EXCITE_PARAM);
         menu->addChild(excSlider);
     }
 };
 
-Model *modelAudrey = createModel<Audrey, AudreyWidget>("Audrey");
+Model *modelAlloyCoil = createModel<AlloyCoil, AlloyCoilWidget>("AlloyCoil");

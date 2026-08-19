@@ -3,10 +3,10 @@
 #include "io/HardwareIO.h"
 
 // ---------------------------------------------------------------------------
-// Audrey II panel map — this module's vocabulary over the platform's
+// Alloy Coil panel map — this module's vocabulary over the platform's
 // positional I/O slots.
 //
-// Audrey and AlloyFlux run on the SAME hardware: same PCB, same nine pots, same
+// Alloy Coil and AlloyFlux run on the SAME hardware: same PCB, same nine pots, same
 // two buttons, same jack positions. So the slot numbers here are not chosen,
 // they are inherited — POT_1 is the top-left knob and CV_7 is the FM jack
 // whichever firmware is flashed. Only the meaning changes. That is exactly what
@@ -15,11 +15,11 @@
 //
 // The shift-secondary slots are inherited too. On hardware a secondary is the
 // same ADC channel read while SHIFT is held, so POT_14 *is* "shift + POT_8"
-// physically, in both firmwares. Audrey uses two of the six available pairs and
+// physically, in both firmwares. Alloy Coil uses two of the six available pairs and
 // leaves POT_10..POT_13 unassigned; unassigned slots read as 0.5 and nothing
 // reads them.
 //
-//   Physical layout (platform geometry, Audrey labels). Slot numbers are
+//   Physical layout (platform geometry, Alloy Coil labels). Slot numbers are
 //   row-major, matching the panel silkscreen and PanelLayout's table.
 //
 //        PITCH          BODY          FB GAIN        <- top row: the resonator
@@ -72,7 +72,7 @@
 // darkens the ring audibly and is played, while output level is set once.
 //
 // Renumbering slots is safe as far as flash goes — the preset blob is a struct of
-// named fields (audrey_config.h), not a slot-indexed array, and PotTakeover's
+// named fields (coil_config.h), not a slot-indexed array, and PotTakeover's
 // slot-indexed state is runtime-only. What it does affect is kShiftPairs below
 // and PanelLayout's coordinate table, both of which index by slot; change them
 // together or a knob moves with nothing failing.
@@ -121,7 +121,7 @@ constexpr PotId FBHPF = PotId::POT_15;
 constexpr PotId EXCITE = PotId::POT_16;
 
 /// Covers slots 0..15, i.e. through POT_16. POT_10..POT_13 are the shift pairs
-/// Audrey does not use and stay unassigned; readPot() returns 0.5 for those and
+/// Alloy Coil does not use and stay unassigned; readPot() returns 0.5 for those and
 /// nothing reads them.
 constexpr uint8_t kCount = 16;
 } // namespace Pot
@@ -207,8 +207,8 @@ constexpr uint8_t kCount = 7;
  * as its other parameter"; Rack has no key to hold, so it puts them in the
  * context menu and the button is inert there.
  *
- * BUTTON_1 is AlloyFlux's MODE button and the silkscreen there says MODE. Audrey
- * calls the same slot WARP because Audrey's panel says WARP — which is the whole
+ * BUTTON_1 is AlloyFlux's MODE button and the silkscreen there says MODE. Alloy Coil
+ * calls the same slot WARP because Alloy Coil's panel says WARP — which is the whole
  * job of this header. A module names slots in its own vocabulary; it does not
  * inherit the other module's.
  */
@@ -228,9 +228,9 @@ constexpr uint8_t kCount = 2;
  *         ECHO  ·   SPACE             echo pulse / reverb, SHIFT while held
  *            · CENTRE ·               string alive / exciter
  *
- * The loop-danger pair is the reason this module has LEDs at all: Audrey can
+ * The loop-danger pair is the reason this module has LEDs at all: Alloy Coil can
  * run away, and a slowly building drone sounds like a drone until it isn't.
- * The colour language and the signals behind it are in io/AudreyLeds.h.
+ * The colour language and the signals behind it are in io/CoilLeds.h.
  *
  * Two orderings are in play and neither is left-to-right: the panel numbers
  * LED1..LED7 (D12..D16, D21, D22) counter-clockwise from the upper left, which

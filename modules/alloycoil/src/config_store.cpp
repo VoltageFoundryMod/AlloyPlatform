@@ -1,12 +1,12 @@
-#include "audrey_config.h"
+#include "coil_config.h"
 #include "io/usb_midi.h" // gMidiChannel
 #include "params.h"
 #include <string.h> // memset
 
-// Audrey's preset payload. The slot container, EEPROM mechanics, dirty check
+// Alloy Coil's preset payload. The slot container, EEPROM mechanics, dirty check
 // and rate limit are the platform's — see platform/src/config_store.cpp.
 
-void packAudreyConfig(AudreyConfig &cfg)
+void packCoilConfig(CoilConfig &cfg)
 {
     memset(&cfg, 0, sizeof(cfg));
     cfg.stringPitch   = gStringPitch;
@@ -24,7 +24,7 @@ void packAudreyConfig(AudreyConfig &cfg)
     cfg.midiChannel   = gMidiChannel;
 }
 
-void applyAudreyConfig(const AudreyConfig &cfg)
+void applyCoilConfig(const CoilConfig &cfg)
 {
     gStringPitch   = cfg.stringPitch;
     gFeedbackGain  = cfg.feedbackGain;
@@ -41,10 +41,10 @@ void applyAudreyConfig(const AudreyConfig &cfg)
     gMidiChannel   = (cfg.midiChannel <= 16) ? cfg.midiChannel : 0;
 }
 
-void applyAudreyDefaults()
+void applyCoilDefaults()
 {
     // Upstream's registerParams() defaults — see params.json.
-    AudreyConfig d  = {};
+    CoilConfig d  = {};
     d.stringPitch   = 40.0f;
     d.feedbackGain  = -30.0f;
     d.feedbackDelay = 0.001f;
@@ -58,5 +58,5 @@ void applyAudreyDefaults()
     d.outputLevel   = 0.5f;
     d.exciterLevel  = 1.0f;
     d.midiChannel   = 0;
-    applyAudreyConfig(d);
+    applyCoilConfig(d);
 }

@@ -1,24 +1,24 @@
 {
   "$comment": [
-    "Single source of truth for Audrey II's externally-controllable parameters.",
+    "Single source of truth for Alloy Coil's externally-controllable parameters.",
     "",
     "Ranges, defaults and curves are taken verbatim from upstream's",
     "FeedbackSynthControls::registerParams() so the module behaves as Synthux",
     "voiced it. The one deliberate departure is echo time: upstream allows 5 s,",
-    "but the RP2350 build caps the buffer at AUDREY_ECHO_MAX_S seconds, and a",
+    "but the RP2350 build caps the buffer at COIL_ECHO_MAX_S seconds, and a",
     "control that promises more range than the buffer can deliver would just",
     "silently clamp.",
     "",
-    "Generated consumers (run `make params MODULE=audrey` after editing, and",
+    "Generated consumers (run `make params MODULE=alloycoil` after editing, and",
     "commit the output so a normal build never needs Python):",
     "  include/param_manifest.generated.h  — C++ descriptor table",
-    "  ../../web-configurator/src/lib/paramMapAudrey.ts",
+    "  ../../web-configurator/src/lib/paramMapAlloyCoil.ts",
     "",
     "CC numbers are chosen to line up with AlloyFlux where the meaning matches",
     "(7 volume, 91 reverb mix, 93 echo send, 95 echo mix-ish, 74/75 filters) so",
     "a generic MIDI controller feels familiar across both modules."
   ],
-  "ts_output": "../../web-configurator/src/lib/paramMapAudrey.ts",
+  "ts_output": "../../web-configurator/src/lib/paramMapAlloyCoil.ts",
   "cpp_includes": [
     "params.h"
   ],
@@ -88,7 +88,7 @@
         "",
         "CC 19 continues the module-specific 16/17/18 block. The AlloyFlux-",
         "parallel choice would have been 92, which is COLOR there and is",
-        "literally the FM IN attenuverter — but Audrey already spent 92 on",
+        "literally the FM IN attenuverter — but Alloy Coil already spent 92 on",
         "reverb decay, and CC numbers are one namespace across both modules.",
         "",
         "Max 2.0, not 1.0. The jack is +/-8 V, so a Eurorack source at +/-5 V",
@@ -167,7 +167,7 @@
       "kind": "float",
       "min": 0.05,
       "max": {
-        "symbol": "AUDREY_ECHO_MAX_S",
+        "symbol": "COIL_ECHO_MAX_S",
         "value": 4
       },
       "default": 0.5,

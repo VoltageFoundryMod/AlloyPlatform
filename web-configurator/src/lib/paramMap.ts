@@ -20,12 +20,12 @@
 
 import type { CCParam } from "./paramMapTypes";
 import * as alloyflux from "./paramMapAlloyFlux";
-import * as audrey from "./paramMapAudrey";
+import * as alloycoil from "./paramMapAlloyCoil";
 
 export type { CCParam, ParamType, SelectOption } from "./paramMapTypes";
 export { ccToFloat, floatToCC } from "./paramMapTypes";
 
-const active = import.meta.env.VITE_MODULE === "audrey" ? audrey : alloyflux;
+const active = import.meta.env.VITE_MODULE === "alloycoil" ? alloycoil : alloyflux;
 
 // Widened to `string` on purpose. Each generated table narrows its categories
 // to a literal union of its own names, and those unions differ between modules

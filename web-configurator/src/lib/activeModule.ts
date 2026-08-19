@@ -3,7 +3,7 @@
  *
  * Selected at build time from VITE_MODULE:
  *   make web                  → AlloyFlux (default)
- *   make web MODULE=audrey    → Audrey II
+ *   make web MODULE=alloycoil    → Alloy Coil
  *
  * Build-time rather than runtime detection, deliberately and for now only. The
  * firmware already announces itself — the two SysEx signature bytes in every
@@ -12,9 +12,9 @@
  * change than it looks is the UI: `PARAM_MAP` is a static import in App.svelte
  * and in every component, so making it follow the connected device means
  * turning all of that into reactive state. Worth doing; not worth blocking a
- * first Audrey bring-up on.
+ * first Alloy Coil bring-up on.
  *
- * The consequence to know: point an AlloyFlux build at an Audrey module and
+ * The consequence to know: point an AlloyFlux build at an Alloy Coil module and
  * the SysEx header will not match, so it simply will not connect — it fails
  * closed rather than showing the wrong controls.
  */
@@ -34,10 +34,10 @@ export const MODULES: Readonly<Record<string, ModuleInfo>> = {
     name: "AlloyFlux",
     sysexDev: [0x41, 0x46], // 'A','F'
   },
-  audrey: {
-    id: "audrey",
-    name: "Audrey II",
-    sysexDev: [0x41, 0x55], // 'A','U'
+  alloycoil: {
+    id: "alloycoil",
+    name: "Alloy Coil",
+    sysexDev: [0x41, 0x43], // 'A','C'
   },
 } as const;
 

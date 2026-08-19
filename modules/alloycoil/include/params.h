@@ -2,10 +2,10 @@
 
 #include <stdint.h>
 
-#include "FeedbackSynthEngine.h" // AUDREY_ECHO_MAX_S
+#include "FeedbackSynthEngine.h" // COIL_ECHO_MAX_S
 
 /**
- * Audrey II — externally-controllable parameter state.
+ * Alloy Coil — externally-controllable parameter state.
  *
  * The engine keeps its own smoothed internals; these are the *goal* values,
  * written by MIDI CC, SysEx, the serial console and preset recall, and pushed
@@ -26,7 +26,7 @@ extern float gFeedbackHPF;   // Hz, 10–4000
 
 // Echo
 extern float gEchoSend;     // 0–1
-extern float gEchoTime;     // seconds, 0.05–AUDREY_ECHO_MAX_S
+extern float gEchoTime;     // seconds, 0.05–COIL_ECHO_MAX_S
 extern float gEchoFeedback; // 0–1.5 — deliberately allowed past unity
 
 // Reverb

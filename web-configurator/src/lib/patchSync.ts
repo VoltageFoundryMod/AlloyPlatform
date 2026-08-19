@@ -6,7 +6,7 @@ import { ACTIVE_MODULE } from "./activeModule";
  * SysEx format  (body between F0 and F7, all bytes 7-bit safe):
  *   7D 41 46 <cmd> [cc0 val0 cc1 val1 ...]
  *   7D      = non-commercial manufacturer ID
- *   41 46   = the module's device signature ('A','F' AlloyFlux; 'A','U' Audrey)
+ *   41 46   = the module's device signature ('A','F' AlloyFlux; 'A','C' Alloy Coil)
  *   cmd:
  *     0x01  REQUEST_DUMP  — host → device: please send your current patch
  *     0x02  PATCH_DUMP    — device → host: here are all the CC pairs

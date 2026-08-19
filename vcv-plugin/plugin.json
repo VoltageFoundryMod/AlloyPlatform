@@ -27,9 +27,9 @@
       ]
     },
     {
-      "slug": "Audrey",
-      "name": "Audrey II",
-      "description": "Feedback resonator \u00e2\u20ac\u201d Karplus-Strong string in a saturating feedback loop, with echo and reverb. Engine by Synthux Academy.",
+      "slug": "AlloyCoil",
+      "name": "Alloy Coil",
+      "description": "Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb. Engine derived from Synthux Academy's Audrey II (MIT).",
       "tags": [
         "Physical modeling",
         "Effect",

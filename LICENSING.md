@@ -23,10 +23,10 @@ file records what those are and why the combination works.
 
 | Component | Origin | Licence | Notice |
 | --------- | ------ | ------- | ------ |
-| Alloy Platform, Alloy Flux, integration, web configurator | this project | **GPL-3.0-or-later** | [`LICENSE`](LICENSE) |
+| Alloy Platform, Alloy Flux, Alloy Coil, integration, web configurator | this project | **GPL-3.0-or-later** | [`LICENSE`](LICENSE) |
 | Schematics, PCB, fabrication files | this project | **CERN-OHL-S v2** | [`hardware/LICENSE`](hardware/LICENSE) |
 | Panel drawings and logos | this project | **CC BY-NC-ND 4.0** | [`panel-src/LICENSE`](panel-src/LICENSE) |
-| Audrey II engine | [Synthux Academy](https://github.com/Synthux-Academy/Audrey-II) | MIT | [`modules/audrey/LICENSE`](modules/audrey/LICENSE), [`CREDITS.md`](modules/audrey/CREDITS.md) |
+| Audrey II engine (as Alloy Coil) | [Synthux Academy](https://github.com/Synthux-Academy/Audrey-II) | MIT | [`modules/alloycoil/LICENSE`](modules/alloycoil/LICENSE), [`CREDITS.md`](modules/alloycoil/CREDITS.md) |
 | DaisySP subset (all but `reverbsc`) | [electro-smith/DaisySP](https://github.com/electro-smith/DaisySP) | MIT | [`vendor/daisysp/LICENSE`](vendor/daisysp/LICENSE) |
 | `reverbsc.{h,cpp}` | [electro-smith/DaisySP-LGPL](https://github.com/electro-smith/DaisySP-LGPL) | **LGPL-2.1** | [`vendor/daisysp/LICENSE.LGPL-2.1`](vendor/daisysp/LICENSE.LGPL-2.1) |
 | `SoftLimit()` in `dsp.h` | pichenettes/stmlib | MIT | attribution in the file |
@@ -37,7 +37,7 @@ file records what those are and why the combination works.
 
 **MIT into GPLv3** — permitted, one-way. MIT code can be incorporated into a
 GPLv3 work provided its copyright notice and permission notice travel with it.
-Both `modules/audrey/LICENSE` and `vendor/daisysp/LICENSE` are preserved
+Both `modules/alloycoil/LICENSE` and `vendor/daisysp/LICENSE` are preserved
 verbatim for exactly this reason, and `CREDITS.md` names the original authors.
 Audrey II remains MIT upstream; only *this distribution* of it is GPLv3.
 
@@ -91,25 +91,25 @@ Except where noted below, **all module names, panel artwork, silkscreen layout,
 logos, schematics and PCB layouts in this repository are copyright © 2026 Carlos
 Eduardo de Paula, trading as Voltage Foundry Modular.** That includes:
 
-- the names **Alloy Platform** and **Alloy Flux**, and the Voltage Foundry
-  Modular name and logo
+- the names **Alloy Platform**, **Alloy Flux** and **Alloy Coil**, and the
+  Voltage Foundry Modular name and logo
 - the panel artwork in `panel-src/` and `vcv-plugin/res/`, including the
   layout, typography and silkscreen of both modules
 - the schematics, board layout and fabrication files under `hardware/`
 
 ### What is not
 
-**"Audrey II" is not ours.** The name and the engine are Synthux Academy's —
-concept and firmware by Nick Donaldson, original visual and hardware design by
-Roey Tsemah. The engine is MIT and used under that licence with attribution
-preserved; the *name* is theirs regardless of the code licence, and this port
-does not claim it.
+**The Audrey II engine is not ours.** Concept and firmware by Nick Donaldson,
+original visual and hardware design by Roey Tsemah, at Synthux Academy. The
+engine is MIT and used under that licence with attribution preserved.
 
-The Audrey panel **artwork in this repository is original work** — it is the
-Alloy Platform layout with new labels, not a reproduction of the Synthux panel —
-so the drawing is ours while the module name it carries is not. (The name is
-itself a reference to the plant in *Little Shop of Horrors*, which is a third
-party's to worry about and predates all of this.)
+**The name "Audrey II" is not ours either, and Alloy Coil does not carry it.**
+The port was made with the original author's blessing, on the understanding
+that it ship under its own name so that questions, bug reports and support land
+with whoever actually owns the code in front of the user. Alloy Coil is that
+name: ours, along with its panel artwork, which is the Alloy Platform layout
+with new labels rather than a reproduction of the Synthux panel. Report Alloy
+Coil issues here; report Audrey II issues upstream.
 
 **Rack Component Library graphics are VCV's** — see the section above. © VCV,
 CC BY-NC 4.0, and not ours to relicense or assert over.

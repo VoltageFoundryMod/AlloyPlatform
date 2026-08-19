@@ -20,16 +20,16 @@
 // Two reductions, both compile-time switchable so they can be A/B'd by ear
 // rather than argued about:
 //
-//   AUDREY_ECHO_DECIMATION  run the echo loop at fs/N (default 4 -> 12 kHz)
-//   AUDREY_ECHO_Q15         store samples as int16 rather than float
-//   AUDREY_ECHO_NOISE_SHAPE first-order error feedback on the quantiser
-//   AUDREY_ECHO_ANTIALIAS   the 24 dB/oct filter ahead of the decimator
+//   COIL_ECHO_DECIMATION  run the echo loop at fs/N (default 4 -> 12 kHz)
+//   COIL_ECHO_Q15         store samples as int16 rather than float
+//   COIL_ECHO_NOISE_SHAPE first-order error feedback on the quantiser
+//   COIL_ECHO_ANTIALIAS   the 24 dB/oct filter ahead of the decimator
 //
-// Together they cut the storage 8x. Set AUDREY_ECHO_DECIMATION=1 and
-// AUDREY_ECHO_Q15=0 to get upstream's behaviour back exactly.
+// Together they cut the storage 8x. Set COIL_ECHO_DECIMATION=1 and
+// COIL_ECHO_Q15=0 to get upstream's behaviour back exactly.
 //
-// AUDREY_ECHO_ANTIALIAS exists only so the filter can be measured against its
-// own absence — see modules/audrey/test/echo_ab.cpp and `make audrey-ab`.
+// COIL_ECHO_ANTIALIAS exists only so the filter can be measured against its
+// own absence — see modules/alloycoil/test/echo_ab.cpp and `make coil-ab`.
 // Turning it off in a shipping build is not a trade-off, it is a bug.
 //
 // Both carry real DSP risk, and the mitigations are the interesting part:
@@ -51,15 +51,15 @@
 //   the band the echo's bandpass passes.
 // ---------------------------------------------------------------------------
 
-#ifndef AUDREY_ECHO_DECIMATION
-#define AUDREY_ECHO_DECIMATION 4
+#ifndef COIL_ECHO_DECIMATION
+#define COIL_ECHO_DECIMATION 4
 #endif
 
-#ifndef AUDREY_ECHO_Q15
-#define AUDREY_ECHO_Q15 1
+#ifndef COIL_ECHO_Q15
+#define COIL_ECHO_Q15 1
 #endif
 
-// Off by default since the M63f A/B (`make audrey-ab-sweep`) measured it.
+// Off by default since the M63f A/B (`make coil-ab-sweep`) measured it.
 // Error feedback is the textbook improvement on a quantiser and it buys
 // nothing here: SNR is 37.5 dB with it and 37.6 dB without, because the floor
 // is set by SoftClip's intermodulation inside the loop, not by the quantiser.
@@ -70,12 +70,12 @@
 // measurable "never truly silent" for an unmeasurable improvement is the wrong
 // way round. Kept switchable because the reasoning is worth re-testing if the
 // loop's nonlinearities ever change.
-#ifndef AUDREY_ECHO_NOISE_SHAPE
-#define AUDREY_ECHO_NOISE_SHAPE 0
+#ifndef COIL_ECHO_NOISE_SHAPE
+#define COIL_ECHO_NOISE_SHAPE 0
 #endif
 
-#ifndef AUDREY_ECHO_ANTIALIAS
-#define AUDREY_ECHO_ANTIALIAS 1
+#ifndef COIL_ECHO_ANTIALIAS
+#define COIL_ECHO_ANTIALIAS 1
 #endif
 
 namespace infrasonic {
@@ -87,7 +87,7 @@ namespace infrasonic {
  *   - Output is full-wet, should be mixed with dry signal externally
  *
  * @tparam MaxLength Max length of delay in samples **at the full rate**.
- *         Storage is MaxLength / AUDREY_ECHO_DECIMATION samples, so the call
+ *         Storage is MaxLength / COIL_ECHO_DECIMATION samples, so the call
  *         site still reads as "5 s at 48 kHz" regardless of how the buffer is
  *         actually held.
  */
@@ -97,7 +97,7 @@ class EchoDelay {
     public:
 
         /// Decimation factor — the echo loop runs at sample_rate / kDecim.
-        static constexpr size_t kDecim = AUDREY_ECHO_DECIMATION;
+        static constexpr size_t kDecim = COIL_ECHO_DECIMATION;
 
         /// Ring length at the decimated rate.
         static constexpr size_t kLen = (MaxLength + kDecim - 1) / kDecim;
@@ -105,7 +105,7 @@ class EchoDelay {
         static_assert(kDecim >= 1, "decimation must be >= 1");
         static_assert(kLen > 4, "echo ring too short to interpolate");
 
-#if AUDREY_ECHO_Q15
+#if COIL_ECHO_Q15
         using Sample = int16_t;
 #else
         using Sample = float;
@@ -141,7 +141,7 @@ class EchoDelay {
             // almost nothing, because the bandpass below is at 800 Hz and
             // 12 dB/oct — it has already taken 23 dB out by 3 kHz, so there is
             // very little real echo content up in the band being given away.
-            // Re-measure with `make audrey-ab` before moving it again.
+            // Re-measure with `make coil-ab` before moving it again.
             aa_lpf_.Init(sample_rate);
             aa_lpf_.SetCutoff(decim_rate_ * 0.25f);
             aa_lpf_.SetFlatResponse();
@@ -188,7 +188,7 @@ class EchoDelay {
             // Band-limit the send before it is decimated. This is the whole
             // defence against fold-down: the tap is post-reverb and carries
             // content well above the decimated Nyquist.
-#if AUDREY_ECHO_ANTIALIAS
+#if COIL_ECHO_ANTIALIAS
             const float band_limited = aa_lpf_.Process(in);
 #else
             const float band_limited = in; // measurement only — see the header
@@ -247,8 +247,8 @@ class EchoDelay {
 
         inline void write(float v)
         {
-#if AUDREY_ECHO_Q15
-#if AUDREY_ECHO_NOISE_SHAPE
+#if COIL_ECHO_Q15
+#if COIL_ECHO_NOISE_SHAPE
             v += quant_err_;
 #endif
             // Clamp before quantising. SoftClip bounds the loop output, but
@@ -260,7 +260,7 @@ class EchoDelay {
             const int32_t q = static_cast<int32_t>(scaled >= 0.0f ? scaled + 0.5f
                                                                   : scaled - 0.5f);
             buf_[write_pos_] = static_cast<int16_t>(q);
-#if AUDREY_ECHO_NOISE_SHAPE
+#if COIL_ECHO_NOISE_SHAPE
             // Error is taken against the *clamped* value, so a hard clip does
             // not accumulate into the feedback path and wind up.
             quant_err_ = c - static_cast<float>(q) * (1.0f / 32767.0f);
@@ -271,7 +271,7 @@ class EchoDelay {
             if (++write_pos_ >= kLen) { write_pos_ = 0; }
         }
 
-#if AUDREY_ECHO_Q15
+#if COIL_ECHO_Q15
         static constexpr float kQ15Max = 0.999969f; // 32767 / 32768
         static inline float toFloat(const Sample s)
         {

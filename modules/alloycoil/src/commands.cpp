@@ -1,4 +1,4 @@
-// Audrey's serial command table.
+// Alloy Coil's serial command table.
 //
 // Deliberately thin compared to AlloyFlux's: every parameter is in the
 // generated manifest, so one `set` / `get` pair driven by that table covers all
@@ -6,7 +6,7 @@
 // manifest cannot express get their own command.
 
 #include "io/commands.h"
-#include "audrey_config.h"
+#include "coil_config.h"
 #include "config_store.h" // platform: save/load/reset
 #include "io/param_map.h"
 #include "io/usb_midi.h" // gMidiChannel
@@ -85,7 +85,7 @@ static void cmd_get(const char *args, Print &out)
 
 static void cmd_status(const char *, Print &out)
 {
-    out.println(F("Audrey II — feedback resonator"));
+    out.println(F("Alloy Coil — feedback resonator"));
     // First line on purpose: if the bit clock never started, everything below
     // is still live (control falls back to a millis() pace, so MIDI keeps
     // working) and it is easy to mistake a dead audio path for a silent patch.
@@ -105,7 +105,7 @@ static void cmd_status(const char *, Print &out)
     else
         out.println(gMidiChannel);
     out.print(F("  echo max     : "));
-    out.print((int)AUDREY_ECHO_MAX_S);
+    out.print((int)COIL_ECHO_MAX_S);
     out.println(F(" s"));
     cmd_get("", out);
 }

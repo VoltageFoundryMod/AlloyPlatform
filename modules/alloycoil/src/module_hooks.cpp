@@ -1,9 +1,9 @@
-// Audrey's half of the platform's generic mechanisms.
+// Alloy Coil's half of the platform's generic mechanisms.
 // See platform/include/ModuleHooks.h for the contract.
 
 #include "ModuleHooks.h"
 
-#include "audrey_config.h"
+#include "coil_config.h"
 #include "params.h"
 #include <Arduino.h>
 #include <string.h>
@@ -12,19 +12,19 @@
 // Identity
 // ---------------------------------------------------------------------------
 const char *const kModuleManufacturer = "Voltage Foundry Modular";
-const char *const kModuleProduct      = "Audrey II";
-const char *const kModuleMidiName     = "Audrey II MIDI";
+const char *const kModuleProduct      = "Alloy Coil";
+const char *const kModuleMidiName     = "Alloy Coil MIDI";
 
-// SysEx device signature — 'A','U'. Must differ from AlloyFlux's 'A','F':
+// SysEx device signature — 'A','C'. Must differ from AlloyFlux's 'A','F':
 // the Web Configurator reads this to decide which parameter map to load.
 const uint8_t kSysExDevId0 = 'A';
-const uint8_t kSysExDevId1 = 'U';
+const uint8_t kSysExDevId1 = 'C';
 
 // ---------------------------------------------------------------------------
 // MIDI
 // ---------------------------------------------------------------------------
 
-// Audrey is a drone/feedback instrument, not a keyboard voice: there is no
+// Alloy Coil is a drone/feedback instrument, not a keyboard voice: there is no
 // envelope and no gate. A note sets the resonator's pitch and keeps it there —
 // which is what upstream's Frequency parameter does, just driven by a key
 // instead of a knob. Note Off is therefore deliberately silent: releasing a key
@@ -61,7 +61,7 @@ void moduleHook_programChange(uint8_t /*program*/)
 
 uint8_t moduleHook_extraPatchPairs(uint8_t * /*buf*/, uint8_t /*maxBytes*/)
 {
-    // Every Audrey parameter is in the generated manifest, so there is nothing
+    // Every Alloy Coil parameter is in the generated manifest, so there is nothing
     // to add beyond it.
     return 0;
 }
@@ -70,27 +70,27 @@ uint8_t moduleHook_extraPatchPairs(uint8_t * /*buf*/, uint8_t /*maxBytes*/)
 // Config
 // ---------------------------------------------------------------------------
 
-const uint16_t kEngineId      = kAudreyEngineId;
-const uint16_t kEngineVersion = kAudreyEngineVersion;
+const uint16_t kEngineId      = kCoilEngineId;
+const uint16_t kEngineVersion = kCoilEngineVersion;
 
 uint16_t moduleHook_packConfig(void *blob, uint16_t maxBytes)
 {
-    if(maxBytes < sizeof(AudreyConfig))
+    if(maxBytes < sizeof(CoilConfig))
         return 0;
-    AudreyConfig cfg;
-    packAudreyConfig(cfg);
+    CoilConfig cfg;
+    packCoilConfig(cfg);
     memcpy(blob, &cfg, sizeof(cfg));
     return (uint16_t)sizeof(cfg);
 }
 
 void moduleHook_applyConfig(const void *blob, uint16_t bytes)
 {
-    if(bytes < sizeof(AudreyConfig))
+    if(bytes < sizeof(CoilConfig))
         return;
-    AudreyConfig cfg;
+    CoilConfig cfg;
     memcpy(&cfg, blob, sizeof(cfg));
-    applyAudreyConfig(cfg);
+    applyCoilConfig(cfg);
 }
 
 void moduleHook_applyDefaults()
-{ applyAudreyDefaults(); }
+{ applyCoilDefaults(); }

@@ -1,7 +1,7 @@
 # Alloy — Platform Design
 
 **Purpose:** turn AlloyFlux from a single module into a firmware platform that hosts
-multiple synthesis engines, with Audrey II as the second module and the proof case.
+multiple synthesis engines, with Alloy Coil as the second module and the proof case.
 
 **Status:** design agreed, not started
 **Supersedes:** `audrey-alloyflux-design.md` (its Phase 0 assumptions were largely wrong —
@@ -17,7 +17,7 @@ see §1). Its DSP analysis in §6 remains valid _at 48 kHz_ and is carried forwa
 | ----------------------------------------------- | ------------------------------------------------------------------------------ |
 | Is it worth moving the stack to something else? | **No.** ~90% stays. One library swap: Mozzi out, own I2S driver in.            |
 | Can Alloy become a generic platform?            | **Yes.** `IHardwareIO` is already a real HAL. Four mechanical blockers remain. |
-| Can Audrey port cleanly, without artifacts?     | **Yes — at 48 kHz.** ~10 lines of platform coupling in the whole engine.       |
+| Can Alloy Coil port cleanly, without artifacts?     | **Yes — at 48 kHz.** ~10 lines of platform coupling in the whole engine.       |
 
 ---
 
@@ -68,7 +68,7 @@ None of this is what costs you duplication, and all of it is hardware-validated.
 Not because it is bad, but for two specific reasons:
 
 1. **Per-sample only.** A platform wants block processing — to amortise control work, to let
-   modules choose a block size, and because DaisySP has block APIs (Audrey's own main uses
+   modules choose a block size, and because DaisySP has block APIs (Alloy Coil's own main uses
    `limiter[0].ProcessBlock(OUT_L, size, 0.7f)`, which has no home under Mozzi).
 2. **Sample rate was a project-wide `#define`.** `MOZZI_AUDIO_RATE` / `MOZZI_CONTROL_RATE`
    were macros in `main.cpp` consumed by Mozzi's own config machinery, which makes a
@@ -90,7 +90,7 @@ purely as an output driver and a 128 Hz tick source.
 
 Pure DSP, **zero hardware includes** (verified by grep across all of `DaisySP/Source` for
 `stm32|daisy|dev/|per/|arm_math` — no hits). No migration; it coexists with anything.
-Vendor only what Audrey needs:
+Vendor only what Alloy Coil needs:
 
 | File                                | Location in DaisySP |
 | ----------------------------------- | ------------------- |
@@ -113,7 +113,7 @@ absorbs either MIT or LGPL, so this is paperwork, not a blocker.
 | **Zephyr**                         | Vastly overkill. I²S, DMA, an ADC — not an RTOS.                                                                                                                         |
 | **Rust (embassy / rp-hal)**        | Engine and all of DaisySP are C++.                                                                                                                                       |
 | **Teensy Audio port (pico-audio)** | `int16_t` 128-sample blocks + a graph model that competes with our own. Lateral move from Mozzi, not an upgrade.                                                         |
-| **rheslip/DaisySP_Teensy**         | DSP source is unmodified upstream — nothing to gain. Wrapper is Teensy-Audio-specific, and supports only one DaisySP object instance; Audrey is stereo pairs throughout. |
+| **rheslip/DaisySP_Teensy**         | DSP source is unmodified upstream — nothing to gain. Wrapper is Teensy-Audio-specific, and supports only one DaisySP object instance; Alloy Coil is stereo pairs throughout. |
 
 `pico-audio` is still valuable **as reference** — see §4.
 
@@ -134,7 +134,7 @@ semantics · memory footprint.
 
 ### Engine selection is compile-time
 
-Memory forces it: AlloyFlux is ~290 KB of 520 KB today, Audrey lands ~414 KB. **They cannot
+Memory forces it: AlloyFlux is ~290 KB of 520 KB today, Alloy Coil lands ~414 KB. **They cannot
 be co-resident.** One firmware image per module — which is also what lets each module pick
 its own rate.
 
@@ -142,9 +142,9 @@ So do **not** use a vtable. Use a build-flag typedef:
 
 ```cpp
 // platform/engine_select.h
-#if defined(ALLOY_ENGINE_AUDREY)
-  #include "modules/audrey/AudreyEngine.h"
-  using ActiveEngine = audrey::Engine;      // 48000 Hz
+#if defined(ALLOY_ENGINE_COIL)
+  #include "modules/alloycoil/CoilEngine.h"
+  using ActiveEngine = coil::Engine;      // 48000 Hz
 #else
   #include "modules/alloyflux/SynthEngine.h"
   using ActiveEngine = SynthEngine;         // 32768 Hz (see §7)
@@ -163,11 +163,11 @@ class.
    `config_store.cpp`. → module-owned params, no singleton.
 3. **Parameter-surface duplication.** See §5. The largest ongoing cost.
 4. **`AlloyConfig` is flat with one global `kConfigVersion`.** → `{magic, engineId,
-engineVersion, blob[]}` so an Audrey preset does not invalidate an AlloyFlux one.
+engineVersion, blob[]}` so an Alloy Coil preset does not invalidate an AlloyFlux one.
 
 ### The float / int32 seam
 
-AlloyFlux is `int32 ±32512` per-sample; Audrey is float. Make the **platform boundary
+AlloyFlux is `int32 ±32512` per-sample; Alloy Coil is float. Make the **platform boundary
 float**, and keep AlloyFlux's internals fixed-point with conversion only at its own edge.
 One multiply per sample is nothing; the point is to contain the change to a wrapper rather
 than touching a signal path that was voiced by ear.
@@ -235,7 +235,7 @@ with a comment explaining what breaks when they drift.
 
 A second module multiplies all of this by two.
 
-### The solution already exists — in Audrey
+### The solution already exists — in Alloy Coil
 
 `Audrey-II/Source/ParameterRegistry.h` + `FeedbackSynthControls.cpp:97-141` **is** the
 declarative manifest:
@@ -250,7 +250,7 @@ params_.Register(Parameter::FeedbackLPFCutoff, 18000.0f, 100.0f, 18000.0f,
 Eleven parameters, eleven rows, nothing else in the codebase knows a parameter exists.
 
 **This inverts the prior doc's §4.** It assumed the web configurator would supply the
-manifest and Audrey would conform. It is the other way round: promote `ParameterRegistry`
+manifest and Alloy Coil would conform. It is the other way round: promote `ParameterRegistry`
 into the platform, express AlloyFlux's parameters in it, then **generate** the CC table,
 config struct, VCV `configParam` calls and `paramMap.ts` from it.
 
@@ -259,11 +259,11 @@ CRTP, and replace `unique_ptr` + `SDRAM::allocate` with static storage. Registra
 init-time and dispatch is control-rate, so this is a no-heap-on-embedded concern, not a
 hot-path one.
 
-**This step pays for itself on AlloyFlux alone, before Audrey exists.**
+**This step pays for itself on AlloyFlux alone, before Alloy Coil exists.**
 
 ---
 
-## 6. Audrey II port
+## 6. Alloy Coil port
 
 ### 6.1 Run it at 48 kHz — this is the whole "no artifacts" answer
 
@@ -352,7 +352,7 @@ AlloyFlux. Genuinely open, and to be decided by measurement:
 at 32768 (`main.cpp:687`). At 48 kHz the period drops to 20.8 µs. Read `gAudioElapsedUs` on
 real hardware first — if AlloyFlux is near budget today, 48 kHz breaks it.
 
-Default if unmeasured: **leave AlloyFlux at 32768.** Audrey gets 48 kHz either way.
+Default if unmeasured: **leave AlloyFlux at 32768.** Alloy Coil gets 48 kHz either way.
 
 ---
 
@@ -365,13 +365,13 @@ Default if unmeasured: **leave AlloyFlux at 32768.** Audrey gets 48 kHz either w
 | **3** | Promote `ParameterRegistry` into the platform; port AlloyFlux's params; generate CC table, config struct, VCV params, `paramMap.ts`. | 2 days |
 | **4** | Positional `PotId`/`CVId` + per-module aliases; engine-tagged config blobs.                                                          | 1 day  |
 | **5** | Vendor DaisySP subset (9 files) + `libaudrey`; strip coupling; static-allocate; compile standalone on host.                          | ½ day  |
-| **6** | Second build env at 48 kHz; VCV Audrey module with ÷3/÷4 and float/Q15 switches; **voice it there**.                                 | 1 day  |
+| **6** | Second build env at 48 kHz; VCV Alloy Coil module with ÷3/÷4 and float/Q15 switches; **voice it there**.                                 | 1 day  |
 | **7** | Firmware bring-up; `arm-none-eabi-size` against the margin; cycle-count; long-run at max feedback.                                   | 1 day  |
 
 **Step 1 must be done alone and first.** Bundling a directory restructure with an
 audio-driver replacement means that if audio breaks you will not know which caused it.
 
-**Steps 1–4 are worth doing even if Audrey never ships** — they fix duplication being paid
+**Steps 1–4 are worth doing even if Alloy Coil never ships** — they fix duplication being paid
 for today. Step 3 has the largest payoff.
 
 ---
@@ -381,7 +381,7 @@ for today. Step 3 has the largest payoff.
 | Risk                                         | Severity | Mitigation                                                                      |
 | -------------------------------------------- | -------- | ------------------------------------------------------------------------------- |
 | I2S driver replacement breaks audio          | High     | Step 1 alone, on current structure, scope-verified before anything else moves   |
-| Audrey memory margin (~56 KB) too thin       | Medium   | 4.0 s echo instead of 5.0 s buys ~47 KB                                         |
+| Alloy Coil memory margin (~56 KB) too thin       | Medium   | 4.0 s echo instead of 5.0 s buys ~47 KB                                         |
 | Q15 noise buildup at feedback > 1.0          | Medium   | Clamp + error-feedback noise shaping; A/B in VCV at max feedback                |
 | AA filter placement wrong → audible aliasing | Medium   | Swept sine + spectrum analyser in VCV, before hardware                          |
 | AlloyFlux at 48 kHz exceeds CPU budget       | Medium   | §7 — measure `gAudioElapsedUs` first; default is to stay at 32768               |
@@ -392,11 +392,11 @@ for today. Step 3 has the largest payoff.
 
 ## 10. Notes for later
 
-- If a PSRAM revision ever happens (APS6404 on QSPI CS1), Audrey's echo can return to float
+- If a PSRAM revision ever happens (APS6404 on QSPI CS1), Alloy Coil's echo can return to float
   @48 kHz with a much longer maximum. Keep decimation factor and storage type as
   compile-time constants so that is a one-line change.
 - The platform/module boundary is reusable for any future third-party engine port. If this
   works, it is the beginning of a Voltage Foundry firmware platform rather than a one-off.
-- Panel: upstream Audrey has a distinctive ring-of-circles around the feedback knob. Worth
+- Panel: upstream Alloy Coil has a distinctive ring-of-circles around the feedback knob. Worth
   an homage in the copper-on-dark metallurgical language rather than a copy — and worth
   crediting Synthux prominently given we would be shipping their DSP.

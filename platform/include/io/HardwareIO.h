@@ -77,7 +77,7 @@ enum class ButtonId : uint8_t
 // 0–1 or ±1 a parameter wants is the module's job, in its IOBridge — and it has
 // to use the *jack's* range to do it, not a habit.
 //
-// The jacks do not share a range, which is the trap. Audrey scaled the exciter
+// The jacks do not share a range, which is the trap. Alloy Coil scaled the exciter
 // by 1/5 like the modulation inputs, but that jack swings to ±8 V: on hardware
 // the same patch cable would have driven the string 4 dB quieter than in Rack,
 // with nothing to indicate it. Numbers below are the board's, from the input

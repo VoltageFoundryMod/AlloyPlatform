@@ -1,5 +1,5 @@
 .pio
-# Host-build scratch (make audrey-host)
+# Host-build scratch (make coil-host)
 .build/
 
 # Vendored third-party sources are part of the build, not a dependency-manager

@@ -394,7 +394,7 @@
   // ── Per-slider overrides ─────────────────────────────────────────────────
   // Both of the above encode AlloyFlux's voice-mode semantics, which mean
   // nothing on another module. They used to be selected by raw CC number, so
-  // any module reusing those CCs silently inherited them — Audrey's revdecay
+  // any module reusing those CCs silently inherited them — Alloy Coil's revdecay
   // is CC 92 and was showing COLOR's "FM depth" hint.
   //
   // Keyed by param *name* now, which params.json calls out as the stable API,

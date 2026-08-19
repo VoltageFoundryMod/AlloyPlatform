@@ -22,17 +22,24 @@ same infrastructure. That port is the proof the seam is real.
 | Module                               | What it is                                                                                     | Manual                                   | Status                                             |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------- |
 | **[Alloy Flux](modules/alloyflux/)** | Dual relation oscillator — stereo synth voice, six voice modes, 6-voice poly                   | [MANUAL.md](modules/alloyflux/MANUAL.md) | Firmware, VCV and web complete                     |
-| **[Audrey II](modules/audrey/)**     | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/audrey/MANUAL.md)    | Engine ported and voiced; awaits its `IHardwareIO` |
+| **[Alloy Coil](modules/alloycoil/)**     | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/alloycoil/MANUAL.md)    | Engine ported and voiced; awaits its `IHardwareIO` |
 
 Both share a PCB and a panel outline, so the same slot numbers land on the same
 physical positions and each module simply names them differently.
 
-Audrey II's engine is the work of [Nick Donaldson](https://github.com/ndonald2)
+Alloy Coil's engine is the work of [Nick Donaldson](https://github.com/ndonald2)
 and [Roey Tsemah](https://github.com/roeytsemah) at
-[Synthux Academy](https://github.com/Synthux-Academy/Audrey-II), MIT-licensed and
-vendored here with its credits intact — see
-[`modules/audrey/README.md`](modules/audrey/README.md) for what was taken, what
-was left behind, and how a 2.36 MiB engine was made to fit in 520 KB.
+[Synthux Academy](https://github.com/Synthux-Academy/Audrey-II), where it powers
+their module **Audrey II**. It is MIT-licensed and vendored here with its
+credits intact — see [`modules/alloycoil/README.md`](modules/alloycoil/README.md)
+for what was taken, what was left behind, and how a 2.36 MiB engine was made to
+fit in 520 KB.
+
+**Alloy Coil is not Audrey II.** The port was made with the original author's
+blessing, and ships under its own name at their request, so that questions and
+bug reports land with whoever actually owns the code in front of the user. Ask
+about Alloy Coil here; ask about Audrey II
+[upstream](https://github.com/Synthux-Academy/Audrey-II).
 
 ---
 
@@ -67,7 +74,7 @@ available in Firefox or Safari.
 
 ### Engine selection is compile-time
 
-Memory forces it. Alloy Flux and Audrey each fill most of the RP2350's 520 KB, so
+Memory forces it. Alloy Flux and Alloy Coil each fill most of the RP2350's 520 KB, so
 they cannot be co-resident: **one firmware image per module**. That is a
 constraint worth having, because it also lets each module pick its own sample
 rate and block size, and it means the dispatch cost is zero — a build-flag
@@ -77,7 +84,7 @@ The platform declares a set of hooks in
 [`platform/include/ModuleHooks.h`](platform/include/ModuleHooks.h) and **exactly
 one module defines them**: what a note means, which CCs are actions rather than
 parameters, what to enumerate as over USB, what to write into a preset blob. Link
-Alloy Flux's definitions and you get Alloy Flux; link Audrey's and you get Audrey,
+Alloy Flux's definitions and you get Alloy Flux; link Alloy Coil's and you get Alloy Coil,
 from the same platform sources. A module with nothing to say for a hook still has
 to define it — an empty body — so a missing one is a link error naming the hook
 rather than silently inherited behaviour.
@@ -88,7 +95,7 @@ rather than silently inherited behaviour.
 and hardware, with two implementations: `HardwarePicoIO` on the board and
 `VCVRackIO` in Rack. Its identifiers are **positional** — `PotId::POT_1`,
 `CVId::CV_3`, `LightId::LIGHT_5` — and each module names them in its own
-`io/PanelMap.h`. Alloy Flux calls slot 1 `Pot::ROOT`; Audrey calls it `Pot::PITCH`.
+`io/PanelMap.h`. Alloy Flux calls slot 1 `Pot::ROOT`; Alloy Coil calls it `Pot::PITCH`.
 No semantic name ever enters the HAL.
 
 The platform's audio boundary is **float ±1.0**. Alloy Flux's fixed-point
@@ -113,7 +120,7 @@ build never needs Python — only editing `params.json` does.
 ### Presets are engine-tagged
 
 A flash slot is `{magic, engineId, engineVersion, blob}`. The container belongs to
-the platform, the blob to the module, so an Audrey preset sitting in a slot is
+the platform, the blob to the module, so an Alloy Coil preset sitting in a slot is
 _skipped_ by an Alloy Flux build rather than reinterpreted as Alloy Flux floats.
 Slot 0 is a rate-limited live auto-save; slots 1–9 are user presets.
 
@@ -139,8 +146,8 @@ platform/         engine-agnostic: HAL, MIDI/SysEx, config store, serial console
 modules/
   alloyflux/      the dual relation oscillator — engine, params.json, panel map,
                   VCV module, manual
-  audrey/         the vendored Audrey II engine and its integration
-vendor/daisysp/   the DaisySP subset Audrey needs, with its patches recorded
+  alloycoil/         the vendored Audrey II engine and its integration
+vendor/daisysp/   the DaisySP subset Alloy Coil needs, with its patches recorded
 vcv-plugin/       the Rack plugin build — one plugin, all modules
 web-configurator/ Svelte 5 configurator, one build per module
 hardware/         KiCad schematics and PCB (CERN-OHL-S v2)
@@ -157,11 +164,11 @@ Two channels, both driverless:
 
 - **Web MIDI SysEx** (primary) — full patch dump and restore, preset save and
   load. Manufacturer ID `0x7D`, then a two-byte device signature per module
-  (`0x41 0x46` for Alloy Flux, `0x41 0x55` for Audrey).
+  (`0x41 0x46` for Alloy Flux, `0x41 0x55` for Alloy Coil).
 - **Web Serial CDC** (fallback) — a text command console.
 
 Which module the configurator targets is a build-time choice and it **fails
-closed**: an Alloy Flux build will refuse to connect to an Audrey module rather
+closed**: an Alloy Flux build will refuse to connect to an Alloy Coil module rather
 than show the wrong controls.
 
 ---

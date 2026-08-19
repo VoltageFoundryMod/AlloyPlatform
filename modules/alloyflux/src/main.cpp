@@ -24,7 +24,7 @@
 // Audio configuration
 //
 // Module-local on purpose: nothing under platform/ may depend on these.  The
-// sample rate is a property of the module — it is what lets Audrey run at a
+// sample rate is a property of the module — it is what lets Alloy Coil run at a
 // different one — and a shared header hardcoding a value would defeat that.
 // SynthEngine takes both rates as init() arguments.
 //

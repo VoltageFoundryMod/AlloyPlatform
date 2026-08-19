@@ -37,7 +37,7 @@ vcv/AlloyFlux.cpp               the Rack module
 
 Everything else — USB MIDI, the SysEx patch protocol, preset slots, the serial
 console, the I2S driver, pot takeover — is [`platform/`](../../platform/) and is
-shared with [Audrey II](../audrey/).
+shared with [Alloy Coil](../alloycoil/).
 
 ## Changing a parameter
 

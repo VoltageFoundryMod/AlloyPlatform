@@ -11,7 +11,7 @@
 // the labels differ. These coordinates are therefore platform data, not module
 // data, and they live here so the two widgets cannot drift apart — which is
 // exactly what happened before: AlloyFlux was still on a 71.12 mm layout while
-// Audrey had moved to 70.76 mm, and the only way to notice was to look at both.
+// Alloy Coil had moved to 70.76 mm, and the only way to notice was to look at both.
 //
 // Source of truth is the `components` layer of `panel-src/AlloyPlatform.svg`.
 // Regenerate these tables with:
@@ -123,7 +123,7 @@ static constexpr float kLedMm[kLedCount][2] = {
 // module to reassign.
 //
 // FM IN is at the LEFT end of the lower row. Both panel arts say so
-// (AlloyFlux "FM In", Audrey "Exc In", both at x 9.3) and the guide layer
+// (AlloyFlux "FM In", Alloy Coil "Exc In", both at x 9.3) and the guide layer
 // agrees, so that is the design.
 //
 // ⚠⚠ THE BOARD HAS NOT CAUGHT UP, AND THIS ONE IS NOT A SILKSCREEN FIX.

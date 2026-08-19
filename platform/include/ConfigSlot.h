@@ -9,7 +9,7 @@
 // the platform never interprets a byte of the payload.
 //
 // Why the engine tag: one board runs one firmware image at a time, but they all
-// share the same flash region, so an Audrey preset and an AlloyFlux preset can
+// share the same flash region, so an Alloy Coil preset and an AlloyFlux preset can
 // occupy the same slot on the same hardware across a reflash.  The tag does not
 // preserve both — whichever engine saves last wins that slot — but it does
 // guarantee the other one is *recognised as foreign and skipped* rather than

@@ -1,16 +1,16 @@
 #pragma once
 
 #include "io/HardwareIO.h" // PotId/CVId positional slots
-#include "io/PanelMap.h"   // Pot::/Cv:: — Audrey's slot names
+#include "io/PanelMap.h"   // Pot::/Cv:: — Alloy Coil's slot names
 #include "params.h"
 
 #include <math.h>
 
 // ---------------------------------------------------------------------------
-// fillAudreyParams — the single hardware-IO → parameter translation, shared by
+// fillCoilParams — the single hardware-IO → parameter translation, shared by
 // the firmware and the VCV module exactly as AlloyFlux's IOBridge is.
 //
-// Writes the gXxx goal values directly rather than a params struct: Audrey has
+// Writes the gXxx goal values directly rather than a params struct: Alloy Coil has
 // no smoothing layer of its own to feed, and updateControl() pushes these into
 // the engine on the very next line. A struct in between would be ceremony.
 //
@@ -19,10 +19,10 @@
 // disagree a MIDI CC and a knob will land on different values.
 // ---------------------------------------------------------------------------
 
-static inline float audreyClampf(float v, float lo, float hi)
+static inline float alloycoilClampf(float v, float lo, float hi)
 { return v < lo ? lo : (v > hi ? hi : v); }
 
-inline void fillAudreyParams(IHardwareIO &io)
+inline void fillCoilParams(IHardwareIO &io)
 {
     // -----------------------------------------------------------------------
     // Resonator pitch. Knob is 0–1 over MIDI notes 16–72; the V/Oct jack adds
@@ -30,14 +30,14 @@ inline void fillAudreyParams(IHardwareIO &io)
     float note = 16.0f + io.readPot(Pot::PITCH) * (72.0f - 16.0f);
     if(io.isPatched(Cv::VOCT))
         note += io.readCV(Cv::VOCT) * 12.0f;
-    gStringPitch = audreyClampf(note, 16.0f, 72.0f);
+    gStringPitch = alloycoilClampf(note, 16.0f, 72.0f);
 
     // -----------------------------------------------------------------------
     // Feedback loop.  Gain takes the most performative CV on the module —
     // sweeping it toward unity is the instrument.
     float gain = io.readPot(Pot::FBGAIN);
     if(io.isPatched(Cv::FBGAIN))
-        gain = audreyClampf(gain + io.readCV(Cv::FBGAIN) * CvRange::kModToUnit,
+        gain = alloycoilClampf(gain + io.readCV(Cv::FBGAIN) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
     gFeedbackGain = -30.0f + gain * (12.0f - -30.0f);
@@ -49,7 +49,7 @@ inline void fillAudreyParams(IHardwareIO &io)
     // range at one end and inaudible at the other.
     float body = io.readPot(Pot::FBBODY);
     if(io.isPatched(Cv::FBBODY))
-        body = audreyClampf(body + io.readCV(Cv::FBBODY) * CvRange::kModToUnit,
+        body = alloycoilClampf(body + io.readCV(Cv::FBBODY) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
     gFeedbackDelay = 0.001f * powf(0.1f / 0.001f, body);
@@ -62,12 +62,12 @@ inline void fillAudreyParams(IHardwareIO &io)
     // the knob here is that same curve.
     float send = io.readPot(Pot::ECHOSEND);
     if(io.isPatched(Cv::ECHOSEND))
-        send = audreyClampf(send + io.readCV(Cv::ECHOSEND) * CvRange::kModToUnit,
+        send = alloycoilClampf(send + io.readCV(Cv::ECHOSEND) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
     gEchoSend = send * send;
 
-    gEchoTime = 0.05f * powf((float)AUDREY_ECHO_MAX_S / 0.05f,
+    gEchoTime = 0.05f * powf((float)COIL_ECHO_MAX_S / 0.05f,
                              io.readPot(Pot::ECHOTIME));
 
     // WARP — doppler warp. Upstream Audrey II has a panel toggle wired to
@@ -96,7 +96,7 @@ inline void fillAudreyParams(IHardwareIO &io)
     // Reverb.
     float mix = io.readPot(Pot::REVMIX);
     if(io.isPatched(Cv::REVMIX))
-        mix = audreyClampf(mix + io.readCV(Cv::REVMIX) * CvRange::kModToUnit,
+        mix = alloycoilClampf(mix + io.readCV(Cv::REVMIX) * CvRange::kModToUnit,
                            0.0f,
                            1.0f);
     gReverbMix = mix;

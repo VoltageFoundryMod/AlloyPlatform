@@ -1,9 +1,9 @@
 /**
- * Audrey II — feedback resonator, Alloy platform module.
+ * Alloy Coil — feedback resonator, Alloy platform module.
  * Hardware : Raspberry Pi Pico 2 (RP2350) + PCM5102A I2S DAC
  *
  * Engine by Synthux Academy (Nick Donaldson / Roey Tsemah), vendored from
- * audrey-ii-simple — see modules/audrey/README.md and CREDITS.md.
+ * alloycoil-ii-simple — see modules/alloycoil/README.md and CREDITS.md.
  *
  * Core split, as for every module on this platform:
  *   Core 1 — the whole audio path: owns the I2S driver, runs renderAudio().
@@ -25,7 +25,7 @@
 // Module-local, like every module's: the sample rate is a property of the
 // engine, not the platform.
 //
-// Audrey runs at 48 kHz rather than AlloyFlux's historical 32768 Hz for a
+// Alloy Coil runs at 48 kHz rather than AlloyFlux's historical 32768 Hz for a
 // concrete reason — its FeedbackLPFCutoff defaults to 18 kHz, which at 32768 Hz
 // would sit *above* the 16384 Hz Nyquist, where the biquad's bilinear prewarp
 // diverges. The filter would be degenerate at boot. At 48 kHz it is not.
@@ -33,7 +33,7 @@
 // This module runs the core at 192 MHz rather than the stock 150 — the engine
 // needs ~690 µs per block against a 666 µs budget at 150 MHz. 192 keeps the
 // I2S divider exact (192 / 3.072 MHz = 62.5); see the rationale and the table
-// of safe clocks in platformio.ini's [env:audrey].
+// of safe clocks in platformio.ini's [env:alloycoil].
 // ---------------------------------------------------------------------------
 static constexpr uint32_t kAudioRate   = 48000u;
 static constexpr uint32_t kControlRate = 128u;
@@ -44,7 +44,7 @@ static constexpr uint8_t kPinI2sData = 18u;
 
 #include "FeedbackSynthEngine.h"
 #include "dsp.h" // daisysp::SoftClip
-#include "audrey_config.h"
+#include "coil_config.h"
 #include "config_store.h" // platform: save/load/reset
 #include "debug.h"
 #include "io/AudioDriver.h"
@@ -85,7 +85,7 @@ volatile uint32_t gAudioBudgetUs           = 1;
 // ---------------------------------------------------------------------------
 
 // File-scope, not a shared global: nothing outside this file needs to know the
-// engine exists. ~443 KiB of static storage — see modules/audrey/README.md.
+// engine exists. ~443 KiB of static storage — see modules/alloycoil/README.md.
 static infrasonic::FeedbackSynth::Engine gEngine;
 
 static AudioDriver sAudioDriver;
@@ -204,7 +204,7 @@ void updateControl()
 #endif
 }
 
-// Audio render. Audrey is float-native end to end, so unlike AlloyFlux there
+// Audio render. Alloy Coil is float-native end to end, so unlike AlloyFlux there
 // is no signal-convention conversion at this edge — the engine's output *is*
 // the platform's ±1.0.
 void __attribute__((section(".time_critical.renderAudio")))
@@ -213,9 +213,9 @@ renderAudio(float *pOutL, float *pOutR)
 #ifdef AUDIO_TEST_TONE
     // Bring-up aid: 1 kHz sine straight out of the driver, bypassing the
     // engine entirely. This is the bisect between "the I2S path is broken" and
-    // "the engine is producing silence" — and Audrey's engine is *meant* to be
+    // "the engine is producing silence" — and Alloy Coil's engine is *meant* to be
     // silent at its defaults, which makes the distinction easy to get wrong.
-    // Build with: make firmware ENV=audrey PIOFLAGS='-a "-DAUDIO_TEST_TONE"'
+    // Build with: make firmware ENV=alloycoil PIOFLAGS='-a "-DAUDIO_TEST_TONE"'
     {
         static float    sPhase = 0.0f;
         constexpr float kTwoPi = 6.28318530718f;
@@ -234,7 +234,7 @@ renderAudio(float *pOutL, float *pOutR)
     // which case the resonator self-excites from its own noise floor as before.
     gEngine.Process(gExciterIn, *pOutL, *pOutR);
 
-#if AUDREY_OUTPUT_SOFTCLIP
+#if COIL_OUTPUT_SOFTCLIP
     // Master soft clip.
     //
     // The engine deliberately runs hot: with feedback gain near unity it peaks
@@ -247,7 +247,7 @@ renderAudio(float *pOutL, float *pOutR)
     // Upstream has the same headroom problem; on a Daisy the codec clips it
     // just as hard. Saturating here instead keeps the instrument's character
     // (it is a distorting feedback box) while guaranteeing nothing reaches the
-    // DAC out of range. Build with -DAUDREY_OUTPUT_SOFTCLIP=0 to hear the raw
+    // DAC out of range. Build with -DCOIL_OUTPUT_SOFTCLIP=0 to hear the raw
     // engine and compare.
     *pOutL = daisysp::SoftClip(*pOutL);
     *pOutR = daisysp::SoftClip(*pOutR);

@@ -1,6 +1,6 @@
-// Audrey echo A/B — the two DSP risks M63f has been carrying, measured.
+// Alloy Coil echo A/B — the two DSP risks M63f has been carrying, measured.
 //
-//   make audrey-ab
+//   make coil-ab
 //
 // M63f decimated the echo to 12 kHz and stored it as int16 to make it fit an
 // RP2350. Both were argued for on paper and neither was ever verified. The
@@ -36,9 +36,9 @@
 // string, the reverb and the feedback loop cannot colour the answer.
 //
 // Comparing configurations means rebuilding — these are compile-time switches
-// by design. `make audrey-ab-sweep` runs the full matrix; see the Makefile.
+// by design. `make coil-ab-sweep` runs the full matrix; see the Makefile.
 
-// For AUDREY_ECHO_MAX_S. Only the macro is wanted, but taking it from the
+// For COIL_ECHO_MAX_S. Only the macro is wanted, but taking it from the
 // engine header rather than restating it is the point: the buffer under test
 // has to be the size the firmware actually builds. Nothing here instantiates
 // Engine, so no engine sources need linking.
@@ -58,8 +58,8 @@ static constexpr float  kSampleRate = 48000.0f;
 static constexpr double kPi = 3.14159265358979323846;
 
 // The echo under test, sized as the firmware sizes it. Static, not stack: at
-// AUDREY_ECHO_DECIMATION=1 with float storage this is 768 KB.
-static EchoDelay<(size_t)(48000 * AUDREY_ECHO_MAX_S)> gEcho;
+// COIL_ECHO_DECIMATION=1 with float storage this is 768 KB.
+static EchoDelay<(size_t)(48000 * COIL_ECHO_MAX_S)> gEcho;
 
 // ---------------------------------------------------------------------------
 // Minimal iterative radix-2 FFT. Real input, in-place complex output.
@@ -155,16 +155,16 @@ static float burst(int n)
 static void testAlias()
 {
     constexpr size_t kN       = 16384; // ~0.34 s at 48 kHz
-    const float      decimHz  = kSampleRate / (float)AUDREY_ECHO_DECIMATION;
+    const float      decimHz  = kSampleRate / (float)COIL_ECHO_DECIMATION;
     const float      nyquist  = decimHz * 0.5f;
 
     std::printf("\n=== A. Alias rejection ===\n");
     std::printf("  decimated rate %.0f Hz, Nyquist %.0f Hz, anti-alias %s\n",
                 decimHz,
                 nyquist,
-                AUDREY_ECHO_ANTIALIAS ? "ON" : "OFF");
+                COIL_ECHO_ANTIALIAS ? "ON" : "OFF");
 
-    if(AUDREY_ECHO_DECIMATION == 1)
+    if(COIL_ECHO_DECIMATION == 1)
     {
         std::printf("  decimation is /1 — no fold-down is possible. "
                     "This build is the reference.\n");
@@ -276,7 +276,7 @@ static void testAlias()
         // below the input may be only 5 dB below what you actually hear.
         const float wanted = level(fin);
 
-        const bool folds = fin > nyquist && AUDREY_ECHO_DECIMATION > 1;
+        const bool folds = fin > nyquist && COIL_ECHO_DECIMATION > 1;
         char       foldCol[16], foldLvl[16];
         if(folds)
         {
@@ -330,8 +330,8 @@ static void testQuantNoise()
 {
     std::printf("\n=== B. Quantiser noise ===\n");
     std::printf("  storage %s, noise shaping %s\n",
-                AUDREY_ECHO_Q15 ? "int16" : "float",
-                AUDREY_ECHO_NOISE_SHAPE ? "on" : "off");
+                COIL_ECHO_Q15 ? "int16" : "float",
+                COIL_ECHO_NOISE_SHAPE ? "on" : "off");
 
     // --- B1: residual floor after a decaying echo -------------------------
     {
@@ -513,14 +513,14 @@ int main(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    std::printf("Audrey echo A/B\n");
+    std::printf("Alloy Coil echo A/B\n");
     std::printf("  build: echo %d s, decimation /%d, %s storage, "
                 "shaping %s, anti-alias %s\n",
-                (int)AUDREY_ECHO_MAX_S,
-                (int)AUDREY_ECHO_DECIMATION,
-                AUDREY_ECHO_Q15 ? "int16" : "float",
-                AUDREY_ECHO_NOISE_SHAPE ? "on" : "off",
-                AUDREY_ECHO_ANTIALIAS ? "on" : "off");
+                (int)COIL_ECHO_MAX_S,
+                (int)COIL_ECHO_DECIMATION,
+                COIL_ECHO_Q15 ? "int16" : "float",
+                COIL_ECHO_NOISE_SHAPE ? "on" : "off",
+                COIL_ECHO_ANTIALIAS ? "on" : "off");
     std::printf("  storage: %zu B (%.1f KiB) per channel\n",
                 sizeof(gEcho),
                 sizeof(gEcho) / 1024.0);

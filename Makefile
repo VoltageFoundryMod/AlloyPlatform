@@ -73,7 +73,7 @@ endif
 # means one clear message instead of plugin.mk's "SLUG could not be found in
 # manifest", which names neither the missing tool nor the wrong shell.
 ifdef WINDOWS
-ifneq ($(filter vcv vcv-% audrey-host audrey-ab audrey-ab-% everything,$(or $(MAKECMDGOALS),all)),)
+ifneq ($(filter vcv vcv-% coil-host coil-ab coil-ab-% everything,$(or $(MAKECMDGOALS),all)),)
   WIN_MISSING :=
   ifeq ($(WIN_SH),)
     WIN_MISSING += msys2($(MSYS)/usr/bin/sh.exe)
@@ -102,7 +102,7 @@ endif
 
 PIO ?= pio
 
-# Host C++ compiler, used only by `make audrey-host`. On Windows the reliable
+# Host C++ compiler, used only by `make coil-host`. On Windows the reliable
 # one is msys2's — the same requirement the Rack plugin already has — so reuse
 # the path probed above rather than hoping g++ is on PATH.
 ifdef WINDOWS
@@ -137,7 +137,7 @@ WEB := web-configurator
 # PlatformIO env; ENV selects which. The VCV plugin is the opposite — one .dll
 # carries every module and Rack offers them all, so there is nothing per-module
 # to build there.
-MODULES := alloyflux audrey
+MODULES := alloyflux alloycoil
 
 # `all` is the firmware you flash — AlloyFlux unless ENV says otherwise.
 all: firmware
@@ -176,7 +176,7 @@ help list:
 	@echo "    monitor           serial monitor only"
 	@echo "    test              PlatformIO native unit tests"
 	@echo "    firmware-clean    clean the PlatformIO build"
-	@echo "      e.g.  make upload ENV=audrey"
+	@echo "      e.g.  make upload ENV=alloycoil"
 	@echo ""
 	@echo "  VCV Rack plugin (ONE plugin, all modules in it)"
 	@echo "    vcv               build vcv-plugin/plugin.dll"
@@ -192,16 +192,16 @@ help list:
 	@echo "    web-check         svelte-check + tsc type validation"
 	@echo "    web-deps          npm install"
 	@echo "    web-clean         remove dist/ and node_modules/"
-	@echo "      e.g.  make web-dev MODULE=audrey"
+	@echo "      e.g.  make web-dev MODULE=alloycoil"
 	@echo ""
 	@echo "  Parameters"
 	@echo "    params            regenerate tables from modules/\$$(MODULE)/params.json"
 	@echo "    params-check      CI gate: fail if the committed tables are stale"
 	@echo ""
-	@echo "  Audrey engine"
-	@echo "    audrey-host       host-build + run the engine, print its footprint"
-	@echo "    audrey-ab         measure echo aliasing + quantiser noise"
-	@echo "    audrey-ab-sweep   the same, across the whole switch matrix"
+	@echo "  Alloy Coil engine"
+	@echo "    coil-host       host-build + run the engine, print its footprint"
+	@echo "    coil-ab         measure echo aliasing + quantiser noise"
+	@echo "    coil-ab-sweep   the same, across the whole switch matrix"
 	@echo ""
 	@echo "  Across the repo"
 	@echo "    everything        every firmware image + vcv + every web build"
@@ -265,8 +265,8 @@ else
 	$(PIO) test -e $(ENV)
 endif
 
-# ── Audrey engine, host build ────────────────────────────────────────────────
-# Compiles the vendored Audrey engine (M63e) against nothing but the vendored
+# ── Alloy Coil engine, host build ────────────────────────────────────────────────
+# Compiles the vendored Audrey II engine (M63e) against nothing but the vendored
 # DaisySP subset and the standard library — no Daisy headers, no SDRAM
 # allocator, no heap. Then runs it for 10 s at maximum feedback and echo
 # feedback above unity, checking for NaN, silence and DC drift, and prints the
@@ -275,18 +275,18 @@ endif
 # That footprint is the point: it is what decides whether the engine can fit a
 # 520 KB RP2350 at all, and it costs nothing to learn here rather than on a
 # flashed board.
-.PHONY: audrey-host audrey-host-clean
+.PHONY: coil-host coil-host-clean
 
-AUDREY_BIN := $(BUILD_TMP)/audrey_host$(EXE)
+COIL_BIN := $(BUILD_TMP)/coil_host$(EXE)
 
-# The three engine sources, named rather than globbed. modules/audrey/src/ also
+# The three engine sources, named rather than globbed. modules/alloycoil/src/ also
 # holds the firmware integration (main, hooks, commands, config, param_map),
 # which needs Arduino and the platform headers and has no business in a host
 # build — this harness exercises the DSP, not the module.
-AUDREY_SRCS := modules/audrey/test/host_build.cpp \
-               modules/audrey/src/FeedbackSynthEngine.cpp \
-               modules/audrey/src/KarplusString.cpp \
-               modules/audrey/src/BiquadFilters.cpp \
+COIL_SRCS := modules/alloycoil/test/host_build.cpp \
+               modules/alloycoil/src/FeedbackSynthEngine.cpp \
+               modules/alloycoil/src/KarplusString.cpp \
+               modules/alloycoil/src/BiquadFilters.cpp \
                vendor/daisysp/dcblock.cpp \
                vendor/daisysp/tone.cpp \
                vendor/daisysp/crossfade.cpp \
@@ -295,42 +295,42 @@ AUDREY_SRCS := modules/audrey/test/host_build.cpp \
 
 # HOST_EXTRA passes build switches through, which is how the size/quality
 # trade-offs get compared rather than argued about:
-#   make audrey-host HOST_EXTRA="-DAUDREY_ECHO_MAX_S=3"
-#   make audrey-host HOST_EXTRA="-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0"
-audrey-host:
+#   make coil-host HOST_EXTRA="-DCOIL_ECHO_MAX_S=3"
+#   make coil-host HOST_EXTRA="-DCOIL_ECHO_DECIMATION=1 -DCOIL_ECHO_Q15=0"
+coil-host:
 	@mkdir -p $(BUILD_TMP)
 	$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
-	  -Ivendor/daisysp -Imodules/audrey/include $(HOST_EXTRA) \
-	  $(AUDREY_SRCS) -o $(AUDREY_BIN)
-	@$(AUDREY_BIN)
+	  -Ivendor/daisysp -Imodules/alloycoil/include $(HOST_EXTRA) \
+	  $(COIL_SRCS) -o $(COIL_BIN)
+	@$(COIL_BIN)
 
-audrey-host-clean:
-	rm -f $(AUDREY_BIN)
+coil-host-clean:
+	rm -f $(COIL_BIN)
 
-# ── Audrey echo A/B ──────────────────────────────────────────────────────────
+# ── Alloy Coil echo A/B ──────────────────────────────────────────────────────────
 # The two DSP risks M63f has been carrying since it landed, measured instead of
 # argued: does the anti-alias filter catch the /4 fold-down, and does int16
 # quantisation noise regenerate when echo feedback goes past unity.
 #
 # Exercises EchoDelay directly — no string, no reverb, no feedback loop — so
 # nothing else can colour the answer. Builds are the comparison: these are
-# compile-time switches by design, so `audrey-ab-sweep` rebuilds across the
+# compile-time switches by design, so `coil-ab-sweep` rebuilds across the
 # matrix and prints each configuration in turn.
-.PHONY: audrey-ab audrey-ab-sweep audrey-ab-clean
+.PHONY: coil-ab coil-ab-sweep coil-ab-clean
 
-AUDREY_AB_BIN  := $(BUILD_TMP)/audrey_ab$(EXE)
-AUDREY_AB_SRCS := modules/audrey/test/echo_ab.cpp \
-                  modules/audrey/src/BiquadFilters.cpp
+COIL_AB_BIN  := $(BUILD_TMP)/coil_ab$(EXE)
+COIL_AB_SRCS := modules/alloycoil/test/echo_ab.cpp \
+                  modules/alloycoil/src/BiquadFilters.cpp
 
-# Same HOST_EXTRA convention as audrey-host:
-#   make audrey-ab HOST_EXTRA="-DAUDREY_ECHO_ANTIALIAS=0"
-#   make audrey-ab HOST_EXTRA="-DAUDREY_ECHO_Q15=0"
-audrey-ab:
+# Same HOST_EXTRA convention as coil-host:
+#   make coil-ab HOST_EXTRA="-DCOIL_ECHO_ANTIALIAS=0"
+#   make coil-ab HOST_EXTRA="-DCOIL_ECHO_Q15=0"
+coil-ab:
 	@mkdir -p $(BUILD_TMP)
 	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
-	  -Ivendor/daisysp -Imodules/audrey/include $(HOST_EXTRA) \
-	  $(AUDREY_AB_SRCS) -o $(AUDREY_AB_BIN)
-	@$(AUDREY_AB_BIN)
+	  -Ivendor/daisysp -Imodules/alloycoil/include $(HOST_EXTRA) \
+	  $(COIL_AB_SRCS) -o $(COIL_AB_BIN)
+	@$(COIL_AB_BIN)
 
 # The whole matrix, in the order that makes the argument:
 #   1. /1 float          the reference — no decimation, no quantiser
@@ -338,19 +338,19 @@ audrey-ab:
 #   3. /4, AA on         what the filter buys  (= the shipping alias behaviour)
 #   4. /4 int16, shaping off   the quantiser without its error feedback
 #   5. shipping default        everything on
-audrey-ab-sweep:
-	@$(MAKE) --no-print-directory audrey-ab \
-	  HOST_EXTRA="-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0"
-	@$(MAKE) --no-print-directory audrey-ab \
-	  HOST_EXTRA="-DAUDREY_ECHO_Q15=0 -DAUDREY_ECHO_ANTIALIAS=0"
-	@$(MAKE) --no-print-directory audrey-ab \
-	  HOST_EXTRA="-DAUDREY_ECHO_Q15=0"
-	@$(MAKE) --no-print-directory audrey-ab \
-	  HOST_EXTRA="-DAUDREY_ECHO_NOISE_SHAPE=0"
-	@$(MAKE) --no-print-directory audrey-ab
+coil-ab-sweep:
+	@$(MAKE) --no-print-directory coil-ab \
+	  HOST_EXTRA="-DCOIL_ECHO_DECIMATION=1 -DCOIL_ECHO_Q15=0"
+	@$(MAKE) --no-print-directory coil-ab \
+	  HOST_EXTRA="-DCOIL_ECHO_Q15=0 -DCOIL_ECHO_ANTIALIAS=0"
+	@$(MAKE) --no-print-directory coil-ab \
+	  HOST_EXTRA="-DCOIL_ECHO_Q15=0"
+	@$(MAKE) --no-print-directory coil-ab \
+	  HOST_EXTRA="-DCOIL_ECHO_NOISE_SHAPE=0"
+	@$(MAKE) --no-print-directory coil-ab
 
-audrey-ab-clean:
-	rm -f $(AUDREY_AB_BIN)
+coil-ab-clean:
+	rm -f $(COIL_AB_BIN)
 
 # ── Panel LED shape ──────────────────────────────────────────────────────────
 # The LED apertures are drawn on the panel's F.Mask layer (the panel is a PCB,
@@ -365,7 +365,7 @@ audrey-ab-clean:
 
 led-shape:
 	$(PYTHON) tools/svg_path_to_nvg.py \
-	  $(PANEL_SRCDIR)/Audrey_src.svg LED1 \
+	  $(PANEL_SRCDIR)/AlloyCoil_src.svg LED1 \
 	  platform/vcv/PanelLedShape.generated.h AlloyPanelLed \
 	  $(PANEL_SRCDIR)/AlloyFlux_src.svg
 
@@ -498,7 +498,7 @@ PANEL_TMP := $(BUILD_TMP)/panels
 # ready to paste into platform/vcv/PanelLayout.h. Honours the ancestor transforms
 # and the viewBox scale, which Rack's module-helper stub does not — see the
 # warning at the top of PanelLayout.h.
-PANEL_MASTER ?= $(PANEL_SRCDIR)/Audrey_src.svg
+PANEL_MASTER ?= $(PANEL_SRCDIR)/AlloyCoil_src.svg
 
 panel-coords:
 	@$(PYTHON) tools/panel_coords.py $(PANEL_MASTER) $(PANEL_HIDE_LAYERS)
@@ -578,7 +578,7 @@ web-deps:
 	cd $(WEB) && $(NPM) install
 
 # MODULE selects which module''s parameter map and SysEx signature the build
-# targets — `make web MODULE=audrey`. See web-configurator/src/lib/activeModule.ts.
+# targets — `make web MODULE=alloycoil`. See web-configurator/src/lib/activeModule.ts.
 web: $(WEB)/node_modules
 	cd $(WEB) && VITE_MODULE=$(MODULE) $(NPM) run build
 
@@ -612,7 +612,7 @@ CLANG_FORMAT ?= $(firstword \
 # lines we actually changed. Their own style is upstream's business.
 FORMAT_FILES = git ls-files --cached --others --exclude-standard \
     "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" \
-    ":(exclude)vendor/" ":(exclude)modules/audrey/"
+    ":(exclude)vendor/" ":(exclude)modules/alloycoil/"
 
 .PHONY: format format-check
 

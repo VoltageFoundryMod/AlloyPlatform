@@ -14,8 +14,8 @@
 //
 // Every symbol here is declared by the platform and **defined by exactly one
 // module**, which is what makes the compile-time engine selection work: link
-// AlloyFlux's definitions and you get AlloyFlux, link Audrey's and you get
-// Audrey, from the same platform sources.
+// AlloyFlux's definitions and you get AlloyFlux, link Alloy Coil's and you get
+// Alloy Coil, from the same platform sources.
 //
 // A module that has nothing to say for a given hook still has to define it —
 // an empty body is the answer. That is deliberate: a missing definition is a

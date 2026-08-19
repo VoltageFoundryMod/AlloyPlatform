@@ -1,8 +1,13 @@
-# Audrey II — vendored engine
+# Alloy Coil — vendored engine
 
 The feedback-resonator engine from
 [Synthux Academy's Audrey II](https://github.com/Synthux-Academy/Audrey-II),
 vendored as the Alloy platform's second module.
+
+**The module is called Alloy Coil, not Audrey II.** The port was made with the
+original author's blessing, and carries its own name at their request so that
+support questions and bug reports reach whoever owns the code in front of the
+user. "Audrey II" below always means *upstream*.
 
 | Upstream | Commit |
 | -------- | ------ |
@@ -81,7 +86,7 @@ fit" below for how that was arrived at and what the levers are.
 AlloyFlux's firmware links at 356 664 B of RAM, of which `sizeof(SynthEngine)`
 is 325 792 B — so everything else the platform needs (USB, serial console,
 LEDs, config, I²S DMA buffers, parameter tables, globals) is **30 872 B**.
-Audrey's image needs the same infrastructure. Allowing ~16 KB for stacks and
+Alloy Coil's image needs the same infrastructure. Allowing ~16 KB for stacks and
 headroom on a 524 288 B part leaves roughly **466 KiB for the engine**.
 
 ### Where it started
@@ -115,13 +120,13 @@ trade-offs can be compared by ear rather than argued about:
 
 | Switch | Default | Effect |
 | ------ | ------- | ------ |
-| `AUDREY_ECHO_DECIMATION` | 4 | echo loop rate = `fs / N` |
-| `AUDREY_ECHO_Q15` | 1 | `int16` storage; 0 = float |
-| `AUDREY_ECHO_NOISE_SHAPE` | 0 | first-order error feedback on the quantiser |
-| `AUDREY_ECHO_ANTIALIAS` | 1 | the filter ahead of the decimator — measurement only |
-| `AUDREY_ECHO_MAX_S` | 4 | maximum echo time, seconds |
+| `COIL_ECHO_DECIMATION` | 4 | echo loop rate = `fs / N` |
+| `COIL_ECHO_Q15` | 1 | `int16` storage; 0 = float |
+| `COIL_ECHO_NOISE_SHAPE` | 0 | first-order error feedback on the quantiser |
+| `COIL_ECHO_ANTIALIAS` | 1 | the filter ahead of the decimator — measurement only |
+| `COIL_ECHO_MAX_S` | 4 | maximum echo time, seconds |
 
-`-DAUDREY_ECHO_DECIMATION=1 -DAUDREY_ECHO_Q15=0` restores upstream behaviour
+`-DCOIL_ECHO_DECIMATION=1 -DCOIL_ECHO_Q15=0` restores upstream behaviour
 exactly.
 
 Both reductions carry real DSP risk, and the mitigations are the substance:
@@ -143,7 +148,7 @@ Both reductions carry real DSP risk, and the mitigations are the substance:
 
 Echo maximum time, at ~11.7 KiB per second of stereo echo:
 
-| `AUDREY_ECHO_MAX_S` | `sizeof(Engine)` | Margin vs ~466 KiB |
+| `COIL_ECHO_MAX_S` | `sizeof(Engine)` | Margin vs ~466 KiB |
 | ------------------- | ---------------- | ------------------ |
 | 5 | 490.2 KiB | **−24 KiB — does not fit** |
 | **4 (default)** | **443.3 KiB** | **+23 KiB** |
@@ -155,7 +160,7 @@ margin. Drop to 3 s if the firmware build comes in tighter than the estimate.
 
 ### What the host harness does and does not prove
 
-`make audrey-host` runs 10 s at unity feedback gain with echo feedback at 1.05
+`make coil-host` runs 10 s at unity feedback gain with echo feedback at 1.05
 and checks for NaN, silence and DC drift. All four switch combinations pass,
 with peaks within 0.6 % of each other — so decimation and quantisation are not
 changing gross behaviour or destabilising the loop.
@@ -166,8 +171,8 @@ frequency without changing the signal's peak or mean, and the difference sits
 around −90 dBFS — below what a 4-decimal peak and a 6-decimal DC mean can
 resolve. The same goes for the anti-alias filter.
 
-That is what **`make audrey-ab`** is for, and it has now been run — see
-`modules/audrey/test/echo_ab.cpp` and milestone 63f-ab. Both risks came back
+That is what **`make coil-ab`** is for, and it has now been run — see
+`modules/alloycoil/test/echo_ab.cpp` and milestone 63f-ab. Both risks came back
 clean: the anti-alias filter buys 19–47 dB of fold-down rejection and is
 load-bearing (without it, 11 kHz folds to 1 kHz at −3 dB), and `int16` storage
 costs 0.0–0.1 dB of SNR because the floor is set by `SoftClip`'s
@@ -191,12 +196,12 @@ full-rate.
 
 ## Still to do
 
-Integration, the VCV A/B and the budget check are all done — the Audrey image
-links at 477 396 B (91.1 % of the part) with `AUDREY_ECHO_MAX_S=4`, so the
-inferred 466 KiB budget held and `-DAUDREY_ECHO_MAX_S=3` stays in reserve rather
+Integration, the VCV A/B and the budget check are all done — the Alloy Coil image
+links at 477 396 B (91.1 % of the part) with `COIL_ECHO_MAX_S=4`, so the
+inferred 466 KiB budget held and `-DCOIL_ECHO_MAX_S=3` stays in reserve rather
 than being needed. What remains is hardware, not DSP:
 
-- **No `IHardwareIO` implementation.** Audrey's firmware drives its parameters
+- **No `IHardwareIO` implementation.** Alloy Coil's firmware drives its parameters
   from MIDI, SysEx and the serial console only; `io/PanelMap.h` and
   `io/IOBridge.h` are live in the VCV build and ready for the knobs, CV, buttons
   and LEDs whenever the multiplexed ADC driver lands.

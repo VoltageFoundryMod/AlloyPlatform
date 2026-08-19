@@ -63,11 +63,11 @@ class Engine {
         // Maximum echo time, in seconds at 48 kHz. Upstream is 5.0; this is the
         // one lever left once the echo is decimated and quantised, and it costs
         // ~11.7 KiB per second of stereo echo. Overridable at build time —
-        // -DAUDREY_ECHO_MAX_S=4 — because it is a voicing decision, not a
+        // -DCOIL_ECHO_MAX_S=4 — because it is a voicing decision, not a
         // technical one, and it is the difference between fitting the part
         // comfortably and fitting it by a hair.
-#ifndef AUDREY_ECHO_MAX_S
-#define AUDREY_ECHO_MAX_S 4
+#ifndef COIL_ECHO_MAX_S
+#define COIL_ECHO_MAX_S 4
 #endif
 
         // Master soft clip at the module's output edge (renderAudio()). On by
@@ -77,15 +77,15 @@ class Engine {
         // harness sees the same default and reports what the firmware really
         // does — it lived in main.cpp first and the harness kept reporting
         // clipping the firmware no longer had.
-#ifndef AUDREY_OUTPUT_SOFTCLIP
-#define AUDREY_OUTPUT_SOFTCLIP 1
+#ifndef COIL_OUTPUT_SOFTCLIP
+#define COIL_OUTPUT_SOFTCLIP 1
 #endif
 
     private:
         // long enough for 250ms at 48kHz
         static constexpr size_t kMaxFeedbackDelaySamp = 12000;
         static constexpr size_t kMaxEchoDelaySamp
-            = static_cast<size_t>(48000 * AUDREY_ECHO_MAX_S);
+            = static_cast<size_t>(48000 * COIL_ECHO_MAX_S);
 
         float sample_rate_;
         float fb_gain_ = 0.0f;

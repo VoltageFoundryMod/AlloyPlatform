@@ -18,16 +18,16 @@ lists every target.
 
 | Target     | Command                  | Notes                                                                                   |
 | ---------- | ------------------------ | --------------------------------------------------------------------------------------- |
-| Firmware   | `make` / `make firmware` | one image per module; `ENV=audrey` for the other. Output `.pio/build/$ENV/firmware.uf2` |
+| Firmware   | `make` / `make firmware` | one image per module; `ENV=alloycoil` for the other. Output `.pio/build/$ENV/firmware.uf2` |
 |            | `make firmware-all`      | every module's image — run after touching `platform/`                                   |
 |            | `make upload`            | build + flash; `make upload-monitor` also opens the serial console                      |
 | VCV plugin | `make vcv`               | **one** `plugin.dll` with *all* modules in it — there is no per-module VCV build        |
 |            | `make vcv-install`       | installs into Rack's user plugin dir (`make print-plugins-dir`)                         |
 |            | `make vcv-dist`          | packages the `.vcvplugin` for the VCV library                                           |
-| Web        | `make web`               | one build per module; `MODULE=audrey` for the other. Into `web-configurator/dist`       |
+| Web        | `make web`               | one build per module; `MODULE=alloycoil` for the other. Into `web-configurator/dist`       |
 |            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc                      |
 | Everything | `make everything`        | every firmware image + VCV + every web build                                            |
-| Audrey     | `make audrey-host`       | host-compiles + runs the vendored Audrey engine; prints its footprint                   |
+| Alloy Coil     | `make coil-host`       | host-compiles + runs the vendored Alloy Coil engine; prints its footprint                   |
 | Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate                  |
 
 `RACK_DIR` defaults to a `Rack-SDK` checkout beside this repository. Override it
@@ -43,7 +43,7 @@ session itself.
 Always run `make everything` after changing shared headers under `platform/include/` or `modules/alloyflux/include/`
 to confirm no regressions on either platform.
 
-**Vendored trees** — [`vendor/daisysp/`](vendor/daisysp/) and [`modules/audrey/`](modules/audrey/) — each carry a recorded upstream commit in their README and are excluded from `make format`. Don't restyle them; record any local patch in the README so re-vendoring stays a matter of re-applying a known list.
+**Vendored trees** — [`vendor/daisysp/`](vendor/daisysp/) and [`modules/alloycoil/`](modules/alloycoil/) — each carry a recorded upstream commit in their README and are excluded from `make format`. Don't restyle them; record any local patch in the README so re-vendoring stays a matter of re-applying a known list.
 
 ---
 
@@ -68,10 +68,10 @@ Key files and directories:
 
 `IHardwareIO` (defined in [`platform/include/io/HardwareIO.h`](platform/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
 
-- **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h). Audrey has none yet, so its knobs and CV are VCV-only.
+- **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h). Alloy Coil has none yet, so its knobs and CV are VCV-only.
 - **VCV** — `VCVRackIO` in [`platform/vcv/VCVRackIO.h`](platform/vcv/VCVRackIO.h), shared by every module. `SubMenuSlider.hpp` sits beside it for shift-secondaries.
 
-Its identifiers are **positional** — `PotId::POT_1`, `CVId::CV_3`, `LightId::LIGHT_5`. Each module names them in its own `io/PanelMap.h` — AlloyFlux as `Pot::ROOT`/`Cv::VOCT`, Audrey as `Pot::PITCH`/`Cv::EXCITER` — and **both map the same slot numbers to the same physical positions**, because they share a PCB. Use the `Pot::`/`Cv::` names in module code; never add a semantic name to the HAL. **Slot order is the flash format** — append, never insert.
+Its identifiers are **positional** — `PotId::POT_1`, `CVId::CV_3`, `LightId::LIGHT_5`. Each module names them in its own `io/PanelMap.h` — AlloyFlux as `Pot::ROOT`/`Cv::VOCT`, Alloy Coil as `Pot::PITCH`/`Cv::EXCITER` — and **both map the same slot numbers to the same physical positions**, because they share a PCB. Use the `Pot::`/`Cv::` names in module code; never add a semantic name to the HAL. **Slot order is the flash format** — append, never insert.
 
 The platform's audio boundary is **float ±1.0**. AlloyFlux's `int32 ±kSignalFullScale` is an internal convention and converts only at its own edge (`renderAudio()` on hardware, `setVoltage()` in VCV) — see `kSignalToFloat` / `kFloatToSignal` in `SynthEngine.h`.
 
@@ -83,12 +83,12 @@ There is **no engine singleton**. The firmware owns one `SynthEngine` at file sc
 
 [`web-configurator/src/`](web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
 
-- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46` for AlloyFlux, `0x41 0x55` for Audrey)
+- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46` for AlloyFlux, `0x41 0x55` for Alloy Coil)
 - **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md)
 
 Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
 
-Which module the build targets is a **build-time** choice: `src/lib/activeModule.ts` reads `VITE_MODULE` (`make web MODULE=audrey`) and selects both the generated parameter map and the SysEx signature. It fails closed — an AlloyFlux build will not connect to an Audrey module rather than showing the wrong controls. Runtime auto-detection is possible (the signature is in every message) but means making `PARAM_MAP` reactive throughout the UI.
+Which module the build targets is a **build-time** choice: `src/lib/activeModule.ts` reads `VITE_MODULE` (`make web MODULE=alloycoil`) and selects both the generated parameter map and the SysEx signature. It fails closed — an AlloyFlux build will not connect to an Alloy Coil module rather than showing the wrong controls. Runtime auto-detection is possible (the signature is in every message) but means making `PARAM_MAP` reactive throughout the UI.
 
 **Requirement**: Chrome or Edge only — Web Serial and Web MIDI APIs are not supported in Firefox/Safari.
 
@@ -164,5 +164,5 @@ SynthEngine::audio()   @ 48000 Hz  ← oscillators, filters, reverb, output summ
 - [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) — CC map and SysEx protocol
 - [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md) — serial console commands
 - [`modules/alloyflux/MANUAL.md`](modules/alloyflux/MANUAL.md) — Alloy Flux end-user manual
-- [`modules/audrey/MANUAL.md`](modules/audrey/MANUAL.md) — Audrey II end-user manual
+- [`modules/alloycoil/MANUAL.md`](modules/alloycoil/MANUAL.md) — Alloy Coil end-user manual
 - [`references/ai-notes/`](references/ai-notes/) — AI-generated notes on debugging, refactors, and optimizations (e.g. reverb concurrency, MIDI handling, etc.)

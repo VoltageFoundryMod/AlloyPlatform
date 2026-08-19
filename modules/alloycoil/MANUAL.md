@@ -1,12 +1,12 @@
-# Audrey II — User Manual
+# Alloy Coil — User Manual
 
 ## Feedback Resonator · Stereo Voice · Eurorack
 
 ---
 
-## What Is Audrey II?
+## What Is Alloy Coil?
 
-Audrey II is a **feedback instrument**. At its heart is a plucked-string
+Alloy Coil is a **feedback instrument**. At its heart is a plucked-string
 resonator whose output is fed back into its own input, through a waveshaper and
 a pair of filters. Turn the feedback up and the string stops decaying and starts
 sustaining; turn it up further and it blooms into saturation and keeps going.
@@ -22,11 +22,20 @@ lives.
 
 The engine has been ported to the Alloy Platform which is a compact and powerful platform for Eurorack modules. The module is also published as a VCV Rack plugin under the Alloy Platform.
 
-Engine and name by [Synthux Academy](https://github.com/Synthux-Academy/Audrey-II)
-— concept and firmware by Nick Donaldson, original visual and hardware design by
-Roey Tsemah. The engine is used under MIT; the name is theirs and this port does
-not claim it. See `CREDITS.md` and `LICENSE`, and `LICENSING.md` at the root of
-the repository.
+Alloy Coil's engine is the work of Nick Donaldson (concept and firmware) and
+Roey Tsemah (original visual and hardware design) at
+[Synthux Academy](https://github.com/Synthux-Academy/Audrey-II), where it powers
+their module **Audrey II**. It is used here under MIT with its credits intact.
+
+**Alloy Coil is not Audrey II.** The port was made with the original author's
+blessing, and ships under its own name at their request so that support
+questions and bug reports reach whoever actually wrote the code in front of you.
+Anything about *this* module — the Alloy Platform port, the panel, the firmware,
+the VCV build — belongs here. Anything about Audrey II itself belongs
+[upstream](https://github.com/Synthux-Academy/Audrey-II).
+
+See `CREDITS.md` and `LICENSE`, and `LICENSING.md` at the root of the
+repository.
 
 ---
 
@@ -154,7 +163,7 @@ raw modular-level signal without clipping the front end.
 
 ## MIDI
 
-Appears as **Audrey II MIDI** over USB. TRS MIDI (type A) works at the same
+Appears as **Alloy Coil MIDI** over USB. TRS MIDI (type A) works at the same
 time. Every parameter is mirrored to a CC in real time in both directions, so a
 controller follows the knobs and vice versa.
 
@@ -197,7 +206,7 @@ slots** addressed by SysEx. A tenth slot auto-saves at startup, so the module
 comes back the way you left it.
 
 The easiest way in is the **Web Configurator** — connect over USB, no drivers
-and no app to install. It reads the device signature and loads Audrey's
+and no app to install. It reads the device signature and loads Alloy Coil's
 parameter map automatically.
 
 ---

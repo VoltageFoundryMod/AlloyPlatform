@@ -6,4 +6,4 @@ using namespace rack;
 extern Plugin *pluginInstance;
 
 extern Model *modelAlloyFlux;
-extern Model *modelAudrey;
+extern Model *modelAlloyCoil;

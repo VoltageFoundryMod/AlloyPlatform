@@ -27,7 +27,7 @@ void Engine::Init(const float sample_rate) {
     fb_delayline_[i].Init();
 
     echo_delay_[i].Init(sample_rate);
-    echo_delay_[i].SetDelayTime((float)AUDREY_ECHO_MAX_S, true);
+    echo_delay_[i].SetDelayTime((float)COIL_ECHO_MAX_S, true);
     echo_delay_[i].SetFeedback(0.5f);
     echo_delay_[i].SetLagTime(0.5f);
 

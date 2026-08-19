@@ -7,7 +7,7 @@ RACK_DIR ?= ../../Rack-SDK
 # once. That works only because the modules share no header names; if two ever
 # do, the first -I wins silently, which is the same trap `plugin.hpp` and
 # `config_store.h` have already sprung. Module headers are named for their
-# module (alloy_config.h, audrey_config.h) precisely to keep that from
+# module (alloy_config.h, coil_config.h) precisely to keep that from
 # happening. The exceptions are params.h and io/PanelMap.h, which DO collide —
 # hence the per-object include order below rather than a shared list.
 EXTRA_FLAGS += -I../platform/include
@@ -32,10 +32,10 @@ SOURCES += src/plugin.cpp
 OBJECTS += build/AlloyFlux.cpp.o
 OBJECTS += build/SynthEngine.cpp.o
 
-OBJECTS += build/Audrey.cpp.o
-OBJECTS += build/audrey/FeedbackSynthEngine.cpp.o
-OBJECTS += build/audrey/KarplusString.cpp.o
-OBJECTS += build/audrey/BiquadFilters.cpp.o
+OBJECTS += build/AlloyCoil.cpp.o
+OBJECTS += build/alloycoil/FeedbackSynthEngine.cpp.o
+OBJECTS += build/alloycoil/KarplusString.cpp.o
+OBJECTS += build/alloycoil/BiquadFilters.cpp.o
 OBJECTS += build/daisysp/dcblock.cpp.o
 OBJECTS += build/daisysp/tone.cpp.o
 OBJECTS += build/daisysp/crossfade.cpp.o
@@ -60,7 +60,7 @@ CXXFLAGS := $(filter-out -Wno-vla-extension,$(CXXFLAGS))
 # hand one module the other's globals with no diagnostic beyond a link error
 # much later.
 ALLOYFLUX_INC := -I../modules/alloyflux/include
-AUDREY_INC    := -I../modules/audrey/include -I../vendor/daisysp
+COIL_INC    := -I../modules/alloycoil/include -I../vendor/daisysp
 
 build/SynthEngine.cpp.o: ../modules/alloyflux/src/SynthEngine.cpp
 	@mkdir -p $(@D)
@@ -70,17 +70,17 @@ build/AlloyFlux.cpp.o: ../modules/alloyflux/vcv/AlloyFlux.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $(ALLOYFLUX_INC) -c -o $@ $<
 
-build/Audrey.cpp.o: ../modules/audrey/vcv/Audrey.cpp
+build/AlloyCoil.cpp.o: ../modules/alloycoil/vcv/AlloyCoil.cpp
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $(AUDREY_INC) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(COIL_INC) -c -o $@ $<
 
-build/audrey/%.cpp.o: ../modules/audrey/src/%.cpp
+build/alloycoil/%.cpp.o: ../modules/alloycoil/src/%.cpp
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $(AUDREY_INC) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(COIL_INC) -c -o $@ $<
 
 build/daisysp/%.cpp.o: ../vendor/daisysp/%.cpp
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) $(AUDREY_INC) -c -o $@ $<
+	$(CXX) $(CXXFLAGS) $(COIL_INC) -c -o $@ $<
 
 # Header dependency tracking for the objects above.
 #

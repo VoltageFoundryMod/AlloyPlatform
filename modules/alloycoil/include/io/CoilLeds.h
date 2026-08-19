@@ -1,14 +1,14 @@
 #pragma once
 
 #include "io/HardwareIO.h"
-#include "io/PanelMap.h" // Led:: — Audrey's LED roles
+#include "io/PanelMap.h" // Led:: — Alloy Coil's LED roles
 #include "params.h"      // gFeedbackGain, gEchoSend, gEchoTime, …
 
 #include <stdint.h>
 
 // ---------------------------------------------------------------------------
-// AudreyLeds — the LED language for Audrey II, implemented once for both
-// targets exactly as fillAudreyParams() is.
+// CoilLeds — the LED language for Alloy Coil, implemented once for both
+// targets exactly as fillCoilParams() is.
 //
 // Platform-independent: no Arduino, no Rack, no libm. update() reads the gXxx
 // goal values directly and produces seven normalised RGB colours; writeTo()
@@ -16,12 +16,12 @@
 // get the same picture.
 //
 // It reads the globals rather than taking a params struct for the same reason
-// io/IOBridge.h writes them directly: Audrey has no smoothing layer in between,
+// io/IOBridge.h writes them directly: Alloy Coil has no smoothing layer in between,
 // and a struct would be ceremony.
 //
 // What each LED says
 // ------------------
-// Audrey is a feedback instrument. The one thing a player needs to see that the
+// Alloy Coil is a feedback instrument. The one thing a player needs to see that the
 // sound alone does not tell them in time is **how close the loop is to running
 // away**, so that gets the two largest, most symmetric LEDs and the only colour
 // ramp anyone has to learn:
@@ -37,13 +37,13 @@
 // is where the truth is — the loop's real gain depends on the feedback filters
 // and the string, not only on the knob.
 //
-// Not wired on hardware yet: Audrey's firmware has no IHardwareIO implementation
-// at all (no ADC, no button engine — see modules/audrey/src/main.cpp). When it
+// Not wired on hardware yet: Alloy Coil's firmware has no IHardwareIO implementation
+// at all (no ADC, no button engine — see modules/alloycoil/src/main.cpp). When it
 // gets one, `leds.update(sig, dt); leds.writeTo(io);` in updateControl() is the
 // whole integration, and the colours will match the plugin by construction.
 // ---------------------------------------------------------------------------
 
-namespace AudreyLed
+namespace CoilLed
 {
 
 /** Normalised linear RGB, 0.0–1.0 per channel. Plain aggregate (C++11). */
@@ -336,4 +336,4 @@ class Engine
     float _breathePhase = 0.0f;
 };
 
-} // namespace AudreyLed
+} // namespace CoilLed
