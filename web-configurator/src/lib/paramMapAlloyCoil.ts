@@ -55,7 +55,7 @@ export const PARAM_MAP: CCParam[] = [
     max: 0.1,
     default: 0.001,
     unit: "s",
-    scale: "log",
+    skew: 2.0,
   },
   {
     cc: 74,
@@ -99,7 +99,7 @@ export const PARAM_MAP: CCParam[] = [
     max: 4,
     default: 0.5,
     unit: "s",
-    scale: "log",
+    skew: 2.0,
   },
   {
     cc: 87,

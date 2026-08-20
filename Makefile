@@ -143,9 +143,10 @@ MODULES := alloyflux alloycoil
 all: firmware
 
 # Everything a shared change can break. Both firmware images, because a change
-# under platform/ compiles differently against each module, and both web builds
-# for the same reason.
-everything: firmware-all vcv web-all
+# under platform/ compiles differently against each module. The web build is
+# module-agnostic now — one bundle drives both — so it is built once; web-all
+# stays for checking that each MODULE default still starts up.
+everything: firmware-all vcv web
 
 .PHONY: firmware-all web-all
 firmware-all:
@@ -166,7 +167,8 @@ help list:
 	@echo ""
 	@echo "  Modules: $(MODULES)"
 	@echo "    ENV=<module>      picks the firmware image   (current: $(ENV))"
-	@echo "    MODULE=<module>   picks the params/web target (current: $(MODULE))"
+	@echo "    MODULE=<module>   picks the params target, and the configurator's"
+	@echo "                      startup default          (current: $(MODULE))"
 	@echo ""
 	@echo "  Firmware (RP2350, one image per module)"
 	@echo "    firmware          build firmware.uf2                  (default)"
@@ -185,9 +187,9 @@ help list:
 	@echo "    vcv-clean         clean the plugin build"
 	@echo "    print-plugins-dir print Rack's user plugin directory"
 	@echo ""
-	@echo "  Web Configurator (Svelte + Vite, one build per module)"
+	@echo "  Web Configurator (Svelte + Vite, one build drives every module)"
 	@echo "    web               production build into $(WEB)/dist"
-	@echo "    web-all           build every module's configurator in turn"
+	@echo "    web-all           rebuild once per MODULE default (rarely needed)"
 	@echo "    web-dev           vite dev server on localhost:5173"
 	@echo "    web-check         svelte-check + tsc type validation"
 	@echo "    web-deps          npm install"
@@ -204,7 +206,7 @@ help list:
 	@echo "    coil-ab-sweep   the same, across the whole switch matrix"
 	@echo ""
 	@echo "  Across the repo"
-	@echo "    everything        every firmware image + vcv + every web build"
+	@echo "    everything        every firmware image + vcv + the web build"
 	@echo "    format            clang-format every tracked C/C++ file"
 	@echo "    format-check      verify formatting without writing (CI gate)"
 	@echo "    clean             all three clean targets"
@@ -291,7 +293,8 @@ COIL_SRCS := modules/alloycoil/test/host_build.cpp \
                vendor/daisysp/tone.cpp \
                vendor/daisysp/crossfade.cpp \
                vendor/daisysp/overdrive.cpp \
-               vendor/daisysp/reverbsc.cpp
+               vendor/daisysp/reverbsc.cpp \
+               vendor/daisysp/limiter.cpp
 
 # HOST_EXTRA passes build switches through, which is how the size/quality
 # trade-offs get compared rather than argued about:
@@ -419,7 +422,7 @@ INKSCAPE ?= $(shell for p in \
 # happily render all of it on top of the finished panel. Keyed on the Inkscape
 # layer label, which is the name you chose and will keep, rather than on the
 # generated id.
-PANEL_HIDE_LAYERS ?= components
+PANEL_HIDE_LAYERS ?= components Drill
 
 # The action list, overridable so a variant can be tried without editing this
 # file: make panels PANEL_ACTIONS="..."
@@ -577,8 +580,10 @@ $(WEB)/node_modules:
 web-deps:
 	cd $(WEB) && $(NPM) install
 
-# MODULE selects which module''s parameter map and SysEx signature the build
-# targets — `make web MODULE=alloycoil`. See web-configurator/src/lib/activeModule.ts.
+# One build serves every module: the page detects which one is on the MIDI port
+# from its SysEx signature and loads that parameter map. MODULE only sets which
+# module a browser that has never connected to anything opens on — after that
+# the page remembers the last one it saw. See web-configurator/src/lib/activeModule.ts.
 web: $(WEB)/node_modules
 	cd $(WEB) && VITE_MODULE=$(MODULE) $(NPM) run build
 

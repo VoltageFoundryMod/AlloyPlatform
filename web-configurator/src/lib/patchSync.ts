@@ -1,4 +1,9 @@
-import { ACTIVE_MODULE } from "./activeModule";
+import {
+  currentModule,
+  moduleForSysExDev,
+  SYSEX_DEV_ANY,
+  type ModuleInfo,
+} from "./activeModule";
 
 /**
  * Patch sync — Alloy platform SysEx / serial dump protocol.
@@ -7,6 +12,9 @@ import { ACTIVE_MODULE } from "./activeModule";
  *   7D 41 46 <cmd> [cc0 val0 cc1 val1 ...]
  *   7D      = non-commercial manufacturer ID
  *   41 46   = the module's device signature ('A','F' AlloyFlux; 'A','C' Alloy Coil)
+ *   7F 7F   = wildcard: every module answers, REQUEST_DUMP only.  Used to
+ *             discover which module is on the port — the PATCH_DUMP that comes
+ *             back carries the real signature.
  *   cmd:
  *     0x01  REQUEST_DUMP  — host → device: please send your current patch
  *     0x02  PATCH_DUMP    — device → host: here are all the CC pairs
@@ -27,9 +35,16 @@ import { ACTIVE_MODULE } from "./activeModule";
 
 export const SYSEX_MFR = 0x7d as const; // non-commercial manufacturer ID
 
-// Device signature of the module this build targets — see activeModule.ts.
-export const SYSEX_DEVA = ACTIVE_MODULE.sysexDev[0];
-export const SYSEX_DEVF = ACTIVE_MODULE.sysexDev[1];
+/** Signature bytes to address a message with. Defaults to the active module. */
+export type SysExDev = readonly [number, number];
+
+/** The wildcard every module answers — see activeModule.ts. */
+export const SYSEX_DEV_BROADCAST: SysExDev = [SYSEX_DEV_ANY, SYSEX_DEV_ANY];
+
+/** Signature of the module currently being shown. */
+export function activeDev(): SysExDev {
+  return currentModule().sysexDev;
+}
 
 export const SysexCmd = {
   REQUEST: 0x01, // host → device: send current patch
@@ -54,30 +69,53 @@ export interface CCPair {
  * Build a SysEx body (bytes between F0 and F7) for the given command and
  * CC pair payload.  All bytes are 7-bit safe.
  */
-export function buildSysExBody(cmd: number, pairs: CCPair[]): number[] {
-  const body: number[] = [SYSEX_MFR, SYSEX_DEVA, SYSEX_DEVF, cmd & 0x7f];
+export function buildSysExBody(
+  cmd: number,
+  pairs: CCPair[],
+  dev: SysExDev = activeDev(),
+): number[] {
+  const body: number[] = [SYSEX_MFR, dev[0], dev[1], cmd & 0x7f];
   for (const { cc, value } of pairs) {
     body.push(cc & 0x7f, value & 0x7f);
   }
   return body;
 }
 
+/** A patch message with the identity of the module that sent it. */
+export interface ParsedPatch {
+  /** Null when the signature belongs to no module this build knows about. */
+  module: ModuleInfo | null;
+  /** The two signature bytes as received, for reporting an unknown module. */
+  dev: SysExDev;
+  /** DUMP or APPLY. Only a DUMP can have come from a device: APPLY is a
+   *  host→device command, and on a loopback port (loopMIDI, IAC, Rack) our own
+   *  APPLY comes straight back at us — which would otherwise read as a module
+   *  answering, and confirm a link to nobody. */
+  cmd: number;
+  pairs: CCPair[];
+}
+
 /**
- * Parse a SysEx body (without F0/F7) into CCPairs.
+ * Parse a SysEx body (without F0/F7) into CCPairs plus the sender's identity.
  * Accepts both DUMP (0x02) and APPLY (0x03) command types.
- * Returns null if the header is not this module's.
+ * Returns null if this is not an Alloy patch message at all.
+ *
+ * Note what is deliberately *not* checked: whether the sender is the module
+ * currently on screen.  Answering that is the caller's job — a dump from a
+ * different module is the discovery result, not an error, and it is how the
+ * page learns what it is connected to.
  */
-export function parseSysExBody(data: Uint8Array): CCPair[] | null {
+export function parseSysExBody(data: Uint8Array): ParsedPatch | null {
   if (data.length < 5) return null;
-  if (data[0] !== SYSEX_MFR || data[1] !== SYSEX_DEVA || data[2] !== SYSEX_DEVF)
-    return null;
+  if (data[0] !== SYSEX_MFR) return null;
   const cmd = data[3];
   if (cmd !== SysexCmd.DUMP && cmd !== SysexCmd.APPLY) return null;
+  const dev: SysExDev = [data[1], data[2]];
   const pairs: CCPair[] = [];
   for (let i = 4; i + 1 < data.length; i += 2) {
     pairs.push({ cc: data[i] & 0x7f, value: data[i + 1] & 0x7f });
   }
-  return pairs;
+  return { module: moduleForSysExDev(dev[0], dev[1]), dev, cmd, pairs };
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +147,7 @@ export function parseSerialDump(lines: string[]): CCPair[] {
 
 /**
  * Build a standard .syx Blob containing a PATCH_DUMP message.
- * Format: F0 [AlloyFlux DUMP body] F7
+ * Format: F0 [DUMP body signed with the active module's signature] F7
  */
 export function buildSyxBlob(pairs: CCPair[]): Blob {
   const body = buildSysExBody(SysexCmd.DUMP, pairs);
@@ -119,10 +157,12 @@ export function buildSyxBlob(pairs: CCPair[]): Blob {
 
 /**
  * Parse a .syx file ArrayBuffer.
- * Finds the first AlloyFlux SysEx message and returns its CC pairs.
- * Returns null if no valid AlloyFlux message is found.
+ * Finds the first Alloy SysEx message and returns its CC pairs along with the
+ * module that wrote it — a file exported from another module parses fine and
+ * reports that module, so the caller can say so instead of "invalid file".
+ * Returns null if there is no Alloy patch message in the buffer.
  */
-export function parseSyxBuffer(buf: ArrayBuffer): CCPair[] | null {
+export function parseSyxBuffer(buf: ArrayBuffer): ParsedPatch | null {
   const data = new Uint8Array(buf);
   let start = -1;
   for (let i = 0; i < data.length; i++) {

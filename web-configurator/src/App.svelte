@@ -1,12 +1,17 @@
 <script lang="ts">
   import {
-    PARAM_MAP,
-    PARAM_CATEGORIES,
-    PARAMS_BY_CATEGORY,
+    params,
+    paramsFor,
     ccToFloat,
     floatToCC,
+    type CCParam,
   } from "./lib/paramMap";
-  import { ACTIVE_MODULE } from "./lib/activeModule";
+  import {
+    activeModule,
+    setActiveModule,
+    MODULES,
+    type ModuleInfo,
+  } from "./lib/activeModule";
   import { midi } from "./lib/midi";
   import { serial } from "./lib/serial";
   import {
@@ -15,6 +20,7 @@
     parseSerialDump,
     buildSyxBlob,
     downloadFile,
+    SYSEX_DEV_BROADCAST,
     type CCPair,
   } from "./lib/patchSync";
   import ConnectionBar from "./components/ConnectionBar.svelte";
@@ -26,25 +32,35 @@
   import EnvelopeGraph from "./components/EnvelopeGraph.svelte";
   import MidiMonitor from "./components/MidiMonitor.svelte";
 
+  // The parameter tables of whichever module is on the port, following it as
+  // the discovery probe identifies one. Everything below reads these rather
+  // than a build-time import.
+  const PARAM_MAP = $derived($params.PARAM_MAP);
+  const PARAM_CATEGORIES = $derived($params.PARAM_CATEGORIES);
+  const PARAMS_BY_CATEGORY = $derived($params.PARAMS_BY_CATEGORY);
+
+  function seedSliders(map: CCParam[]): Record<number, number> {
+    return Object.fromEntries(
+      map
+        .filter((p) => !p.type || p.type === "slider")
+        .map((p) => [p.cc, p.default]),
+    );
+  }
+
+  function seedSelects(map: CCParam[]): Record<number, number> {
+    return Object.fromEntries(
+      map.filter((p) => p.type === "select").map((p) => [p.cc, p.default ?? 0]),
+    );
+  }
+
   // Float values, keyed by CC — only meaningful for slider-type params
-  let paramValues = $state(
-    Object.fromEntries(
-      PARAM_MAP.filter((p) => !p.type || p.type === "slider").map((p) => [
-        p.cc,
-        p.default,
-      ]),
-    ),
-  );
+  let paramValues = $state(seedSliders($params.PARAM_MAP));
 
   // Raw CC values for select params (needed for derived computations like chord name)
-  let selectValues = $state(
-    Object.fromEntries(
-      PARAM_MAP.filter((p) => p.type === "select").map((p) => [
-        p.cc,
-        p.default ?? 0,
-      ]),
-    ),
-  );
+  let selectValues = $state(seedSelects($params.PARAM_MAP));
+
+  // Signature of a module this build has no map for — see the SysEx handler.
+  let unknownDev = $state<string | null>(null);
 
   // MIDI receive channel (0=omni, 1-16). Set by CC 110 in patch dump; sent via SysEx 0x07.
   let midiChannel = $state(0);
@@ -55,8 +71,13 @@
       midi.sendSysEx(SysexCmd.SET_MIDI_CHANNEL, [ch & 0x7f]);
   }
 
-  // Refs for pushing incoming MIDI-in to the right component
+  // Refs for pushing incoming MIDI-in to the right component. Deliberately not
+  // $state: nothing renders from them, they are only called imperatively, and
+  // the reassignment on a module switch is a cleanup rather than an update
+  // anything needs to react to.
+  // svelte-ignore non_reactive_update
   let sliderRefs: Record<number, { applyCC: (v: number) => void }> = {};
+  // svelte-ignore non_reactive_update
   let selectRefs: Record<number, { applyCC: (v: number) => void }> = {};
 
   // ---------------------------------------------------------------------------
@@ -102,17 +123,48 @@
   // ---------------------------------------------------------------------------
 
   /**
+   * Switch the UI to another module and return its tables.
+   *
+   * Returns even when nothing changed, so the caller can decode against the
+   * tables it asked for rather than re-reading a `$derived` that has not
+   * recomputed yet.
+   */
+  function switchModule(info: ModuleInfo) {
+    const tables = paramsFor(info.id);
+    if (setActiveModule(info)) {
+      // Values are keyed by CC, and the same CC means something different on
+      // another module — carrying them across would show one module's settings
+      // under the other's labels. Refs go too: the {#key} block in the template
+      // destroys every slider and select, and stale entries would otherwise be
+      // written to components that no longer exist.
+      paramValues = seedSliders(tables.PARAM_MAP);
+      selectValues = seedSelects(tables.PARAM_MAP);
+      sliderRefs = {};
+      selectRefs = {};
+      unknownDev = null;
+    }
+    return tables;
+  }
+
+  /**
    * Apply a batch of CC pairs to the UI.
    * Pass sendToDevice=true to also replay each CC to the connected MIDI output.
+   * `map` defaults to the active module's, and is passed explicitly by the
+   * discovery path, which decodes a dump against the map of the module that
+   * just identified itself.
    */
-  function applyPatch(pairs: CCPair[], sendToDevice = false) {
+  function applyPatch(
+    pairs: CCPair[],
+    sendToDevice = false,
+    map: CCParam[] = PARAM_MAP,
+  ) {
     for (const { cc, value } of pairs) {
       // CC 110 is the MIDI receive channel — not in PARAM_MAP, handled separately.
       if (cc === 110) {
         midiChannel = value; // 0=omni, 1-16
         continue;
       }
-      const param = PARAM_MAP.find((p) => p.cc === cc);
+      const param = map.find((p) => p.cc === cc);
       if (!param) continue;
       if (param.type === "select") {
         selectValues[cc] = value;
@@ -180,7 +232,13 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Auto-sync on MIDI connect — send REQUEST_DUMP, apply PATCH_DUMP response
+  // Auto-sync on MIDI connect — broadcast REQUEST_DUMP, identify the module
+  // from the PATCH_DUMP that answers, then apply it.
+  //
+  // The probe is addressed to the wildcard signature 7F 7F, which every Alloy
+  // module answers, so the page does not have to know what is on the port
+  // beforehand — the reply's header says which module it is and the payload is
+  // the patch. Detection and sync are the same round trip.
   // ---------------------------------------------------------------------------
   $effect(() => {
     // syncKey folds deviceConnected and syncNonce into one number: the store
@@ -198,31 +256,80 @@
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
     let done = false;
+    // The module that answered the probe. A broadcast reaches everything on the
+    // port, so two modules behind a merger both reply — the first to answer owns
+    // the session and the other is ignored, rather than the two taking turns
+    // rebuilding the page. Its own later dumps (a preset load) still apply.
+    let ownerId: string | null = null;
+
+    const FAST_ATTEMPTS = 8;
+    const FAST_INTERVAL_MS = 800;
+    const SLOW_INTERVAL_MS = 5000;
+
+    midi.probeStarted();
 
     const request = () => {
       if (done) return;
-      midi.sendSysEx(SysexCmd.REQUEST, []);
-      if (++attempts < 8) {
-        timer = setTimeout(request, 800);
-      } else {
-        // Eight requests over ~6 s with no answer means we are talking to a
-        // port that is not the module — typically a stale entry Chrome kept
-        // after a re-flash, which still reports as connected so the store's
-        // auto-rescan never fires. Re-enumerate; if that turns up a different
-        // port the store bumps syncNonce and this effect runs again from
-        // scratch. If nothing changes, no nonce bump and we stop here.
-        void midi.scan();
+      midi.sendSysEx(SysexCmd.REQUEST, [], SYSEX_DEV_BROADCAST);
+
+      if (++attempts <= FAST_ATTEMPTS) {
+        timer = setTimeout(request, FAST_INTERVAL_MS);
+        return;
       }
+
+      // Past the fast phase nothing has answered, which the UI now says out
+      // loud rather than sitting on a "Connected" badge that only ever meant
+      // "a port exists".
+      midi.probeUnanswered();
+
+      if (attempts === FAST_ATTEMPTS + 1) {
+        // One re-enumeration at the transition: no answer usually means a
+        // stale port Chrome kept after a re-flash, which still reports as
+        // connected so the store's auto-rescan never fires. If that turns up a
+        // different port the store bumps syncNonce and this effect restarts.
+        void midi.scan();
+      } else {
+        // Firmware older than the wildcard ignores a broadcast, so from here
+        // also ask each known module by name. Only in the slow phase: it is
+        // legacy discovery, it costs one message per module, and new firmware
+        // has already answered the broadcast long before this.
+        for (const m of Object.values(MODULES))
+          midi.sendSysEx(SysexCmd.REQUEST, [], m.sysexDev);
+      }
+
+      // Keep asking, slowly, for as long as the port is there. This is what
+      // makes starting Rack, or flashing the module, recover on its own — the
+      // old code gave up after ~6 s and the only way back was a page reload.
+      timer = setTimeout(request, SLOW_INTERVAL_MS);
     };
     timer = setTimeout(request, 300);
 
     const unsubSysEx = midi.onSysEx((body: Uint8Array) => {
-      const pairs = parseSysExBody(body);
-      if (pairs && pairs.length > 0) {
-        done = true;
-        clearTimeout(timer);
-        applyPatch(pairs, false);
+      const patch = parseSysExBody(body);
+      if (!patch || patch.pairs.length === 0) return;
+      // Only a PATCH_DUMP is evidence of a device. On a loopback port every
+      // APPLY_PATCH this page sends arrives back as input, and treating that as
+      // a reply would have the page confirming a module that is not there.
+      if (patch.cmd !== SysexCmd.DUMP) return;
+      if (!patch.module) {
+        // An Alloy patch dump from something this build has no map for. Keep
+        // probing — a second module on the same port may still answer — but
+        // say so, because the alternative is a page that silently shows the
+        // wrong module's controls.
+        unknownDev = patch.dev
+          .map((b) => b.toString(16).toUpperCase().padStart(2, "0"))
+          .join(" ");
+        return;
       }
+      if (ownerId && patch.module.id !== ownerId) return;
+      ownerId = patch.module.id;
+      done = true;
+      clearTimeout(timer);
+      midi.probeAnswered(patch.module.name);
+      // Switch first, then decode against the map we just switched to: the
+      // `$derived` tables have not recomputed at this point in the tick.
+      const tables = switchModule(patch.module);
+      applyPatch(patch.pairs, false, tables.PARAM_MAP);
     });
     return () => {
       done = true;
@@ -400,7 +507,7 @@
   // Keyed by param *name* now, which params.json calls out as the stable API,
   // and gated on the module as well so a future name collision cannot bring
   // the bug back.
-  const isAlloyFlux = ACTIVE_MODULE.id === "alloyflux";
+  const isAlloyFlux = $derived($activeModule.id === "alloyflux");
 
   let sliderHints = $derived<Record<string, string | undefined>>(
     isAlloyFlux ? { rel: relHint, color: colorHint } : {},
@@ -485,66 +592,81 @@
   <!-- Top connection bar -->
   <ConnectionBar />
 
+  {#if unknownDev}
+    <div class="module-warning">
+      A module answered with SysEx signature <code>{unknownDev}</code>, which
+      this build has no parameter map for. Showing {$activeModule.name} controls
+      — they will not match. Update the configurator.
+    </div>
+  {/if}
+
   <!-- Main content -->
   <main class="main-content">
-    <!-- Left: parameters grouped by category -->
+    <!-- Left: parameters grouped by category.
+         Keyed on the module so a switch rebuilds every control from the new
+         map: ParamSelect seeds its selected option once at construction, and
+         ParamSlider's log/linear geometry comes from its param — neither can
+         be re-pointed at a different parameter in place. -->
     <section class="params-panel">
-      {#each PARAM_CATEGORIES as cat}
-        {@const catParams = PARAMS_BY_CATEGORY[cat]}
-        {@const selects = catParams.filter((p) => p.type === "select")}
-        {@const sliders = catParams.filter(
-          (p) => !p.type || p.type === "slider",
-        )}
-        <div class="cat-section">
-          <h3 class="cat-title">{cat}</h3>
-          {#if cat === "FX Chain"}
-            <FxChainVisual
-              filterPost={(selectValues[79] ?? 0) >= 64}
-              delayPost={(selectValues[80] ?? 0) >= 64}
-            />
-          {/if}
-          {#if cat === "Envelope"}
-            <EnvelopeGraph
-              isAdsr={(selectValues[81] ?? 0) >= 64}
-              attack={paramValues[73] ?? 0.05}
-              decay={paramValues[82] ?? 0.1}
-              sustain={paramValues[83] ?? 0.8}
-              release={paramValues[72] ?? 0.3}
-              curve={paramValues[71] ?? 0.5}
-              curveTime={paramValues[88] ?? 1.0}
-            />
-          {/if}
-          {#if selects.length}
-            <div class="select-row">
-              {#each selects as param}
-                <ParamSelect
-                  {param}
-                  bind:this={selectRefs[param.cc]}
-                  onchange={(v) => {
-                    selectValues[param.cc] = v;
-                  }}
-                />
-              {/each}
-            </div>
-          {/if}
-          {#if sliders.length}
-            <div class="params-grid">
-              {#each sliders as param}
-                {#if param.rowBreakBefore}
-                  <div class="row-break"></div>
-                {/if}
-                <ParamSlider
-                  {param}
-                  bind:value={paramValues[param.cc]}
-                  bind:this={sliderRefs[param.cc]}
-                  hint={sliderHints[param.name]}
-                  displayOverride={sliderDisplays[param.name]}
-                />
-              {/each}
-            </div>
-          {/if}
-        </div>
-      {/each}
+      {#key $activeModule.id}
+        {#each PARAM_CATEGORIES as cat}
+          {@const catParams = PARAMS_BY_CATEGORY[cat]}
+          {@const selects = catParams.filter((p) => p.type === "select")}
+          {@const sliders = catParams.filter(
+            (p) => !p.type || p.type === "slider",
+          )}
+          <div class="cat-section">
+            <h3 class="cat-title">{cat}</h3>
+            {#if cat === "FX Chain"}
+              <FxChainVisual
+                filterPost={(selectValues[79] ?? 0) >= 64}
+                delayPost={(selectValues[80] ?? 0) >= 64}
+              />
+            {/if}
+            {#if cat === "Envelope"}
+              <EnvelopeGraph
+                isAdsr={(selectValues[81] ?? 0) >= 64}
+                attack={paramValues[73] ?? 0.05}
+                decay={paramValues[82] ?? 0.1}
+                sustain={paramValues[83] ?? 0.8}
+                release={paramValues[72] ?? 0.3}
+                curve={paramValues[71] ?? 0.5}
+                curveTime={paramValues[88] ?? 1.0}
+              />
+            {/if}
+            {#if selects.length}
+              <div class="select-row">
+                {#each selects as param}
+                  <ParamSelect
+                    {param}
+                    initial={selectValues[param.cc]}
+                    bind:this={selectRefs[param.cc]}
+                    onchange={(v) => {
+                      selectValues[param.cc] = v;
+                    }}
+                  />
+                {/each}
+              </div>
+            {/if}
+            {#if sliders.length}
+              <div class="params-grid">
+                {#each sliders as param}
+                  {#if param.rowBreakBefore}
+                    <div class="row-break"></div>
+                  {/if}
+                  <ParamSlider
+                    {param}
+                    bind:value={paramValues[param.cc]}
+                    bind:this={sliderRefs[param.cc]}
+                    hint={sliderHints[param.name]}
+                    displayOverride={sliderDisplays[param.name]}
+                  />
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {/each}
+      {/key}
     </section>
 
     <!-- Right: keyboard + presets -->
@@ -666,6 +788,17 @@
     flex: none;
     width: 100%;
     transition: height 0.15s ease;
+  }
+  .module-warning {
+    padding: 0.5rem 1rem;
+    background: #3a2a12;
+    border-bottom: 1px solid #6b4a1a;
+    color: #e0b070;
+    font-size: 0.8rem;
+  }
+  .module-warning code {
+    font-family: monospace;
+    color: #ffd08a;
   }
   .drawer-dock {
     position: fixed;

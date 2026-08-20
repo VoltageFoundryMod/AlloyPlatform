@@ -5,7 +5,7 @@
    */
   import { presets, type PresetSlot } from "../lib/presets";
   import { serial } from "../lib/serial";
-  import { ACTIVE_MODULE } from "../lib/activeModule";
+  import { activeModule } from "../lib/activeModule";
   import { midi } from "../lib/midi";
   import {
     buildSyxBlob,
@@ -92,7 +92,7 @@
     const pairs = getPatchSnapshot();
     const blob = buildSyxBlob(pairs);
     const ts = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-    downloadFile(blob, `${ACTIVE_MODULE.id}-patch-${ts}.syx`);
+    downloadFile(blob, `${$activeModule.id}-patch-${ts}.syx`);
   }
 
   // ── Patch file import ──────────────────────────────────────────────────────
@@ -110,13 +110,20 @@
     const reader = new FileReader();
     reader.onload = (ev) => {
       const buf = ev.target?.result as ArrayBuffer;
-      const pairs = parseSyxBuffer(buf);
-      if (!pairs || pairs.length === 0) {
-        importError = `Not a valid ${ACTIVE_MODULE.name} .syx file`;
+      const patch = parseSyxBuffer(buf);
+      if (!patch || patch.pairs.length === 0) {
+        importError = "Not a valid Alloy .syx patch file";
+        return;
+      }
+      // A patch carries the signature of the module that wrote it, and CC
+      // numbers mean different things on different modules — so a foreign file
+      // is refused by name rather than silently applied as nonsense.
+      if (patch.module && patch.module.id !== $activeModule.id) {
+        importError = `That is a ${patch.module.name} patch — this is ${$activeModule.name}`;
         return;
       }
       importError = null;
-      applyFromFile(pairs);
+      applyFromFile(patch.pairs);
     };
     reader.onerror = () => {
       importError = "File read error";

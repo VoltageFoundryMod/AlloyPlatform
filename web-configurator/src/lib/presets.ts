@@ -10,6 +10,7 @@
 import { writable, get } from "svelte/store";
 import { serial } from "./serial";
 import { midi } from "./midi";
+import { activeModule, currentModule } from "./activeModule";
 import { SysexCmd } from "./patchSync";
 
 export interface PresetSlot {
@@ -18,29 +19,56 @@ export interface PresetSlot {
   savedAt: number | null; // Date.now() timestamp when last saved
 }
 
-const STORAGE_KEY = "alloyflux-preset-names";
+// Slot names are per module: the slots live in each module's own flash, so
+// "Preset 3" on an Alloy Coil has nothing to do with "Preset 3" on an
+// AlloyFlux.  A single shared key would have shown one module's names against
+// the other's patches as soon as the page started following the connected
+// device.  The old unnamespaced key is left alone rather than migrated — it
+// cannot be attributed to a module now, and guessing would mislabel slots.
+const storageKey = (moduleId: string) => `${moduleId}-preset-names`;
 
 function loadNames(): Record<number, string> {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    return JSON.parse(
+      localStorage.getItem(storageKey(currentModule().id)) ?? "{}",
+    );
   } catch {
     return {};
   }
 }
 
 function saveNames(names: Record<number, string>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
+  try {
+    localStorage.setItem(
+      storageKey(currentModule().id),
+      JSON.stringify(names),
+    );
+  } catch {
+    // Storage unavailable — the names stay for this session only.
+  }
 }
 
-function createPresets() {
+function defaultSlots(): PresetSlot[] {
   const names = loadNames();
-  const initial: PresetSlot[] = Array.from({ length: 10 }, (_, i) => ({
+  return Array.from({ length: 10 }, (_, i) => ({
     slot: i,
     name: names[i] ?? (i === 0 ? "Live State" : `Preset ${i}`),
     savedAt: null,
   }));
+}
 
-  const store = writable<PresetSlot[]>(initial);
+function createPresets() {
+  const store = writable<PresetSlot[]>(defaultSlots());
+
+  // Follow the detected module. savedAt is deliberately dropped along with the
+  // names: it recorded a save to the *previous* module's flash and says nothing
+  // about the slots now on screen.
+  let currentId = currentModule().id;
+  activeModule.subscribe((m) => {
+    if (m.id === currentId) return;
+    currentId = m.id;
+    store.set(defaultSlots());
+  });
 
   function rename(slot: number, name: string) {
     store.update((ps) => ps.map((p) => (p.slot === slot ? { ...p, name } : p)));

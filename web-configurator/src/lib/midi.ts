@@ -1,4 +1,4 @@
-import { SYSEX_MFR, SYSEX_DEVA, SYSEX_DEVF } from "./patchSync";
+import { SYSEX_MFR, activeDev, type SysExDev } from "./patchSync";
 /**
  * MIDI connection layer — Web MIDI API wrapper.
  *
@@ -57,6 +57,26 @@ export interface MidiStore {
    *  monitor's traffic tap, so both totals keep running while the monitor is
    *  closed — the asymmetry between them is the diagnostic. */
   rxBytes: number;
+
+  // --- Link state -----------------------------------------------------------
+  // `connected` above only ever meant "an output port exists", which is a much
+  // weaker claim than the UI was making with it: a virtual port with nothing
+  // behind it, a stale entry Chrome kept after a re-flash, or Rack with its
+  // MIDI output unset all look identical to a live module.  Whether a module
+  // is actually *there* is a different question, and the discovery probe
+  // answers it — so it is tracked separately rather than folded into a badge
+  // that cannot tell the two apart.
+
+  /** True while the discovery probe is running and nothing has answered yet. */
+  probing: boolean;
+  /** True once a module has answered on this connection. */
+  moduleAnswered: boolean;
+  /** Name of the module that answered, for the status line. */
+  moduleName: string | null;
+  /** performance.now() when it last answered — a dump or a feedback CC. */
+  lastAnswerAt: number | null;
+  /** True when the probe ran to exhaustion with no reply. */
+  probeFailed: boolean;
 }
 
 function createMidi() {
@@ -75,6 +95,11 @@ function createMidi() {
     error: null,
     txBytes: 0,
     rxBytes: 0,
+    probing: false,
+    moduleAnswered: false,
+    moduleName: null,
+    lastAnswerAt: null,
+    probeFailed: false,
   });
 
   let access: MIDIAccess | null = null;
@@ -180,14 +205,59 @@ function createMidi() {
     const type = status & 0xf0;
     if (type === 0xb0) {
       // Control Change
+      noteDeviceAlive(data[1], data[2]);
       ccListeners.forEach((fn) => fn(data[1], data[2]));
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Liveness — "when did the module last say something of its own?"
+  //
+  // Feedback CC is the only continuous evidence a module is still there, but it
+  // is not proof on its own: on a loopback port (loopMIDI, IAC, Rack) every CC
+  // this page sends comes straight back, and counting that as the module
+  // talking would make a dead port look alive.  Our own echo is excluded the
+  // same way the UI excludes it.
+  //
+  // Throttled because a knob sweep is hundreds of messages a second and each
+  // store write wakes every subscriber; the timestamp is read by a status line
+  // that updates once a second.
+  // ---------------------------------------------------------------------------
+  const ALIVE_THROTTLE_MS = 500;
+  let lastAliveNote = 0;
+
+  function noteDeviceAlive(cc: number, value: number): void {
+    if (shouldIgnoreInbound(cc, value)) return;
+    const now = performance.now();
+    if (now - lastAliveNote < ALIVE_THROTTLE_MS) return;
+    lastAliveNote = now;
+    store.update((s) => (s.moduleAnswered ? { ...s, lastAnswerAt: now } : s));
   }
 
   function subscribeInputs() {
     if (!access) return;
     access.inputs.forEach((input) => {
       input.onmidimessage = handleMidiMessage;
+    });
+  }
+
+  /**
+   * Detach every handler on a MIDIAccess we are about to stop using.
+   *
+   * Each requestMIDIAccess() hands back a *new* MIDIAccess with its own set of
+   * MIDIInput objects, and the ones from the previous call keep delivering:
+   * their onmidimessage is still assigned, and the listener registration keeps
+   * them alive. So every rescan added a complete extra copy of the inbound
+   * path. The symptom is one outgoing message coming back five times in the
+   * monitor — one per MIDIAccess accumulated over the session — and it is not
+   * cosmetic: each copy runs the CC and SysEx listeners again, so the patch
+   * dump was applied N times and the byte counters read N× high.
+   */
+  function releaseAccess(a: MIDIAccess | null) {
+    if (!a) return;
+    a.onstatechange = null;
+    a.inputs.forEach((input) => {
+      input.onmidimessage = null;
     });
   }
 
@@ -205,13 +275,28 @@ function createMidi() {
 
   /**
    * Send a SysEx message.  Automatically wraps the payload in F0/F7.
-   * cmd   — command byte (e.g. SysexCmd.REQUEST = 0x01)
-   * payload — additional data bytes after the AlloyFlux header (7-bit safe)
+   * cmd     — command byte (e.g. SysexCmd.REQUEST = 0x01)
+   * payload — additional data bytes after the header (7-bit safe)
+   * dev     — signature to address.  Defaults to the module on screen; pass
+   *           SYSEX_DEV_BROADCAST to reach whichever module is out there, which
+   *           only REQUEST_DUMP may do.
    */
-  function sendSysEx(cmd: number, payload: number[]): void {
-    // Full message: F0 7D 41 46 <cmd> [payload] F7
+  function sendSysEx(
+    cmd: number,
+    payload: number[],
+    dev: SysExDev = activeDev(),
+  ): void {
+    // Full message: F0 7D <id0> <id1> <cmd> [payload] F7
     sendRaw(
-      new Uint8Array([0xf0, SYSEX_MFR, SYSEX_DEVA, SYSEX_DEVF, cmd & 0x7f, ...payload, 0xf7]),
+      new Uint8Array([
+        0xf0,
+        SYSEX_MFR,
+        dev[0],
+        dev[1],
+        cmd & 0x7f,
+        ...payload,
+        0xf7,
+      ]),
     );
   }
 
@@ -315,6 +400,17 @@ function createMidi() {
         selectedInput,
         deviceConnected,
         syncNonce: s.syncNonce + (needsSync ? 1 : 0),
+        // A different port, or no port at all, is a different device until one
+        // says otherwise. Carrying the old answer across is how the UI ends up
+        // claiming a module that is no longer on the other end.
+        ...(needsSync || !connected
+          ? {
+              moduleAnswered: false,
+              moduleName: null,
+              lastAnswerAt: null,
+              probeFailed: false,
+            }
+          : {}),
       };
     });
     if (get(store).connected) {
@@ -363,7 +459,13 @@ function createMidi() {
   async function scan() {
     try {
       store.update((s) => ({ ...s, error: null }));
+      const previous = access;
       access = await navigator.requestMIDIAccess({ sysex: true });
+      // Order matters: adopt the new access first, then release the old one.
+      // Releasing first would leave a window with no inbound path at all, and
+      // if the request throws we would have torn down a working subscription
+      // to replace it with nothing.
+      if (previous && previous !== access) releaseAccess(previous);
       access.onstatechange = (e: Event) => {
         refreshList();
         // An output port appearing always warrants a fresh dump, even when
@@ -486,6 +588,52 @@ function createMidi() {
     sendCC(123, 0);
   }
 
+  // ---------------------------------------------------------------------------
+  // Discovery probe state, reported by App.svelte as it runs.
+  //
+  // Kept here rather than in the component because the connection bar and the
+  // module badge both need it, and because it belongs with the rest of what is
+  // known about the link.
+  // ---------------------------------------------------------------------------
+
+  /** The probe has started and nothing has answered yet. */
+  function probeStarted(): void {
+    store.update((s) => ({
+      ...s,
+      probing: true,
+      probeFailed: false,
+      moduleAnswered: false,
+      moduleName: null,
+      lastAnswerAt: null,
+    }));
+  }
+
+  /** A module identified itself. This is the only thing that proves the link. */
+  function probeAnswered(moduleName: string): void {
+    lastAliveNote = performance.now();
+    store.update((s) => ({
+      ...s,
+      probing: false,
+      probeFailed: false,
+      moduleAnswered: true,
+      moduleName,
+      lastAnswerAt: performance.now(),
+    }));
+  }
+
+  /** The fast probe ran out of attempts. A slow retry keeps running. */
+  function probeUnanswered(): void {
+    store.update((s) =>
+      s.moduleAnswered ? s : { ...s, probing: false, probeFailed: true },
+    );
+  }
+
+  /** Ask for a fresh sync — the Retry button. Bumping the nonce re-runs the
+   *  probe effect in App.svelte from the start. */
+  function resync(): void {
+    store.update((s) => ({ ...s, syncNonce: s.syncNonce + 1 }));
+  }
+
   return {
     subscribe: store.subscribe,
     scan,
@@ -499,6 +647,10 @@ function createMidi() {
     sendDroneReturn,
     sendPanic,
     sendSysEx,
+    probeStarted,
+    probeAnswered,
+    probeUnanswered,
+    resync,
     // Choosing a port from the dropdown is also the way back from ✕ — the
     // disconnected branch of ConnectionBar offers only this select and Rescan,
     // and Rescan just re-runs auto-selection.  Previously this set the id and

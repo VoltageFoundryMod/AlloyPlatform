@@ -24,9 +24,9 @@ lists every target.
 | VCV plugin | `make vcv`               | **one** `plugin.dll` with *all* modules in it — there is no per-module VCV build        |
 |            | `make vcv-install`       | installs into Rack's user plugin dir (`make print-plugins-dir`)                         |
 |            | `make vcv-dist`          | packages the `.vcvplugin` for the VCV library                                           |
-| Web        | `make web`               | one build per module; `MODULE=alloycoil` for the other. Into `web-configurator/dist`       |
+| Web        | `make web`               | **one** build for *all* modules; detects the connected one                              |
 |            | `make web-dev`           | Vite at `localhost:5173`; `make web-check` runs svelte-check + tsc                      |
-| Everything | `make everything`        | every firmware image + VCV + every web build                                            |
+| Everything | `make everything`        | every firmware image + VCV + the web build                                              |
 | Alloy Coil     | `make coil-host`       | host-compiles + runs the vendored Alloy Coil engine; prints its footprint                   |
 | Formatting | `make format`            | clang-format over every C/C++ file; `make format-check` is the CI gate                  |
 
@@ -83,12 +83,12 @@ There is **no engine singleton**. The firmware owns one `SynthEngine` at file sc
 
 [`web-configurator/src/`](web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
 
-- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46` for AlloyFlux, `0x41 0x55` for Alloy Coil)
+- **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46` for AlloyFlux, `0x41 0x43` for Alloy Coil, `0x7F 0x7F` = wildcard/discovery)
 - **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md)
 
 Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
 
-Which module the build targets is a **build-time** choice: `src/lib/activeModule.ts` reads `VITE_MODULE` (`make web MODULE=alloycoil`) and selects both the generated parameter map and the SysEx signature. It fails closed — an AlloyFlux build will not connect to an Alloy Coil module rather than showing the wrong controls. Runtime auto-detection is possible (the signature is in every message) but means making `PARAM_MAP` reactive throughout the UI.
+Which module the page shows is **detected at runtime**: on connect it sends REQUEST\_DUMP addressed to the wildcard signature `7F 7F`, which every module answers, and `src/lib/activeModule.ts` reads the module out of the reply's header (`parseSysExBody` returns the sender's identity alongside the CC pairs). One build drives every module. `src/lib/paramMap.ts` exposes the tables as a store (`params`) plus a non-reactive `currentParams()`; `App.svelte` keys the parameter panel on the module id so a switch rebuilds every control. `VITE_MODULE` survives only as the startup default before anything has connected — after that the last detected module is remembered in localStorage.
 
 **Requirement**: Chrome or Edge only — Web Serial and Web MIDI APIs are not supported in Firefox/Safari.
 

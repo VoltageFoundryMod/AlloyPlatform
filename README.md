@@ -49,7 +49,7 @@ about Alloy Coil here; ask about Audrey II
 | -------------------------------------------------------- | ---------------------------- | ---------------------------------------- |
 | **Firmware** — RP2350 (Pico 2), PlatformIO, arduino-pico | `make firmware ENV=<module>` | `.pio/build/<module>/firmware.uf2`       |
 | **VCV Rack plugin** — Rack SDK 2.6.6                     | `make vcv`                   | one `plugin.dll` carrying _every_ module |
-| **Web Configurator** — Svelte 5 + TypeScript + Vite      | `make web MODULE=<module>`   | `web-configurator/dist`                  |
+| **Web Configurator** — Svelte 5 + TypeScript + Vite      | `make web`                   | `web-configurator/dist`                  |
 
 ```sh
 make help              # every target, with the current ENV / MODULE
@@ -57,7 +57,7 @@ make                   # firmware for the default module
 make upload            # build and flash over USB
 make vcv-install       # build the plugin and install it into Rack
 make web-dev           # configurator on localhost:5173
-make everything        # every firmware image + VCV + every web build
+make everything        # every firmware image + VCV + the web build
 ```
 
 Build through the **root Makefile** rather than calling `pio` / `make` / `npm`
@@ -149,7 +149,7 @@ modules/
   alloycoil/         the vendored Audrey II engine and its integration
 vendor/daisysp/   the DaisySP subset Alloy Coil needs, with its patches recorded
 vcv-plugin/       the Rack plugin build — one plugin, all modules
-web-configurator/ Svelte 5 configurator, one build per module
+web-configurator/ Svelte 5 configurator, one build for every module
 hardware/         KiCad schematics and PCB (CERN-OHL-S v2)
 panel-src/        panel artwork (CC BY-NC-ND 4.0)
 tools/            parameter generation, panel prep, SVG → NanoVG
@@ -164,12 +164,15 @@ Two channels, both driverless:
 
 - **Web MIDI SysEx** (primary) — full patch dump and restore, preset save and
   load. Manufacturer ID `0x7D`, then a two-byte device signature per module
-  (`0x41 0x46` for Alloy Flux, `0x41 0x55` for Alloy Coil).
+  (`0x41 0x46` for Alloy Flux, `0x41 0x43` for Alloy Coil).
 - **Web Serial CDC** (fallback) — a text command console.
 
-Which module the configurator targets is a build-time choice and it **fails
-closed**: an Alloy Flux build will refuse to connect to an Alloy Coil module rather
-than show the wrong controls.
+The configurator **detects which module it is talking to**. On connect it sends
+a patch request addressed to the wildcard signature `7F 7F`, which every module
+answers, and reads the module out of the reply's header — one round trip that
+identifies the module and delivers its patch. So a single build drives every
+module, and swapping modules on the port swaps the controls. With nothing
+connected it shows the last module it saw.
 
 ---
 

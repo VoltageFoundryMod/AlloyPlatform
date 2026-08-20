@@ -7,8 +7,9 @@
  * decoded against the same command table the transport uses.
  */
 
-import { PARAM_MAP } from "./paramMap";
-import { SYSEX_MFR, SYSEX_DEVA, SYSEX_DEVF, SysexCmd } from "./patchSync";
+import { currentParams } from "./paramMap";
+import { moduleForSysExDev, SYSEX_DEV_ANY } from "./activeModule";
+import { SYSEX_MFR, SysexCmd } from "./patchSync";
 
 export interface DecodedMidi {
   /** Short message type, e.g. "CC", "Note On", "SysEx". */
@@ -65,7 +66,7 @@ const CC_SPECIAL: Record<number, string> = {
 };
 
 function describeCC(cc: number, value: number): string {
-  const param = PARAM_MAP.find((p) => p.cc === cc);
+  const param = currentParams().PARAM_MAP.find((p) => p.cc === cc);
   if (param) {
     // Selects carry a band index rather than a magnitude; show the option name
     // when one matches, since the raw number means nothing on its own.
@@ -83,21 +84,27 @@ function describeCC(cc: number, value: number): string {
 }
 
 function describeSysEx(bytes: number[]): DecodedMidi {
-  // F0 7D 41 46 <cmd> [payload] F7
-  const isAlloy =
-    bytes.length >= 5 &&
-    bytes[1] === SYSEX_MFR &&
-    bytes[2] === SYSEX_DEVA &&
-    bytes[3] === SYSEX_DEVF;
-  if (!isAlloy) {
+  // F0 7D <id0> <id1> <cmd> [payload] F7
+  if (bytes.length < 5 || bytes[1] !== SYSEX_MFR) {
     return {
       kind: "SysEx",
       detail: `foreign device, ${bytes.length} bytes`,
       channel: null,
     };
   }
+  // Which module — shown for every message, because on a shared port that is
+  // the whole question the monitor is being opened to answer.  The broadcast
+  // probe is labelled as such rather than as an unknown device.
+  const broadcast = bytes[2] === SYSEX_DEV_ANY && bytes[3] === SYSEX_DEV_ANY;
+  const sender = moduleForSysExDev(bytes[2], bytes[3]);
+  const who = broadcast
+    ? "any module"
+    : (sender?.name ??
+      `unknown ${bytes[2].toString(16).toUpperCase()} ${bytes[3]
+        .toString(16)
+        .toUpperCase()}`);
   const cmd = bytes[4];
-  const name = SYSEX_CMD_NAMES[cmd] ?? `cmd 0x${cmd.toString(16)}`;
+  const name = `${who}: ${SYSEX_CMD_NAMES[cmd] ?? `cmd 0x${cmd.toString(16)}`}`;
   // Payload sits between the command byte and the terminating F7.
   const end = bytes[bytes.length - 1] === 0xf7 ? bytes.length - 1 : bytes.length;
   const payload = bytes.slice(5, end);

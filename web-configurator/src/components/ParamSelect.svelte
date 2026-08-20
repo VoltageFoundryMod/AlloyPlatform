@@ -4,14 +4,27 @@
 
   let {
     param,
+    initial = undefined,
     onchange,
-  }: { param: CCParam; onchange?: (ccVal: number) => void } = $props();
+  }: {
+    param: CCParam;
+    /** Starting CC value, when the parent already knows one — after a module
+     *  switch the patch has been applied before these components are built, so
+     *  seeding from param.default would show the wrong option until the next
+     *  feedback tick. Read once at construction; live updates come via
+     *  applyCC(). */
+    initial?: number;
+    onchange?: (ccVal: number) => void;
+  } = $props();
 
-  // Determine starting option index from the param's default CC value.
-  // param is static config so reading outside a closure is intentional.
-  // eslint-disable-next-line svelte/valid-compile
+  // Determine the starting option index. Both are read once, on purpose:
+  // `param` is static config, and `initial` is a starting point rather than a
+  // live value — a module switch rebuilds this component, so a fresh read of
+  // both happens exactly when it should.
+  // svelte-ignore state_referenced_locally
   const opts = param.options!;
-  const defCC = param.default ?? 0;
+  // svelte-ignore state_referenced_locally
+  const defCC = initial ?? param.default ?? 0;
   const defaultIdx = opts.findIndex(
     (o) => defCC >= o.ccMin && defCC <= o.ccMax,
   );
