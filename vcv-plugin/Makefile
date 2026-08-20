@@ -41,6 +41,7 @@ OBJECTS += build/daisysp/tone.cpp.o
 OBJECTS += build/daisysp/crossfade.cpp.o
 OBJECTS += build/daisysp/overdrive.cpp.o
 OBJECTS += build/daisysp/reverbsc.cpp.o
+OBJECTS += build/daisysp/limiter.cpp.o
 
 # Add files to the ZIP package when running `make dist`
 # The compiled plugin and "plugin.json" are automatically added.
@@ -60,7 +61,15 @@ CXXFLAGS := $(filter-out -Wno-vla-extension,$(CXXFLAGS))
 # hand one module the other's globals with no diagnostic beyond a link error
 # much later.
 ALLOYFLUX_INC := -I../modules/alloyflux/include
-COIL_INC    := -I../modules/alloycoil/include -I../vendor/daisysp
+
+# ReverbSc sizes its delay pool from the highest sample rate the build must
+# support, and the plugin — unlike the firmware, which is pinned to 48 kHz —
+# re-inits at whatever Rack is set to. Rack offers up to 192 kHz, and at
+# anything above ~48.1 kHz a 48 kHz-sized pool cannot hold all eight delay
+# lines. It costs 385 KiB of the plugin's own memory, which is free on a
+# desktop and would be most of an RP2350.
+COIL_INC    := -I../modules/alloycoil/include -I../vendor/daisysp \
+               -DDSY_REVERBSC_MAX_SRATE=192000
 
 build/SynthEngine.cpp.o: ../modules/alloyflux/src/SynthEngine.cpp
 	@mkdir -p $(@D)

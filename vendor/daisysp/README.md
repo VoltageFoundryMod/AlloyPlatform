@@ -1,6 +1,6 @@
 # DaisySP — vendored subset
 
-Thirteen files taken from [DaisySP](https://github.com/electro-smith/DaisySP),
+Fifteen files taken from [DaisySP](https://github.com/electro-smith/DaisySP),
 the only ones the Audrey II engine reaches for. The library builds for RP2350
 unmodified — a scan of the whole of upstream `Source/` finds **no hardware
 includes at all**, so nothing here needed porting, only selecting.
@@ -35,6 +35,7 @@ this gets maintained; the commit above plus the patch list below is.
 | `crossfade.h/.cpp` | Karplus-Strong |
 | `overdrive.h/.cpp` | resonator feedback loop |
 | `reverbsc.h/.cpp` | reverb |
+| `limiter.h/.cpp` | the module's output edge — see `OutputStage.h` |
 
 `custom_dsp.h` is referenced by `dsp.h` but sits behind `#ifdef DSY_CUSTOM_DSP`,
 which is not defined here, so it is not vendored.
@@ -60,23 +61,54 @@ four times further along the pool than it needed to be, and
 compensate. Nothing ever read the wasted space, so **output is unaffected** —
 it simply cost 4× the RAM.
 
-Fixed to accumulate samples, and `DSY_REVERBSC_MAX_SIZE` reduced from 98936 to
-**24800 floats**. The eight lines need 24 726 samples at 48 kHz
+Fixed to accumulate samples. The eight lines need 24 726 samples at 48 kHz
 (2543 + 2842 + 3325 + 3605 + 3977 + 4202 + 2251 + 1981, from
-`DelayLineMaxSamples`), so this leaves a little headroom.
+`DelayLineMaxSamples`), against the 98 936 the byte/float mix-up demanded.
 
-**386.9 KiB → 97.3 KiB, with bit-identical output** — confirmed by the host
+**386.9 KiB → 97.1 KiB, with bit-identical output** — confirmed by the host
 harness reporting the same peak (1.4019) and DC (+0.000108 / −0.000090) before
 and after.
 
 The bound check also moved *before* the write rather than after it, so an
 overflow now returns 1 instead of scribbling past the end of `aux_` on the last
-line. That matters more at the new size: the pool scales with sample rate and
-overflows above roughly 48.1 kHz, where before there was 4× of accidental slack
-hiding the problem.
+line.
 
 `DelayLineBytesAlloc()` was removed — it had no other caller and was the source
 of the confusion.
+
+### 2. `reverbsc` — pool sized by sample rate, and a safe failure (M63i)
+
+Patch 1 replaced 98 936 with a hard-coded 24 800, which is right for a module
+pinned to 48 kHz and wrong for one that is not. The requirement scales with the
+rate and overflows above ~48.1 kHz — and the VCV plugin re-inits the reverb at
+whatever rate Rack is set to. At 88.2 kHz or above only four of the eight lines
+fit; `Init()` returned 1 and the remaining four kept **indeterminate `buf`
+pointers**, which `Process()` then wrote through. Nothing checks `Init()`'s
+return value, in this tree or upstream.
+
+Two changes:
+
+- `DSY_REVERBSC_MAX_SIZE` is now derived from `DSY_REVERBSC_MAX_SRATE`
+  (default 48000) as a closed-form upper bound on the eight lines. The firmware
+  keeps 24 740 floats / 96.6 KiB; `vcv-plugin/Makefile` sets 192000, giving
+  98 540 floats / 384.9 KiB, which covers every rate Rack offers.
+- Overflow now nulls the un-assigned lines and clears `init_done_`, so
+  `Process()` becomes the guarded no-op it already had a check for rather than
+  undefined behaviour. `Process()` also writes silence to `out1`/`out2` on that
+  path — upstream returns without touching them, and every caller here declares
+  them as plain locals, so the caller was reading stack garbage into a mix.
+
+Verified across 44.1/48/88.2/96/176.4/192 kHz: with the firmware's sizing the
+first two initialise and produce the same tail as before while the rest fall
+back to silence; with the plugin's, all six initialise and ring.
+
+### 3. `limiter` — added, not patched (M63i)
+
+`limiter.h/.cpp` are vendored verbatim. They are not new upstream code, they
+are code the port had been missing: Audrey II's audio callback runs both output
+channels through `Limiter::ProcessBlock(..., 0.7f)`, and the port had replaced
+that with a bare `SoftClip`. See `modules/alloycoil/include/OutputStage.h` for
+what the difference sounded like.
 
 ## Licensing
 

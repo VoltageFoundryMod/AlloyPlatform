@@ -27,7 +27,25 @@ F0  7D  41  46  <cmd>  [data bytes]  F7
 └── SysEx start
 ```
 
-All bytes between `F0` and `F7` are 7-bit safe (0x00–0x7F). The device signature `41 46` allows DAW SysEx filters to target Alloy Flux messages specifically.
+All bytes between `F0` and `F7` are 7-bit safe (0x00–0x7F). The device signature `41 46` allows DAW SysEx filters to target Alloy Flux messages specifically. Each module in the Alloy platform has its own: Alloy Coil answers to `41 43`.
+
+#### The `7F 7F` Wildcard — Asking "Who Is There?"
+
+`7F 7F` in place of the signature addresses **every** Alloy module at once. A host that does not yet know what is on the port sends:
+
+```txt
+F0 7D 7F 7F 01 F7      REQUEST_DUMP, addressed to any module
+```
+
+and whatever is listening replies with an ordinary PATCH_DUMP carrying its *real* signature:
+
+```txt
+F0 7D 41 46 02 …  F7   "I am Alloy Flux, and here is my patch"
+```
+
+One round trip therefore answers both questions — which module, and what is it currently set to. This is how the Web Configurator picks the right control set on connect rather than being built for one module.
+
+Only REQUEST\_DUMP is honoured on the wildcard. Every module sharing a MIDI port sees a broadcast, so anything that *changes* state — APPLY\_PATCH, the preset commands, SET\_MIDI\_CH — must carry a real signature and is ignored when broadcast.
 
 #### Command Bytes
 
@@ -41,7 +59,7 @@ All bytes between `F0` and `F7` are 7-bit safe (0x00–0x7F). The device signatu
 | 0x06 | Host → Device | PRESET\_RESET | `[slot]` — reset slot to factory defaults; `0x7F` = all slots |
 | 0x07 | Host → Device | SET\_MIDI\_CH | `[ch]` — set receive channel (0 = omni, 1–16 = specific)      |
 
-**How REQUEST\_DUMP works:** Send a REQUEST\_DUMP (cmd 0x01, no payload). The device immediately responds with a PATCH\_DUMP (cmd 0x02) containing all current parameter values as CC pairs. The Web Configurator uses this automatically on connect.
+**How REQUEST\_DUMP works:** Send a REQUEST\_DUMP (cmd 0x01, no payload). The device immediately responds with a PATCH\_DUMP (cmd 0x02) containing all current parameter values as CC pairs. The Web Configurator uses this automatically on connect, addressed to the `7F 7F` wildcard so the reply tells it which module it is talking to. REQUEST\_DUMP is the only command the wildcard accepts.
 
 **How APPLY\_PATCH works:** Send a APPLY\_PATCH (cmd 0x03) with an arbitrary subset of CC pairs. The device applies each one immediately — you do not need to send the full set. Useful for partial updates or live automation.
 

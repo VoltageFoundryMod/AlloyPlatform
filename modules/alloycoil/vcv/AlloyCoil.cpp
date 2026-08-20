@@ -8,7 +8,9 @@
 // Engine by Synthux Academy (Nick Donaldson / Roey Tsemah) — see
 // modules/alloycoil/README.md, CREDITS.md and LICENSE.
 
+#include "ControlSmoother.h"
 #include "FeedbackSynthEngine.h"
+#include "OutputStage.h"
 #include "SubMenuSlider.hpp" // shift-secondaries as context-menu sliders
 #include "PanelLayout.h"     // shared panel geometry (all modules, one PCB)
 #include "PanelLed.hpp"      // aperture-shaped lights, matching the panel art
@@ -16,8 +18,11 @@
 #include "io/CoilLeds.h"   // the LED language, shared with the firmware
 #include "io/IOBridge.h"
 #include "io/PanelMap.h"
+#include "param_manifest.generated.h" // knob defaults, see defaultPos()
 #include "params.h"
 #include "plugin.hpp"
+
+#include <cstring>
 
 // ---------------------------------------------------------------------------
 // Globals declared extern in params.h. main.cpp is not compiled into the
@@ -42,6 +47,30 @@ float gOutputLevel   = 0.5f;
 float gExciterLevel  = 1.0f;
 
 volatile float gExciterIn = 0.0f;
+
+// ---------------------------------------------------------------------------
+// Knob boot position for a parameter, from the manifest.
+//
+// configParam() takes a *position*, not a value, so every default here used to
+// be a hand-computed inverse of that knob's curve — and when M63i changed
+// fbbody and echotime from log to square-law, the two numbers computed against
+// the old curves stayed put. The module booted with its echo at 1.14 s instead
+// of the 0.5 s params.json specifies, silently, in the build that is supposed
+// to be the A/B reference for the hardware.
+//
+// ParamDescriptor::toPos() is exactly that inverse, derived from the same row
+// the CC path and the web configurator read, so the class of bug is gone rather
+// than the instance of it.
+// ---------------------------------------------------------------------------
+static float defaultPos(const char *name)
+{
+    for(uint8_t i = 0; i < kParamManifestCount; i++)
+    {
+        if(std::strcmp(kParamManifest[i].name, name) == 0)
+            return kParamManifest[i].toPos(kParamManifest[i].defVal);
+    }
+    return 0.0f; // unreachable for a name that is in params.json
+}
 
 struct AlloyCoil : Module
 {
@@ -134,10 +163,16 @@ struct AlloyCoil : Module
         // Every knob is 0–1 and the range mapping lives in IOBridge, exactly as
         // it does for the hardware pots. Keeping the curve in one place is what
         // stops a knob and a MIDI CC landing on different values.
+        //
+        // Defaults come from the manifest via defaultPos() — they are knob
+        // positions, and hand-computing the inverse of each curve is what let
+        // echo time drift a full octave of delay time. The two display scalings
+        // below stay literal because Rack's displayMultiplier/Offset are linear
+        // only, and these are the two linear parameters.
         configParam(PITCH_PARAM,
                     0.f,
                     1.f,
-                    0.4286f,
+                    defaultPos("pitch"),
                     "String pitch",
                     " note",
                     0.f,
@@ -146,25 +181,28 @@ struct AlloyCoil : Module
         configParam(FBGAIN_PARAM,
                     0.f,
                     1.f,
-                    0.f,
+                    defaultPos("fbgain"),
                     "Feedback gain",
                     " dB",
                     0.f,
                     42.f,
                     -30.f);
-        configParam(FBBODY_PARAM, 0.f, 1.f, 0.f, "Body");
-        configParam(FBLPF_PARAM, 0.f, 1.f, 1.f, "Feedback LPF");
-        configParam(FBHPF_PARAM, 0.f, 1.f, 0.5397f, "Feedback HPF");
-        configParam(ECHOSEND_PARAM, 0.f, 1.f, 0.f, "Echo send");
-        configParam(ECHOTIME_PARAM, 0.f, 1.f, 0.5261f, "Echo time");
-        configParam(ECHOFB_PARAM, 0.f, 1.f, 0.f, "Echo feedback");
-        configParam(REVMIX_PARAM, 0.f, 1.f, 0.f, "Reverb mix");
-        configParam(REVDECAY_PARAM, 0.f, 1.f, 0.f, "Reverb decay");
-        configParam(VOL_PARAM, 0.f, 1.f, 0.7071f, "Volume");
-        // Default 0.7071 = square-law 1.0 on a 0–2 range: the jack's full
-        // swing maps to the engine's full scale, i.e. what it did before this
-        // control existed.
-        configParam(EXCITE_PARAM, 0.f, 1.f, 0.7071f, "Exciter level");
+        configParam(FBBODY_PARAM, 0.f, 1.f, defaultPos("fbbody"), "Body");
+        configParam(FBLPF_PARAM, 0.f, 1.f, defaultPos("fblpf"), "Feedback LPF");
+        configParam(FBHPF_PARAM, 0.f, 1.f, defaultPos("fbhpf"), "Feedback HPF");
+        configParam(
+            ECHOSEND_PARAM, 0.f, 1.f, defaultPos("echosend"), "Echo send");
+        configParam(
+            ECHOTIME_PARAM, 0.f, 1.f, defaultPos("echotime"), "Echo time");
+        configParam(ECHOFB_PARAM, 0.f, 1.f, defaultPos("echofb"), "Echo feedback");
+        configParam(REVMIX_PARAM, 0.f, 1.f, defaultPos("revmix"), "Reverb mix");
+        configParam(
+            REVDECAY_PARAM, 0.f, 1.f, defaultPos("revdecay"), "Reverb decay");
+        configParam(VOL_PARAM, 0.f, 1.f, defaultPos("vol"), "Volume");
+        // 0–2 range: the jack's full swing maps to the engine's full scale at
+        // the default, i.e. what it did before this control existed.
+        configParam(
+            EXCITE_PARAM, 0.f, 1.f, defaultPos("excite"), "Exciter level");
 
         // Panel buttons — momentary, matching the hardware switches.
         configButton(WARP_PARAM,
@@ -236,32 +274,34 @@ struct AlloyCoil : Module
         configLight(LED5_R_LIGHT, "Reverb (white while SHIFT is held)");
         configLight(LED4_R_LIGHT, "String activity / exciter");
 
-        _engine.Init(APP->engine->getSampleRate());
+        initForRate(APP->engine->getSampleRate());
     }
 
     void onSampleRateChange() override
-    { _engine.Init(APP->engine->getSampleRate()); }
+    { initForRate(APP->engine->getSampleRate()); }
+
+    /// Everything that depends on the host rate, in one place so the
+    /// constructor and the rate-change hook cannot drift.
+    void initForRate(float sampleRate)
+    {
+        _engine.Init(sampleRate);
+        _output.Init();
+        // Same rule as the firmware: the smoother's coefficients belong to the
+        // rate Step() is actually called at, which is once per kSmoothFrames.
+        _smoother.Init(sampleRate / (float)kSmoothFrames);
+        _smoothPhase = 0;
+    }
 
     void process(const ProcessArgs &args) override
     {
-        // Control work at ~1 kHz rather than per sample, mirroring the
-        // firmware's control tick. The engine smooths what needs smoothing.
+        // Reading the panel into the goal values is control work, done at
+        // ~1 kHz rather than per sample. Nothing here writes to the engine —
+        // that is the smoother's job below, at its own rate, exactly as in the
+        // firmware.
         if(_controlPhase++ >= kControlDiv)
         {
             _controlPhase = 0;
             fillCoilParams(_io);
-            _engine.SetStringPitch(gStringPitch);
-            _engine.SetFeedbackGain(gFeedbackGain);
-            _engine.SetFeedbackDelay(gFeedbackDelay);
-            _engine.SetFeedbackLPFCutoff(gFeedbackLPF);
-            _engine.SetFeedbackHPFCutoff(gFeedbackHPF);
-            _engine.SetEchoDelaySendAmount(gEchoSend);
-            _engine.SetEchoDelayTime(gEchoTime);
-            _engine.SetEchoDelayFeedback(gEchoFeedback);
-            _engine.SetReverbMix(gReverbMix);
-            _engine.SetReverbFeedback(gReverbDecay);
-            _engine.SetOutputLevel(gOutputLevel);
-            _engine.SetExciterLevel(gExciterLevel);
 
             // LEDs, from the peaks accumulated since the previous tick. Same
             // call the firmware will make once AlloyCoil has an IHardwareIO.
@@ -275,6 +315,16 @@ struct AlloyCoil : Module
             _leds.update(sig, (float)(kControlDiv + 1) * args.sampleTime);
             _leds.writeTo(_io);
             _peakL = _peakR = _peakExc = 0.f;
+        }
+
+        // Parameter glide onto the goal values, with upstream's per-parameter
+        // times. Same divider the firmware uses, so a knob move lands on the
+        // same trajectory in Rack as it does on the module — which is the whole
+        // point of the plugin being the A/B reference. See ControlSmoother.h.
+        if(++_smoothPhase >= kSmoothFrames)
+        {
+            _smoothPhase = 0;
+            _smoother.Step(_engine);
         }
 
         // Exciter, per sample — this is the part the firmware cannot do yet.
@@ -292,18 +342,15 @@ struct AlloyCoil : Module
         float outL = 0.f, outR = 0.f;
         _engine.Process(exciter, outL, outR);
 
-        // Same master soft clip the firmware applies at its output edge, for
-        // the same reason: the engine peaks past unity at useful settings.
-#if COIL_OUTPUT_SOFTCLIP
-        outL = daisysp::SoftClip(outL);
-        outR = daisysp::SoftClip(outR);
-#endif
+        // The same output stage the firmware applies at its edge — upstream's
+        // peak limiter. See OutputStage.h.
+        _output.Process(outL, outR);
 
         outputs[L_OUTPUT].setVoltage(outL * 5.f);
         outputs[R_OUTPUT].setVoltage(outR * 5.f);
 
-        // Peak-hold for the LEDs. Taken post-clip, so the level pair shows what
-        // leaves the module rather than what the engine wanted to send.
+        // Peak-hold for the LEDs. Taken post-limiter, so the level pair shows
+        // what leaves the module rather than what the engine wanted to send.
         const float aL = std::fabs(outL), aR = std::fabs(outR),
                     aE = std::fabs(exciter);
         if(aL > _peakL)
@@ -317,12 +364,25 @@ struct AlloyCoil : Module
   private:
     // ~1 kHz at 48 kHz host rate, close to the firmware's 128 Hz without
     // being so coarse that a knob feels stepped under Rack's smoothing.
+    //
+    // That last clause used to be doing real work: with no smoother, this
+    // divider *was* the glide, and running it at the firmware's true 128 Hz
+    // made Rack sound stepped in a way the module would have too. Now that both
+    // interpolate at kSmoothFrames, this is only how often the panel is read,
+    // and the exact figure no longer colours anything.
     static constexpr int kControlDiv = 47;
 
-    infrasonic::FeedbackSynth::Engine _engine;
-    VCVRackIO                         _io;
-    CoilLed::Engine                 _leds;
-    int                               _controlPhase = 0;
+    /// Smoother step interval, in frames. Matches the firmware's kSmoothFrames
+    /// so a knob move follows the same trajectory in both.
+    static constexpr int kSmoothFrames = 32;
+
+    infrasonic::FeedbackSynth::Engine          _engine;
+    infrasonic::FeedbackSynth::ControlSmoother _smoother;
+    infrasonic::FeedbackSynth::OutputStage     _output;
+    VCVRackIO                                  _io;
+    CoilLed::Engine                            _leds;
+    int                                        _controlPhase = 0;
+    int                                        _smoothPhase  = 0;
 
     // Peak-hold accumulators, drained and reset on every control tick.
     float _peakL   = 0.f;

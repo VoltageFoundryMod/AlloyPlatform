@@ -55,10 +55,19 @@ struct ParamDescriptor
      */
     float skew;
 
-    /// CC 0–127 → parameter value, honouring scale and skew.
-    float fromCC(uint8_t v) const
+    /**
+     * Control position 0–1 → parameter value, honouring scale and skew.
+     *
+     * "Control position" is knob travel, CC/127, or slider travel — the same
+     * quantity in all three, which is the point: a knob, a CC and the web
+     * slider only agree because they all pass through this one curve.
+     */
+    float fromPos(float t) const
     {
-        float t = (float)v / 127.0f;
+        if(t < 0.0f)
+            t = 0.0f;
+        else if(t > 1.0f)
+            t = 1.0f;
         if(skew != 1.0f && t > 0.0f)
             t = powf(t, skew);
         if(scale == ParamScale::Log)
@@ -66,8 +75,15 @@ struct ParamDescriptor
         return minVal + t * (maxVal - minVal);
     }
 
-    /// Parameter value → CC 0–127, the inverse of fromCC().
-    uint8_t toCC(float v) const
+    /**
+     * Parameter value → control position 0–1, the inverse of fromPos().
+     *
+     * This is what a UI needs to place a control at a given value — notably the
+     * VCV module's `configParam` defaults, which are positions, not values.
+     * Deriving them keeps a curve change in params.json from silently moving
+     * every knob's boot position.
+     */
+    float toPos(float v) const
     {
         float t;
         if(scale == ParamScale::Log)
@@ -75,11 +91,25 @@ struct ParamDescriptor
         else
             t = (v - minVal) / (maxVal - minVal);
         if(t <= 0.0f)
+            return 0.0f;
+        if(t >= 1.0f)
+            return 1.0f;
+        if(skew != 1.0f)
+            t = powf(t, 1.0f / skew);
+        return t;
+    }
+
+    /// CC 0–127 → parameter value.
+    float fromCC(uint8_t v) const { return fromPos((float)v / 127.0f); }
+
+    /// Parameter value → CC 0–127, the inverse of fromCC().
+    uint8_t toCC(float v) const
+    {
+        const float t = toPos(v);
+        if(t <= 0.0f)
             return 0;
         if(t >= 1.0f)
             return 127;
-        if(skew != 1.0f)
-            t = powf(t, 1.0f / skew);
         return (uint8_t)(t * 127.0f + 0.5f);
     }
 };

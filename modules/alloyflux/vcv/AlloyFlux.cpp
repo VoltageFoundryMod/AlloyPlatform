@@ -979,10 +979,25 @@ struct AlloyFlux : Module
                 }
                 else if(msg.bytes[0] == 0xF0)
                 {
-                    // AlloyFlux SysEx handler
-                    if(msg.bytes.size() >= 6 && msg.bytes[1] == 0x7D
-                       && msg.bytes[2] == 0x41 && msg.bytes[3] == 0x46
-                       && msg.bytes.back() == 0xF7)
+                    // AlloyFlux SysEx handler.
+                    //
+                    // 7F 7F in place of the 'A' 'F' signature is the discovery
+                    // wildcard: a host that does not yet know which module is
+                    // on the port broadcasts REQUEST_DUMP, and the PATCH_DUMP
+                    // sent back carries the real signature.  This matters most
+                    // here — over loopMIDI/IAC the port name says nothing, so
+                    // the probe is the *only* way the Web Configurator can tell
+                    // Rack's AlloyFlux from an Alloy Coil.  A broadcast may only
+                    // ask, never change: every module on the port sees it.
+                    const bool addressed
+                        = msg.bytes.size() >= 6 && msg.bytes[1] == 0x7D
+                          && msg.bytes[2] == 0x41 && msg.bytes[3] == 0x46
+                          && msg.bytes.back() == 0xF7;
+                    const bool broadcast
+                        = msg.bytes.size() >= 6 && msg.bytes[1] == 0x7D
+                          && msg.bytes[2] == 0x7F && msg.bytes[3] == 0x7F
+                          && msg.bytes.back() == 0xF7 && msg.bytes[4] == 0x01;
+                    if(addressed || broadcast)
                     {
                         const uint8_t cmd = msg.bytes[4];
                         const uint8_t arg

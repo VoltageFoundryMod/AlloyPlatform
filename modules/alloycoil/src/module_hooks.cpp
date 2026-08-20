@@ -48,6 +48,10 @@ bool moduleHook_controlChange(uint8_t cc, uint8_t value)
                   // is the only thing here that can run away.
             gFeedbackGain = -60.0f;
             gEchoFeedback = 0.0f;
+            // Without this the collapse would glide over the feedback gain's
+            // 50 ms t60. That is not long, but a panic is the one gesture whose
+            // whole point is to be immediate.
+            coilControlSnap();
             (void)value;
             return true;
         default: return false;

@@ -70,16 +70,11 @@ class Engine {
 #define COIL_ECHO_MAX_S 4
 #endif
 
-        // Master soft clip at the module's output edge (renderAudio()). On by
-        // default: the engine peaks around 1.34 at useful settings even with
-        // output level at 0.5, and the driver hard-clamps anything past ±1.0,
-        // which crackles. Defined here rather than in main.cpp so the host
-        // harness sees the same default and reports what the firmware really
-        // does — it lived in main.cpp first and the harness kept reporting
-        // clipping the firmware no longer had.
-#ifndef COIL_OUTPUT_SOFTCLIP
-#define COIL_OUTPUT_SOFTCLIP 1
-#endif
+        // The module's output edge — the peak limiter that sits between this
+        // engine and the DAC — now lives in OutputStage.h, where the firmware,
+        // the VCV module and the host harness all reach for the same copy.
+        // COIL_OUTPUT_SOFTCLIP was declared here and is gone; see
+        // COIL_OUTPUT_LIMITER there.
 
     private:
         // long enough for 250ms at 48kHz

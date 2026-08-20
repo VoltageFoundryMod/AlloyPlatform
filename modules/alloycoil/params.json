@@ -110,9 +110,28 @@
       "min": 0.001,
       "max": 0.1,
       "default": 0.001,
-      "scale": "log",
+      "scale": "linear",
+      "skew": 2.0,
+      "target": "gFeedbackDelay",
       "unit": "s",
-      "target": "gFeedbackDelay"
+      "$comment": [
+        "Square-law, which is exactly upstream's Mapping::EXP — daisysp's",
+        "fmap() computes min + t^2 * (max-min) for EXP, and skew 2.0 on a",
+        "linear range is the same expression.",
+        "",
+        "This was 'log' and that was not a decision, it was the curve that",
+        "came out of translating the manifest. It matters more than it looks:",
+        "this delay length is the feedback comb, so the knob's midpoint IS a",
+        "resonant frequency. Log put it at 10 ms / 100 Hz; upstream puts it at",
+        "25.8 ms / 38.8 Hz, an octave and a third lower. The endpoints agree,",
+        "so nothing became unreachable — but the whole middle of the knob",
+        "landed somewhere else, and the middle of this knob is where the",
+        "instrument lives.",
+        "",
+        "Log is arguably the better-behaved curve in the abstract, and it is a",
+        "one-word revert if the even spread in frequency turns out to be",
+        "preferred over matching Audrey II."
+      ]
     },
     {
       "cc": 74,
@@ -171,9 +190,23 @@
         "value": 4
       },
       "default": 0.5,
-      "scale": "log",
+      "scale": "linear",
+      "skew": 2.0,
       "unit": "s",
-      "target": "gEchoTime"
+      "target": "gEchoTime",
+      "$comment": [
+        "Square-law, matching upstream's Mapping::EXP — see fbbody above for",
+        "why skew 2.0 on a linear range is the same thing.",
+        "",
+        "Also a translation artefact rather than a decision, and the drift was",
+        "large: at the knob's midpoint log gave 0.45 s against upstream's",
+        "1.29 s, and at 75% 1.34 s against 2.83 s. Nearly the whole usable",
+        "range of long echoes had been pushed into the last few percent of",
+        "travel.",
+        "",
+        "The max staying at COIL_ECHO_MAX_S rather than upstream's 5 s is a",
+        "separate and deliberate departure — see the file header."
+      ]
     },
     {
       "cc": 87,

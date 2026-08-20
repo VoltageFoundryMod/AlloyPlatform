@@ -23,9 +23,19 @@
 //     03 = APPLY_PATCH   (host → device: load CC pairs into parameters)
 //
 // All CC and value bytes are 7-bit safe (0–127).
+//
+// Discovery: 7F 7F in place of the signature is a wildcard meaning "any Alloy
+// module".  A host that does not yet know what it is talking to — the Web
+// Configurator on connect — sends a broadcast REQUEST_DUMP, and the module
+// answers with an ordinary PATCH_DUMP carrying its *real* signature.  That one
+// round trip identifies the module and delivers its patch, so no separate
+// identity command is needed.  Only REQUEST_DUMP is honoured on the wildcard:
+// every module sharing the port sees a broadcast, so anything that changes
+// state has to be addressed to one of them.
 // ---------------------------------------------------------------------------
 
 static constexpr uint8_t kSysExMfr            = 0x7D; // non-commercial
+static constexpr uint8_t kSysExDevAny         = 0x7F; // wildcard signature byte
 static constexpr uint8_t kSysExCmdRequestDump = 0x01;
 static constexpr uint8_t kSysExCmdPatchDump   = 0x02;
 static constexpr uint8_t kSysExCmdApplyPatch  = 0x03;
@@ -215,12 +225,21 @@ static void onSysEx(uint8_t *data, unsigned int length)
     // Validate 3-byte header: 7D <id0> <id1> <cmd>
     if(bodyLen < 4)
         return;
-    if(body[0] != kSysExMfr || body[1] != kSysExDevId0
-       || body[2] != kSysExDevId1)
+    if(body[0] != kSysExMfr)
+        return;
+    const bool addressed = (body[1] == kSysExDevId0 && body[2] == kSysExDevId1);
+    const bool broadcast = (body[1] == kSysExDevAny && body[2] == kSysExDevAny);
+    if(!addressed && !broadcast)
         return;
 
     const uint8_t cmd  = body[3];
     const uint8_t arg0 = (bodyLen > 4) ? (body[4] & 0x7F) : 0;
+
+    // A broadcast reaches every module on the port, so it may only ask a
+    // question — never change anything.  REQUEST_DUMP is the discovery probe;
+    // the PATCH_DUMP that answers it carries this module's real signature.
+    if(broadcast && cmd != kSysExCmdRequestDump)
+        return;
 
     if(cmd == kSysExCmdRequestDump)
     {

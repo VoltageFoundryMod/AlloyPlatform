@@ -38,12 +38,29 @@
 static constexpr uint32_t kAudioRate   = 48000u;
 static constexpr uint32_t kControlRate = 128u;
 
+// How often the parameter smoother interpolates, in audio frames.
+//
+// 128 Hz is an I/O rate — it is how often a CC or a knob needs looking at — and
+// it is far too coarse to interpolate *with*: a 7.8 ms tick is longer than the
+// 7.2 ms tau a 50 ms glide asks for, so a one-pole stepped there clamps to 1.0
+// and does nothing at all. Nine of the twelve parameters use that 50 ms time.
+//
+// So the goals are read at the control tick and the glide runs here, once per
+// 32 frames = 1500 Hz, which is 75 steps across a 50 ms move. Matches
+// AudioDriver::kBlockFrames, but nothing requires it to: it is a smoothing
+// rate, not a block boundary. See ControlSmoother.h.
+#ifndef COIL_SMOOTH_FRAMES
+#define COIL_SMOOTH_FRAMES 32
+#endif
+static constexpr uint32_t kSmoothFrames = COIL_SMOOTH_FRAMES;
+
 
 static constexpr uint8_t kPinI2sBCK  = 16u; // GP16; WS is implicitly GP17
 static constexpr uint8_t kPinI2sData = 18u;
 
+#include "ControlSmoother.h"
 #include "FeedbackSynthEngine.h"
-#include "dsp.h" // daisysp::SoftClip
+#include "OutputStage.h"
 #include "coil_config.h"
 #include "config_store.h" // platform: save/load/reset
 #include "debug.h"
@@ -73,6 +90,19 @@ float gExciterLevel  = 1.0f;
 // External excitation — see params.h. Control-rate on this platform.
 volatile float gExciterIn = 0.0f;
 
+// ---------------------------------------------------------------------------
+// Audio-path cost switches — runtime, not compile-time, so the two things M63i
+// added to the block can be turned off on a live board with `cpu` running
+// rather than by reflashing three times. Read on the audio core every frame.
+//
+//   smooth <n>    Step() every n frames; 0 disables it entirely
+//   limiter <0|1> bypass the output stage
+//
+// Both default to the shipping behaviour. See commands.cpp.
+// ---------------------------------------------------------------------------
+volatile uint32_t gSmoothFrames   = kSmoothFrames;
+volatile bool     gLimiterEnabled = true;
+
 #ifdef CPU_PROFILE
 volatile bool     gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs          = 0;
@@ -87,6 +117,12 @@ volatile uint32_t gAudioBudgetUs           = 1;
 // File-scope, not a shared global: nothing outside this file needs to know the
 // engine exists. ~443 KiB of static storage — see modules/alloycoil/README.md.
 static infrasonic::FeedbackSynth::Engine gEngine;
+
+// The glide between the goal values and the engine, and the peak limiter
+// between the engine and the DAC. Both are upstream behaviour that the port did
+// not carry over at first; see ControlSmoother.h and OutputStage.h.
+static infrasonic::FeedbackSynth::ControlSmoother sSmoother;
+static infrasonic::FeedbackSynth::OutputStage     sOutput;
 
 static AudioDriver sAudioDriver;
 
@@ -128,6 +164,11 @@ void setup()
     configStore_load();
 
     gEngine.Init((float)kAudioRate);
+    sOutput.Init();
+    // Stepped once per kSmoothFrames in renderAudio(), so that — not the
+    // control tick and not the sample rate — is the rate its coefficients
+    // belong to.
+    sSmoother.Init((float)kAudioRate / (float)kSmoothFrames);
 
     __asm volatile("dmb" ::: "memory");
     sCore0Ready = true;
@@ -157,22 +198,17 @@ void updateControl()
     }
 #endif
 
-    // Push the goal values into the engine. Every setter is cheap and the
-    // engine does its own smoothing where a parameter needs it, so this is an
-    // unconditional write rather than a change-detected one — a deadband here
-    // would only duplicate what the engine already does.
-    gEngine.SetStringPitch(gStringPitch);
-    gEngine.SetFeedbackGain(gFeedbackGain);
-    gEngine.SetFeedbackDelay(gFeedbackDelay);
-    gEngine.SetFeedbackLPFCutoff(gFeedbackLPF);
-    gEngine.SetFeedbackHPFCutoff(gFeedbackHPF);
-    gEngine.SetEchoDelaySendAmount(gEchoSend);
-    gEngine.SetEchoDelayTime(gEchoTime);
-    gEngine.SetEchoDelayFeedback(gEchoFeedback);
-    gEngine.SetReverbMix(gReverbMix);
-    gEngine.SetReverbFeedback(gReverbDecay);
-    gEngine.SetOutputLevel(gOutputLevel);
-    gEngine.SetExciterLevel(gExciterLevel);
+    // Nothing here talks to the engine any more. This tick's job is to bring
+    // the gXxx *goal* values up to date from MIDI, SysEx and the console; the
+    // glide onto them, and the engine writes it produces, belong to
+    // sSmoother.Step() in renderAudio(). Splitting the two is what lets the
+    // goals be read at a sensible I/O rate while the interpolation runs fast
+    // enough for a 50 ms glide to exist — see kSmoothFrames above.
+    //
+    // It also puts every write to engine state on the audio core, which is
+    // where it was always read: SetFeedbackLPFCutoff() re-solves five biquad
+    // coefficients, and doing that from this core meant Process() could be
+    // halfway through reading them.
 
 #if defined(CPU_PROFILE) && defined(SERIAL_CONTROL)
     gAudioElapsedUs = sAudioDriver.lastBlockUs();
@@ -198,7 +234,10 @@ void updateControl()
             Serial.print(F("%  underruns "));
             Serial.print(gAudioOverruns);
             Serial.print(F("  slow-blk "));
-            Serial.println(sAudioDriver.overruns());
+            Serial.print(sAudioDriver.overruns());
+            // Should be 0 whenever nothing is being moved — see params.h.
+            Serial.print(F("  set/step "));
+            Serial.println(coilSmootherPushes());
         }
     }
 #endif
@@ -230,33 +269,51 @@ renderAudio(float *pOutL, float *pOutR)
     }
 #endif
 
+    // Parameter glide. Twelve one-poles and, on a settled patch, zero setters —
+    // ControlSmoother's deadband is what makes this affordable here.
+    //
+    // It was not affordable without one. Pushing all twelve setters every step
+    // measured 942 µs per block against a 666 µs budget on hardware: four of
+    // them end in a transcendental and those cost ~90 µs each on this part.
+    // With the deadband the same patch runs at 578 µs. Do not add an
+    // unconditional setter to this path.
+    static uint32_t     sSmoothPhase = 0;
+    const uint32_t      smoothFrames = gSmoothFrames;
+    if(smoothFrames != 0u && ++sSmoothPhase >= smoothFrames)
+    {
+        sSmoothPhase = 0;
+        sSmoother.Step(gEngine);
+    }
+
     // gExciterIn is whatever the EXCITER jack last read; 0 when unpatched, in
     // which case the resonator self-excites from its own noise floor as before.
     gEngine.Process(gExciterIn, *pOutL, *pOutR);
 
-#if COIL_OUTPUT_SOFTCLIP
-    // Master soft clip.
+    // The module's output edge — upstream's peak limiter, which the port
+    // originally replaced with a bare SoftClip. That was ~6 dB hot and
+    // waveshaping every loud sample; the limiter's 0.49 static gain keeps the
+    // signal in SoftLimit's linear region until it genuinely needs catching.
+    // Full reasoning and the transfer comparison are in OutputStage.h.
     //
-    // The engine deliberately runs hot: with feedback gain near unity it peaks
-    // around 1.34 even with output level at 0.5, so ~0.1% of samples land
-    // outside ±1.0. AudioDriver::toWire() hard-clamps those, and a sparse
-    // scatter of hard discontinuities is exactly what crackle is — it is not a
-    // dropout and not the engine's own SoftClip, which only bounds the signal
-    // *inside* the resonator and echo loops.
-    //
-    // Upstream has the same headroom problem; on a Daisy the codec clips it
-    // just as hard. Saturating here instead keeps the instrument's character
-    // (it is a distorting feedback box) while guaranteeing nothing reaches the
-    // DAC out of range. Build with -DCOIL_OUTPUT_SOFTCLIP=0 to hear the raw
-    // engine and compare.
-    *pOutL = daisysp::SoftClip(*pOutL);
-    *pOutR = daisysp::SoftClip(*pOutR);
-#endif
+    // Bypassable at runtime for cost measurement only — with it off the engine
+    // runs past ±1.0 and AudioDriver::toWire() hard-clamps, which is the
+    // crackle the output stage exists to prevent. Not a voicing option.
+    if(gLimiterEnabled)
+        sOutput.Process(*pOutL, *pOutR);
 }
 
 // Backs the `status` command — commands.cpp has no visibility of the driver.
 bool audioRunning()
 { return sAudioState == kAudioRunning; }
+
+// Called from wherever the goal values change for a reason other than someone
+// moving a control — preset recall, factory reset, MIDI panic. See
+// ControlSmoother::Snap().
+void coilControlSnap()
+{ sSmoother.Snap(); }
+
+uint8_t coilSmootherPushes()
+{ return sSmoother.LastPushCount(); }
 
 void loop()
 {

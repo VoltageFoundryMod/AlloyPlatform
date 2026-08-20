@@ -204,6 +204,7 @@ help list:
 	@echo "    coil-host       host-build + run the engine, print its footprint"
 	@echo "    coil-ab         measure echo aliasing + quantiser noise"
 	@echo "    coil-ab-sweep   the same, across the whole switch matrix"
+	@echo "    coil-params     verify IOBridge knobs match params.json"
 	@echo ""
 	@echo "  Across the repo"
 	@echo "    everything        every firmware image + vcv + the web build"
@@ -309,6 +310,26 @@ coil-host:
 
 coil-host-clean:
 	rm -f $(COIL_BIN)
+
+# ── Alloy Coil knob/CC agreement ─────────────────────────────────────────────
+# params.json is the source of truth, but io/IOBridge.h is a hand-written mirror
+# of it — what a knob and a CV actually do — and nothing was checking the two
+# agreed. M63i changed two curves and every hand-computed number derived from
+# the old ones had to be found by eye; one was missed, and the VCV module booted
+# with its echo at 1.14 s instead of 0.5 s.
+#
+# Walks every knob across its travel and compares IOBridge against
+# ParamDescriptor::fromPos(). Cheap enough to run on every params.json edit.
+.PHONY: coil-params
+
+COIL_PARAMS_BIN := $(BUILD_TMP)/coil_params$(EXE)
+
+coil-params:
+	@mkdir -p $(BUILD_TMP)
+	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
+	  -Iplatform/include -Imodules/alloycoil/include -Ivendor/daisysp $(HOST_EXTRA) \
+	  modules/alloycoil/test/params_check.cpp -o $(COIL_PARAMS_BIN)
+	@$(COIL_PARAMS_BIN)
 
 # ── Alloy Coil echo A/B ──────────────────────────────────────────────────────────
 # The two DSP risks M63f has been carrying since it landed, measured instead of

@@ -7,16 +7,37 @@
 // see LICENSE.LGPL-2.1 and the "Licensing" section of README.md. Used here as
 // GPL-3.0-or-later under LGPL-2.1 section 3. Keep the attribution block below.
 
-// LOCAL PATCH. Now a count of FLOATS, which is what it was always used as —
-// see the units bug fixed in reverbsc.cpp's Init(). The eight delay lines need
-// 24 726 samples at 48 kHz (2543 + 2842 + 3325 + 3605 + 3977 + 4202 + 2251 +
-// 1981, from DelayLineMaxSamples), so this leaves a little headroom without
-// paying for the 4x that the byte/float mix-up used to demand.
+// LOCAL PATCH. The pool is now a count of FLOATS — which is what it was always
+// used as — and is *derived from the highest sample rate the build must
+// support* rather than hard-coded. See the units bug fixed in reverbsc.cpp's
+// Init().
 //
-// It scales with sample rate: raising the rate past ~48.1 kHz overflows, and
-// Init() now returns 1 rather than running off the end of aux_. Raise this if
-// a module ever runs the reverb faster.
-#define DSY_REVERBSC_MAX_SIZE 24800
+// The eight delay lines need 24 726 samples at 48 kHz (2543 + 2842 + 3325 +
+// 3605 + 3977 + 4202 + 2251 + 1981, from DelayLineMaxSamples), and that scales
+// linearly with the rate. A fixed 24 800 was right for the firmware, which runs
+// at exactly 48 kHz, and wrong for the VCV plugin, which re-inits at whatever
+// rate Rack is set to: at 96 kHz only four of the eight lines fit, Init()
+// returned 1, and the other four were left holding indeterminate `buf`
+// pointers that Process() then wrote through.
+//
+// So the size is computed instead. Summing the eight lines exactly needs
+// floating point and eight floor()s, neither of which the preprocessor has, so
+// this is a closed-form upper bound on that sum:
+//
+//   sum_i floor(d_i * sr + 16.5)  <=  0.5124834 * sr + 132
+//
+// where sum(d_i) = 24124/48000 + 0.0088 * 1.125 = 0.5124834 s is the total of
+// the eight delay times plus their pitch-modulation headroom. 5125/10000 is
+// that constant rounded *up*, and +140 covers both the eight roundings and the
+// integer division's truncation, so the bound holds at every rate.
+//
+//   48 kHz  -> 24 740 floats (  96.6 KiB) — the firmware
+//  192 kHz  -> 98 540 floats ( 385.0 KiB) — the VCV plugin's worst case
+#ifndef DSY_REVERBSC_MAX_SRATE
+#define DSY_REVERBSC_MAX_SRATE 48000
+#endif
+
+#define DSY_REVERBSC_MAX_SIZE (((DSY_REVERBSC_MAX_SRATE) * 5125) / 10000 + 140)
 
 namespace daisysp
 {
@@ -82,6 +103,13 @@ class ReverbSc
     int        init_done_;
     ReverbScDl delay_lines_[8];
     float      aux_[DSY_REVERBSC_MAX_SIZE];
+
+    // DSY_REVERBSC_MAX_SRATE * 5125 must not overflow a signed int during
+    // preprocessing. 419 kHz is far past anything a module will ask for, but a
+    // silent wrap here would size the pool at a negative number.
+    static_assert(DSY_REVERBSC_MAX_SRATE <= 419000,
+                  "DSY_REVERBSC_MAX_SRATE too large — the size expression "
+                  "overflows; widen it before raising this");
 };
 
 

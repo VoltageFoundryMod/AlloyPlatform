@@ -75,7 +75,25 @@ int ReverbSc::Init(float sr)
     {
         const int need = DelayLineMaxSamples(sr, 1, i);
         if(pos + need > DSY_REVERBSC_MAX_SIZE)
+        {
+            // LOCAL PATCH. Bail *safely*, not just early. The lines past this
+            // point still hold whatever `buf` contained before Init() ran —
+            // indeterminate for a heap or stack instance — and returning 1 on
+            // its own does not stop Process() from writing through them,
+            // because nothing checks the return value. Clearing init_done_
+            // turns Process() into a guarded no-op instead.
+            //
+            // With DSY_REVERBSC_MAX_SRATE sized correctly for the build this is
+            // unreachable; it is here so that getting that wrong is a silent
+            // reverb rather than memory corruption.
+            for(int j = i; j < 8; j++)
+            {
+                delay_lines_[j].buf         = nullptr;
+                delay_lines_[j].buffer_size = 0;
+            }
+            init_done_ = 0;
             return 1;
+        }
         delay_lines_[i].buf = aux_ + pos;
         InitDelayLine(&delay_lines_[i], i);
         pos += need;
@@ -164,7 +182,16 @@ int ReverbSc::Process(const float &in1,
 
     //if (init_done_ <= 0) return REVSC_NOT_OK;
     if(init_done_ <= 0)
+    {
+        // LOCAL PATCH: write the outputs before bailing. Upstream returns
+        // without touching them, and every caller in this tree declares them as
+        // plain locals — so an un-initialised reverb handed the caller stack
+        // garbage that then went through a mix crossfade. Silence is the honest
+        // answer and cannot produce a NaN.
+        *out1 = 0.0f;
+        *out2 = 0.0f;
         return REVSC_NOT_OK;
+    }
 
     /* calculate tone filter coefficient if frequency changed */
     if(lpfreq_ != prv_lpfreq_)

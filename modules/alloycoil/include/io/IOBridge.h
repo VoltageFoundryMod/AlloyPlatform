@@ -42,18 +42,20 @@ inline void fillCoilParams(IHardwareIO &io)
                             1.0f);
     gFeedbackGain = -30.0f + gain * (12.0f - -30.0f);
 
-    // Log knobs, matching params.json's `scale: "log"`, so the knob and the
-    // CC agree end to end. Body's CV is summed *before* the exponent, not
-    // after: 1 V then means a constant ratio of delay time wherever the knob
-    // is, instead of a constant number of milliseconds that would be the whole
-    // range at one end and inaudible at the other.
+    // Body is a square-law taper (params.json `skew: 2.0`), which is upstream's
+    // Mapping::EXP. CV is summed *before* the squaring, not after, so a volt
+    // moves the knob rather than the value — the same position-space sum the
+    // manifest's fromCC() does, and the only way a CC and a CV can agree.
     float body = io.readPot(Pot::FBBODY);
     if(io.isPatched(Cv::FBBODY))
         body = alloycoilClampf(body + io.readCV(Cv::FBBODY) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
-    gFeedbackDelay = 0.001f * powf(0.1f / 0.001f, body);
+    gFeedbackDelay = 0.001f + body * body * (0.1f - 0.001f);
 
+    // Log knobs, matching params.json's `scale: "log"`, so the knob and the CC
+    // agree end to end. These two are frequencies, where a constant ratio per
+    // unit of travel is what the ear actually hears.
     gFeedbackLPF = 100.0f * powf(18000.0f / 100.0f, io.readPot(Pot::FBLPF));
     gFeedbackHPF = 10.0f * powf(4000.0f / 10.0f, io.readPot(Pot::FBHPF));
 
@@ -67,8 +69,11 @@ inline void fillCoilParams(IHardwareIO &io)
                             1.0f);
     gEchoSend = send * send;
 
-    gEchoTime = 0.05f * powf((float)COIL_ECHO_MAX_S / 0.05f,
-                             io.readPot(Pot::ECHOTIME));
+    // Square-law too (`skew: 2.0`), matching upstream's Mapping::EXP.
+    {
+        const float t = io.readPot(Pot::ECHOTIME);
+        gEchoTime     = 0.05f + t * t * ((float)COIL_ECHO_MAX_S - 0.05f);
+    }
 
     // WARP — doppler warp. Upstream Audrey II has a panel toggle wired to
     // exactly this (`kDelaySwitchPin`, scaling echo time by 0.5), and it is the

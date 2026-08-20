@@ -12,15 +12,18 @@
 //   make coil-host
 
 #include "FeedbackSynthEngine.h"
+#include "OutputStage.h"
 
 #include <cmath>
 #include <cstdio>
 
 using infrasonic::FeedbackSynth::Engine;
+using infrasonic::FeedbackSynth::OutputStage;
 
 // Static, not stack: this is how the firmware will hold it, and a multi-hundred
 // kilobyte object would blow the default stack anywhere.
-static Engine gEngine;
+static Engine      gEngine;
+static OutputStage gOutput;
 
 int main()
 {
@@ -56,6 +59,7 @@ int main()
                 kib(sizeof(Engine)));
 
     gEngine.Init(kSampleRate);
+    gOutput.Init();
 
     // Drive it the way the milestone says to stress it: maximum feedback gain
     // and echo feedback above unity, which is where a resonator with two
@@ -78,6 +82,13 @@ int main()
     // Samples outside ±1.0. The platform's AudioDriver::toWire() hard-clamps
     // there, so every one of these is a clipped sample at the DAC — which
     // sounds like crackle, not like the engine's own SoftClip.
+    //
+    // Expect zero now that OutputStage runs upstream's limiter here. It is not
+    // arithmetically impossible: the peak follower has a ~20-sample attack, so
+    // a large enough transient can slip past before it engages, and SoftLimit()
+    // on its own is unbounded (it tends to x/9, not to 1). Any nonzero count is
+    // therefore worth looking at rather than assuming it is the old headroom
+    // problem.
     long clipped = 0;
     for(int i = 0; i < kFrames; ++i)
     {
@@ -85,12 +96,9 @@ int main()
         // Impulse at the start, silence after — the engine has to sustain
         // itself on its own feedback from there.
         gEngine.Process(i == 0 ? 1.0f : 0.0f, outL, outR);
-#if COIL_OUTPUT_SOFTCLIP
         // Mirror what renderAudio() does at the module's output edge, so the
         // clip count below reflects what actually reaches the DAC.
-        outL = daisysp::SoftClip(outL);
-        outR = daisysp::SoftClip(outR);
-#endif
+        gOutput.Process(outL, outR);
 
         if(!std::isfinite(outL) || !std::isfinite(outR))
         {

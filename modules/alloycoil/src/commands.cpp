@@ -12,6 +12,7 @@
 #include "io/usb_midi.h" // gMidiChannel
 #include "params.h"
 #include <Arduino.h>
+#include <hardware/clocks.h> // clock_get_hz — see cmd_status
 #include <stdlib.h>
 #include <string.h>
 
@@ -99,6 +100,12 @@ static void cmd_status(const char *, Print &out)
     out.print(F("us   underruns "));
     out.println(gAudioOverruns);
 #endif
+    // The engine does not fit in the block budget at the RP2350's stock
+    // 150 MHz — that is the whole reason platformio.ini asks for 192. If this
+    // reads 150, no amount of DSP accounting will explain the block time.
+    out.print(F("  sys clock    : "));
+    out.print(clock_get_hz(clk_sys) / 1000000u);
+    out.println(F(" MHz  (expect 192)"));
     out.print(F("  MIDI channel : "));
     if(gMidiChannel == 0)
         out.println(F("omni"));
@@ -107,6 +114,18 @@ static void cmd_status(const char *, Print &out)
     out.print(F("  echo max     : "));
     out.print((int)COIL_ECHO_MAX_S);
     out.println(F(" s"));
+    out.print(F("  smoother     : "));
+    if(gSmoothFrames == 0)
+        out.println(F("OFF"));
+    else
+    {
+        out.print(gSmoothFrames);
+        out.print(F(" frames ("));
+        out.print(48000.0f / (float)gSmoothFrames, 1);
+        out.println(F(" Hz)"));
+    }
+    out.print(F("  limiter      : "));
+    out.println(gLimiterEnabled ? F("on") : F("OFF"));
     cmd_get("", out);
 }
 
@@ -126,7 +145,13 @@ static void cmd_save(const char *args, Print &out)
 static void cmd_load(const char *args, Print &out)
 {
     const uint8_t slot = (*args) ? (uint8_t)atoi(args) : 0;
-    out.println(configStore_load(slot) ? F("loaded") : F("no valid preset"));
+    const bool    ok   = configStore_load(slot);
+    // A recall changes every parameter at once. Gliding into it would take a
+    // second on the feedback body alone, which is a smear rather than a
+    // crossfade — so land on the preset and start from there.
+    if(ok)
+        coilControlSnap();
+    out.println(ok ? F("loaded") : F("no valid preset"));
 }
 
 static void cmd_reset(const char *args, Print &out)
@@ -134,6 +159,7 @@ static void cmd_reset(const char *args, Print &out)
     const uint8_t slot = (*args) ? (uint8_t)atoi(args) : 0;
     configStore_reset(slot);
     configStore_applyDefaults();
+    coilControlSnap();
     out.println(F("reset to defaults"));
 }
 
@@ -154,9 +180,39 @@ static void cmd_cpu(const char *, Print &out)
     out.print(F("us  headroom "));
     out.print((budget - (float)gAudioElapsedUs) / budget * 100.0f, 1);
     out.print(F("%  underruns "));
-    out.println(gAudioOverruns);
+    out.print(gAudioOverruns);
+    out.print(F("  set/step "));
+    out.print(coilSmootherPushes());
+    out.println(F("/12"));
 }
 #endif
+
+// --- Audio-path cost bisect (M63i) -----------------------------------------
+// Both of these exist to attribute block time on a live board. See params.h.
+
+static void cmd_smooth(const char *args, Print &out)
+{
+    if(*args)
+        gSmoothFrames = (uint32_t)atoi(args);
+    out.print(F("smooth = "));
+    if(gSmoothFrames == 0)
+    {
+        out.println(F("0 (OFF — parameters frozen, measurement only)"));
+        return;
+    }
+    out.print(gSmoothFrames);
+    out.print(F(" frames = "));
+    out.print(48000.0f / (float)gSmoothFrames, 1);
+    out.println(F(" Hz"));
+}
+
+static void cmd_limiter(const char *args, Print &out)
+{
+    if(*args)
+        gLimiterEnabled = (*args != '0');
+    out.println(gLimiterEnabled ? F("limiter = on")
+                                : F("limiter = OFF (output will hard-clamp)"));
+}
 
 static void cmd_help(const char *, Print &out)
 { commands_printHelp(out); }
@@ -168,6 +224,8 @@ const CommandEntry kCommands[] = {
     {"save", "[slot] - save preset (0 = live)", cmd_save},
     {"load", "[slot] - load preset (0 = live)", cmd_load},
     {"reset", "[slot] - wipe preset and restore defaults", cmd_reset},
+    {"smooth", "[n] - smoother interval in frames (0 = off)", cmd_smooth},
+    {"limiter", "[0|1] - output limiter on/off", cmd_limiter},
 #ifdef CPU_PROFILE
     {"perf", "<0|1> - periodic CPU report", cmd_perf},
     {"cpu", "- one CPU report now", cmd_cpu},
