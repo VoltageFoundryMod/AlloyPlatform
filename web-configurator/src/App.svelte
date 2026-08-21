@@ -24,20 +24,20 @@
     type CCPair,
   } from "./lib/patchSync";
   import ConnectionBar from "./components/ConnectionBar.svelte";
-  import ParamSlider from "./components/ParamSlider.svelte";
-  import ParamSelect from "./components/ParamSelect.svelte";
   import MidiKeyboard from "./components/MidiKeyboard.svelte";
   import PresetManager from "./components/PresetManager.svelte";
-  import FxChainVisual from "./components/FxChainVisual.svelte";
-  import EnvelopeGraph from "./components/EnvelopeGraph.svelte";
   import MidiMonitor from "./components/MidiMonitor.svelte";
+  import PanelView from "./components/PanelView.svelte";
+  import DockPanel from "./components/panel/DockPanel.svelte";
 
-  // The parameter tables of whichever module is on the port, following it as
-  // the discovery probe identifies one. Everything below reads these rather
+  // The parameter table of whichever module is on the port, following it as
+  // the discovery probe identifies one. Everything below reads this rather
   // than a build-time import.
+  //
+  // The tables also carry PARAM_CATEGORIES / PARAMS_BY_CATEGORY, which nothing
+  // reads any more: they existed for the old list view's category headings,
+  // and the panel places controls by name through lib/panelLayout.ts instead.
   const PARAM_MAP = $derived($params.PARAM_MAP);
-  const PARAM_CATEGORIES = $derived($params.PARAM_CATEGORIES);
-  const PARAMS_BY_CATEGORY = $derived($params.PARAMS_BY_CATEGORY);
 
   function seedSliders(map: CCParam[]): Record<number, number> {
     return Object.fromEntries(
@@ -61,6 +61,16 @@
 
   // Signature of a module this build has no map for — see the SysEx handler.
   let unknownDev = $state<string | null>(null);
+
+  // Utility panels in the right-hand rail. Any number can be open at once —
+  // so this is a flag each rather than a single selection. The rail takes its
+  // width from the panel, which re-zooms to whatever is left.
+  let utility = $state({ presets: false, keyboard: false, settings: false });
+
+  type Utility = keyof typeof utility;
+  const toggleUtility = (u: Utility) => (utility[u] = !utility[u]);
+
+  const anyUtilityOpen = $derived(Object.values(utility).some(Boolean));
 
   // MIDI receive channel (0=omni, 1-16). Set by CC 110 in patch dump; sent via SysEx 0x07.
   let midiChannel = $state(0);
@@ -270,7 +280,14 @@
 
     const request = () => {
       if (done) return;
-      midi.sendSysEx(SysexCmd.REQUEST, [], SYSEX_DEV_BROADCAST);
+      // The fast phase asks the selected port and nothing else.  Widening the
+      // search is for when that port turns out to be the wrong guess, and it
+      // must not happen before then: only the first answer owns the session, so
+      // asking two ports at once hands the page to whichever is quicker rather
+      // than to the one it is aimed at.  See broadcastSysExWide().
+      if (attempts < FAST_ATTEMPTS)
+        midi.sendSysEx(SysexCmd.REQUEST, [], SYSEX_DEV_BROADCAST);
+      else midi.broadcastSysExWide(SysexCmd.REQUEST, [], SYSEX_DEV_BROADCAST);
 
       if (++attempts <= FAST_ATTEMPTS) {
         timer = setTimeout(request, FAST_INTERVAL_MS);
@@ -304,7 +321,7 @@
     };
     timer = setTimeout(request, 300);
 
-    const unsubSysEx = midi.onSysEx((body: Uint8Array) => {
+    const unsubSysEx = midi.onSysEx((body: Uint8Array, portName: string) => {
       const patch = parseSysExBody(body);
       if (!patch || patch.pairs.length === 0) return;
       // Only a PATCH_DUMP is evidence of a device. On a loopback port every
@@ -321,10 +338,27 @@
           .join(" ");
         return;
       }
-      if (ownerId && patch.module.id !== ownerId) return;
+      // While the probe is running, the first answer owns the session: a
+      // broadcast reaches every module on the port, so two behind a merger both
+      // reply and would otherwise take turns rebuilding the page.
+      //
+      // Once it has settled that rule has to lift, because nothing is asking
+      // any more — a dump arriving now is unsolicited, which makes it a
+      // deliberate act: "Sync to web" from a module's context menu, or a preset
+      // recall on the module itself. Refusing it married the page to whichever
+      // module happened to answer first, and with a rack holding both an
+      // AlloyFlux and an Alloy Coil that is a coin toss the user then cannot
+      // overrule — "Sync to web" did nothing, and the module they were actually
+      // working showed neither its values nor its knob moves, because its CC
+      // feedback was being decoded against the other module's map.
+      if (!done && ownerId && patch.module.id !== ownerId) return;
       ownerId = patch.module.id;
       done = true;
       clearTimeout(timer);
+      // The reply names the cable the module is on, which beats any guess made
+      // from port names — everything the page sends from here goes back the way
+      // the answer came.
+      midi.adoptAnsweringPort(portName);
       midi.probeAnswered(patch.module.name);
       // Switch first, then decode against the map we just switched to: the
       // `$derived` tables have not recomputed at this point in the tick.
@@ -515,6 +549,28 @@
   let sliderDisplays = $derived<Record<string, string | undefined>>(
     isAlloyFlux ? { rel: relDisplayOverride, color: colorDisplayOverride } : {},
   );
+
+  // ── Controls the current mode ignores ─────────────────────────────────────
+  // The envelope type picks which set of timing controls is live, and the
+  // other set does nothing at all — mirrors CurveEngine.h:
+  //   AR   — times come from CURVE and TIME SCALE; the four ADSR knobs are
+  //          not read.
+  //   ADSR — the four ADSR knobs are the times, and CURVE is reinterpreted as
+  //          a multiplier over them, which leaves TIME SCALE unused.
+  // Greying the inactive set is the difference between a panel that documents
+  // the engine and one that just exposes every CC it has.
+  const ccByName = $derived(new Map(PARAM_MAP.map((p) => [p.name, p.cc])));
+  const envIsAdsr = $derived(
+    (selectValues[ccByName.get("envtype") ?? -1] ?? 0) >= 64,
+  );
+
+  const ADSR_ONLY = ["adsrattack", "adsrdecay", "adsrsustain", "adsrrelease"];
+
+  let disabledParams = $derived(
+    isAlloyFlux
+      ? new Set(envIsAdsr ? ["curvetime"] : ADSR_ONLY)
+      : new Set<string>(),
+  );
   // ── Bottom dock sizing ───────────────────────────────────────────────────
   // The dock is position:fixed, so it is out of flow and would otherwise cover
   // whatever the page has scrolled to.  Track its height and reserve the same
@@ -588,6 +644,29 @@
   }
 </script>
 
+<!-- One definition, rendered by both views: the list keeps it in the right-hand
+     column, the panel opens it from the toolbar. -->
+{#snippet midiChannelRow()}
+  <div class="midi-channel-row">
+    <label class="midi-channel-label" for="midi-channel-select"
+      >Receive Channel</label
+    >
+    <select
+      id="midi-channel-select"
+      class="midi-channel-select"
+      value={midiChannel}
+      onchange={(e) =>
+        sendMidiChannel(parseInt((e.target as HTMLSelectElement).value, 10))}
+      disabled={!$midi.deviceConnected}
+    >
+      <option value={0}>Omni (All)</option>
+      {#each Array.from({ length: 16 }, (_, i) => i + 1) as ch}
+        <option value={ch}>{ch}</option>
+      {/each}
+    </select>
+  </div>
+{/snippet}
+
 <div class="app-shell">
   <!-- Top connection bar -->
   <ConnectionBar />
@@ -600,114 +679,94 @@
     </div>
   {/if}
 
-  <!-- Main content -->
-  <main class="main-content">
-    <!-- Left: parameters grouped by category.
-         Keyed on the module so a switch rebuilds every control from the new
-         map: ParamSelect seeds its selected option once at construction, and
-         ParamSlider's log/linear geometry comes from its param — neither can
-         be re-pointed at a different parameter in place. -->
-    <section class="params-panel">
+  <!-- Panel toolbar — opens the utilities that used to occupy a permanent
+       right-hand column. They dock to the right on demand instead, which is
+       most of what buys the panel its single screen. -->
+  <div class="panel-bar">
+    <span class="bar-module">{$activeModule.name}</span>
+    <span class="bar-spacer"></span>
+
+    <div class="bar-group">
+      <button
+        class="bar-btn"
+        class:on={utility.presets}
+        aria-pressed={utility.presets}
+        onclick={() => toggleUtility("presets")}>Presets</button
+      >
+      <button
+        class="bar-btn"
+        class:on={utility.keyboard}
+        aria-pressed={utility.keyboard}
+        onclick={() => toggleUtility("keyboard")}>Keyboard</button
+      >
+      <button
+        class="bar-btn"
+        class:on={utility.settings}
+        aria-pressed={utility.settings}
+        onclick={() => toggleUtility("settings")}>Settings</button
+      >
+    </div>
+  </div>
+
+  <!-- Keyed on the module for the same reason the list view is: a Knob's
+         curve geometry and a PanelSelect's option bands are read from their
+         param at construction, and neither can be re-pointed at a different
+         parameter in place. -->
+  <!-- Panel and utility rail share the row. The rail takes its width out of
+         the panel's, and PanelView measures what it is left and zooms to fit —
+         so opening a utility shrinks the control surface instead of covering
+         part of it. -->
+  <div class="panel-row">
+    <div class="panel-col">
       {#key $activeModule.id}
-        {#each PARAM_CATEGORIES as cat}
-          {@const catParams = PARAMS_BY_CATEGORY[cat]}
-          {@const selects = catParams.filter((p) => p.type === "select")}
-          {@const sliders = catParams.filter(
-            (p) => !p.type || p.type === "slider",
-          )}
-          <div class="cat-section">
-            <h3 class="cat-title">{cat}</h3>
-            {#if cat === "FX Chain"}
-              <FxChainVisual
-                filterPost={(selectValues[79] ?? 0) >= 64}
-                delayPost={(selectValues[80] ?? 0) >= 64}
-              />
-            {/if}
-            {#if cat === "Envelope"}
-              <EnvelopeGraph
-                isAdsr={(selectValues[81] ?? 0) >= 64}
-                attack={paramValues[73] ?? 0.05}
-                decay={paramValues[82] ?? 0.1}
-                sustain={paramValues[83] ?? 0.8}
-                release={paramValues[72] ?? 0.3}
-                curve={paramValues[71] ?? 0.5}
-                curveTime={paramValues[88] ?? 1.0}
-              />
-            {/if}
-            {#if selects.length}
-              <div class="select-row">
-                {#each selects as param}
-                  <ParamSelect
-                    {param}
-                    initial={selectValues[param.cc]}
-                    bind:this={selectRefs[param.cc]}
-                    onchange={(v) => {
-                      selectValues[param.cc] = v;
-                    }}
-                  />
-                {/each}
-              </div>
-            {/if}
-            {#if sliders.length}
-              <div class="params-grid">
-                {#each sliders as param}
-                  {#if param.rowBreakBefore}
-                    <div class="row-break"></div>
-                  {/if}
-                  <ParamSlider
-                    {param}
-                    bind:value={paramValues[param.cc]}
-                    bind:this={sliderRefs[param.cc]}
-                    hint={sliderHints[param.name]}
-                    displayOverride={sliderDisplays[param.name]}
-                  />
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/each}
+        <PanelView
+          moduleId={$activeModule.id}
+          map={PARAM_MAP}
+          bind:paramValues
+          bind:selectValues
+          {sliderRefs}
+          {selectRefs}
+          {sliderHints}
+          {sliderDisplays}
+          {disabledParams}
+        />
       {/key}
-    </section>
+    </div>
 
-    <!-- Right: keyboard + presets -->
-    <aside class="right-panel">
-      <section class="\">
-        <h2 class="panel-title">Keyboard</h2>
-        <MidiKeyboard />
-      </section>
+    {#if anyUtilityOpen}
+      <aside class="dock-rail">
+        {#if utility.presets}
+          <DockPanel title="Presets" onclose={() => (utility.presets = false)}>
+            <PresetManager {getPatchSnapshot} {applyFromFile} {applyDefaults} />
+          </DockPanel>
+        {/if}
 
-      <section class="presets-panel">
-        <PresetManager {getPatchSnapshot} {applyFromFile} {applyDefaults} />
-      </section>
-
-      <section class="midi-settings-panel cat-section">
-        <h2 class="panel-title">MIDI Settings</h2>
-        <div class="midi-channel-row">
-          <label class="midi-channel-label" for="midi-channel-select"
-            >Receive Channel</label
+        {#if utility.keyboard}
+          <DockPanel
+            title="Keyboard"
+            onclose={() => (utility.keyboard = false)}
           >
-          <select
-            id="midi-channel-select"
-            class="midi-channel-select"
-            value={midiChannel}
-            onchange={(e) =>
-              sendMidiChannel(
-                parseInt((e.target as HTMLSelectElement).value, 10),
-              )}
-            disabled={!$midi.deviceConnected}
+            <MidiKeyboard />
+          </DockPanel>
+        {/if}
+
+        {#if utility.settings}
+          <DockPanel
+            title="Settings"
+            onclose={() => (utility.settings = false)}
           >
-            <option value={0}>Omni (All)</option>
-            {#each Array.from({ length: 16 }, (_, i) => i + 1) as ch}
-              <option value={ch}>{ch}</option>
-            {/each}
-          </select>
-        </div>
-      </section>
-    </aside>
-  </main>
+            <div class="settings-body">
+              <h4 class="settings-group">MIDI</h4>
+              {@render midiChannelRow()}
+            </div>
+          </DockPanel>
+        {/if}
+      </aside>
+    {/if}
+  </div>
   <div class="footer cat-section">
     <small class="footer-label"
-      >Alloy Platform Web Configurator — Voltage Foundry Modular - ©2026</small
+      >Alloy Controller — Voltage Foundry Modular - ©2026</small
     >
   </div>
 
@@ -778,11 +837,104 @@
     display: flex;
     flex-direction: column;
     min-height: 100vh;
-    background: #0f0f1a;
-    color: #ddd;
-    font-family: "Inter", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
     /* Clears the two collapsed drawer tabs pinned at the bottom. */
     padding-bottom: 3.6rem;
+  }
+
+  /* ── Panel toolbar ───────────────────────────────────────────────────────
+     A thin rule between the connection bar and the control surface. Kept
+     visually quiet: it is chrome, and the panel below it is the subject. */
+  .panel-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 20px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .bar-module {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--copper);
+  }
+  .bar-spacer {
+    flex: 1;
+  }
+  .bar-group {
+    display: flex;
+    gap: 4px;
+  }
+  .bar-btn {
+    font: inherit;
+    font-size: 0.66rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 3px 11px;
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition:
+      color 90ms,
+      border-color 90ms,
+      background 90ms;
+  }
+  .bar-btn:hover {
+    color: var(--text);
+  }
+  .bar-btn.on {
+    color: var(--copper-bright);
+    border-color: var(--copper-deep);
+    background: rgba(192, 137, 74, 0.12);
+  }
+
+  /* Panel + utility rail. The panel column is `min-width: 0` so it can actually
+     give ground — a flex item defaults to min-content, which would have let the
+     stage refuse to shrink and pushed the rail off screen instead. */
+  .panel-row {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+  }
+  .panel-col {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Wide enough for a preset row (index, name, Save, Load, ✕) without an inner
+     horizontal scrollbar, but a share of the viewport so a narrow window does
+     not hand most of itself to the rail. */
+  .dock-rail {
+    flex: none;
+    width: clamp(300px, 24vw, 400px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0px 12px 12px 0;
+    min-width: 0;
+    border-left: 1px solid var(--hairline);
+  }
+
+  /* Settings window contents. Grouped with headings so the other settings
+     that will land here have somewhere obvious to go. */
+  .settings-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 230px;
+  }
+  .settings-group {
+    margin: 0;
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-faint);
   }
   .dock-spacer {
     flex: none;
@@ -791,14 +943,14 @@
   }
   .module-warning {
     padding: 0.5rem 1rem;
-    background: #3a2a12;
-    border-bottom: 1px solid #6b4a1a;
-    color: #e0b070;
+    background: rgba(224, 168, 58, 0.12);
+    border-bottom: 1px solid var(--copper-deep);
+    color: var(--copper-bright);
     font-size: 0.8rem;
   }
   .module-warning code {
     font-family: monospace;
-    color: #ffd08a;
+    color: var(--warn);
   }
   .drawer-dock {
     position: fixed;
@@ -809,80 +961,6 @@
     display: flex;
     flex-direction: column;
   }
-  .main-content {
-    display: flex;
-    flex: 1;
-    gap: 1rem;
-    padding: 1rem;
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .params-panel {
-    flex: 1 1 480px;
-    min-width: 300px;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-  .cat-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .cat-title {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #555;
-    margin: 0;
-    padding-bottom: 0.25rem;
-    border-bottom: 1px solid #222;
-  }
-  .panel-title {
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: #555;
-    margin: 0 0 0.5rem 0;
-  }
-  .select-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-  }
-  .params-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 0.5rem;
-  }
-  .params-grid .row-break {
-    grid-column: 1 / -1; /* spans full width, forcing subsequent items to a new row */
-    height: 0;
-    margin: 0;
-    padding: 0;
-  }
-  .right-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    flex: 0 1 400px;
-    min-width: 300px;
-  }
-  .keyboard-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .presets-panel {
-    display: flex;
-    flex-direction: column;
-  }
-  .midi-settings-panel {
-    display: flex;
-    flex-direction: column;
-  }
   .midi-channel-row {
     display: flex;
     align-items: center;
@@ -890,13 +968,13 @@
   }
   .midi-channel-label {
     font-size: 0.75rem;
-    color: #aaa;
+    color: var(--text-dim);
     white-space: nowrap;
   }
   .midi-channel-select {
-    background: #1a1a30;
-    color: #ccc;
-    border: 1px solid #444;
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
     padding: 0.2rem 0.4rem;
     font-size: 0.8rem;
@@ -911,20 +989,20 @@
     font-weight: 600;
     text-transform: uppercase;
     padding: 0.5rem;
-    color: #888;
+    color: var(--text-dim);
     min-width: 3rem;
   }
   .console-drawer {
-    background: #111120;
-    border-top: 1px solid #333;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--hairline);
   }
   .console-tab {
     width: 100%;
     padding: 0.35rem 1rem;
-    background: #1a1a30;
+    background: var(--bg-raised);
     border: none;
-    border-bottom: 1px solid #2a2a44;
-    color: #888;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--text-dim);
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -940,17 +1018,17 @@
     width: 0.55rem;
     height: 0.55rem;
     border-radius: 50%;
-    background: #444;
+    background: var(--hairline-strong);
     flex-shrink: 0;
     transition: background 0.3s;
   }
   .console-conn-dot.connected {
-    background: #4caf50;
-    box-shadow: 0 0 5px #4caf5088;
+    background: var(--ok);
+    box-shadow: 0 0 5px var(--ok);
   }
   .console-tab:hover {
-    background: #22223a;
-    color: #aaa;
+    background: rgba(192, 137, 74, 0.1);
+    color: var(--text-dim);
   }
   .console-body {
     /* Matches the MIDI monitor: capped so both drawers open together still
@@ -960,8 +1038,8 @@
     padding: 0.4rem 0.75rem;
     font-family: monospace;
     font-size: 0.75rem;
-    color: #9f9;
-    background: #0b0b18;
+    color: var(--led-4);
+    background: var(--bg-sunken);
   }
   .console-line {
     white-space: pre-wrap;
@@ -969,22 +1047,22 @@
     line-height: 1.4;
   }
   .console-empty {
-    color: #444;
+    color: var(--text-faint);
     font-style: italic;
   }
   .console-input-row {
     display: flex;
     gap: 0.4rem;
     padding: 0.4rem 0.75rem;
-    background: #111120;
-    border-top: 1px solid #222;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--hairline);
   }
   .console-input {
     flex: 1;
-    background: #0d0d20;
-    border: 1px solid #333;
+    background: var(--bg-sunken);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text);
     font-family: monospace;
     font-size: 0.8rem;
     padding: 0.25rem 0.5rem;
@@ -995,9 +1073,9 @@
   .console-send {
     padding: 0.25rem 0.75rem;
     font-size: 0.8rem;
-    background: #2a2a50;
-    color: #aab;
-    border: 1px solid #555;
+    background: var(--bg-sunken);
+    color: var(--text-dim);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
     cursor: pointer;
   }
@@ -1006,6 +1084,6 @@
     cursor: default;
   }
   .console-send:not(:disabled):hover {
-    background: #3a3a70;
+    background: rgba(192, 137, 74, 0.14);
   }
 </style>

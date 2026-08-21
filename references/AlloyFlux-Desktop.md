@@ -13,7 +13,7 @@ This doc evaluates the gaps and needs to create a desktop version of the Alloy F
 
 ## Software
 
-- Desktop Web Configurator (Electron)
+- Desktop Alloy Controller (Electron)
 - VST3 Plugin to control module's parameters from DAW via CC
 
 ## Already implemented

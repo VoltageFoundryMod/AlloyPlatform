@@ -8,7 +8,7 @@
  *
  * That costs nothing over the old build-time branch: it never tree-shook
  * either — verified in the built bundle, which carried both modules' tables
- * regardless of VITE_MODULE, because Rollup keeps a namespace import alive once
+ * regardless of which module is active, because Rollup keeps a namespace import alive once
  * anything reads through it. A few KB in a ~98 KB bundle.
  *
  * Reactive consumers subscribe to `params`; parsers and other non-reactive

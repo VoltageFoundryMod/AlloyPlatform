@@ -7,7 +7,7 @@ your own front.
 
 | What | Where | Licence |
 | ---- | ----- | ------- |
-| Firmware, VCV plugin, web configurator, tooling | everywhere else | **GPL-3.0-or-later** — [`LICENSE`](LICENSE) |
+| Firmware, VCV plugin, Alloy Controller, tooling | everywhere else | **GPL-3.0-or-later** — [`LICENSE`](LICENSE) |
 | Hardware design | [`hardware/`](hardware/) | **CERN-OHL-S v2** — [`hardware/LICENSE`](hardware/LICENSE) |
 | Panel artwork | [`panel-src/`](panel-src/), [`vcv-plugin/res/`](vcv-plugin/res/) | **CC BY-NC-ND 4.0** — [`panel-src/LICENSE`](panel-src/LICENSE) |
 | Names, marks, logos | — | **not licensed.** See below. |
@@ -23,7 +23,7 @@ file records what those are and why the combination works.
 
 | Component | Origin | Licence | Notice |
 | --------- | ------ | ------- | ------ |
-| Alloy Platform, Alloy Flux, Alloy Coil, integration, web configurator | this project | **GPL-3.0-or-later** | [`LICENSE`](LICENSE) |
+| Alloy Platform, Alloy Flux, Alloy Coil, integration, Alloy Controller | this project | **GPL-3.0-or-later** | [`LICENSE`](LICENSE) |
 | Schematics, PCB, fabrication files | this project | **CERN-OHL-S v2** | [`hardware/LICENSE`](hardware/LICENSE) |
 | Panel drawings and logos | this project | **CC BY-NC-ND 4.0** | [`panel-src/LICENSE`](panel-src/LICENSE) |
 | Audrey II engine (as Alloy Coil) | [Synthux Academy](https://github.com/Synthux-Academy/Audrey-II) | MIT | [`modules/alloycoil/LICENSE`](modules/alloycoil/LICENSE), [`CREDITS.md`](modules/alloycoil/CREDITS.md) |

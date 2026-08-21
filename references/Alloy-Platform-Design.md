@@ -125,7 +125,7 @@ absorbs either MIT or LGPL, so this is paperwork, not a blocker.
 
 **Platform** (engine-agnostic, shared):
 `IHardwareIO` + `HardwarePicoIO` + `VCVRackIO` · `ParameterRegistry` · config store ·
-MIDI/SysEx + serial transports · `LedEngine` · `PotTakeover` · web configurator ·
+MIDI/SysEx + serial transports · `LedEngine` · `PotTakeover` · Alloy Controller ·
 VCV scaffolding · audio driver · build system.
 
 **Module** (per-engine):
@@ -249,7 +249,7 @@ params_.Register(Parameter::FeedbackLPFCutoff, 18000.0f, 100.0f, 18000.0f,
 
 Eleven parameters, eleven rows, nothing else in the codebase knows a parameter exists.
 
-**This inverts the prior doc's §4.** It assumed the web configurator would supply the
+**This inverts the prior doc's §4.** It assumed the Alloy Controller would supply the
 manifest and Alloy Coil would conform. It is the other way round: promote `ParameterRegistry`
 into the platform, express AlloyFlux's parameters in it, then **generate** the CC table,
 config struct, VCV `configParam` calls and `paramMap.ts` from it.

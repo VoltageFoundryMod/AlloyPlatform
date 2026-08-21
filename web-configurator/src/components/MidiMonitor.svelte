@@ -243,16 +243,16 @@
   /* Positioning is owned by .drawer-dock in App.svelte, which pins both
      drawers to the viewport as one stack. */
   .midi-drawer {
-    background: #111120;
-    border-top: 1px solid #333;
+    background: var(--bg-panel);
+    border-top: 1px solid var(--hairline);
   }
   .midi-tab {
     width: 100%;
     padding: 0.35rem 1rem;
-    background: #1a1a30;
+    background: var(--bg-raised);
     border: none;
-    border-bottom: 1px solid #2a2a44;
-    color: #888;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--text-dim);
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -264,21 +264,21 @@
     gap: 0.5rem;
   }
   .midi-tab:hover {
-    background: #22223a;
-    color: #aaa;
+    background: rgba(192, 137, 74, 0.10);
+    color: var(--text);
   }
   .midi-conn-dot {
     display: inline-block;
     width: 0.55rem;
     height: 0.55rem;
     border-radius: 50%;
-    background: #444;
+    background: var(--hairline-strong);
     flex-shrink: 0;
     transition: background 0.3s;
   }
   .midi-conn-dot.connected {
-    background: #4caf50;
-    box-shadow: 0 0 5px #4caf5088;
+    background: var(--ok);
+    box-shadow: 0 0 5px var(--ok);
   }
   .midi-meters {
     margin-left: auto;
@@ -291,20 +291,20 @@
     font-variant-numeric: tabular-nums;
   }
   .midi-count {
-    color: #666;
+    color: var(--text-faint);
   }
   .midi-byte {
     font-family: monospace;
   }
   /* Same colours the log rows use for each direction. */
   .midi-byte.tx {
-    color: #6fcf6f;
+    color: var(--led-4);
   }
   .midi-byte.rx {
-    color: #7cb8ff;
+    color: var(--led-3);
   }
   .midi-byte.idle {
-    color: #cf6f6f;
+    color: var(--err);
   }
   .midi-toolbar {
     display: flex;
@@ -312,10 +312,10 @@
     flex-wrap: wrap;
     gap: 0.5rem 0.75rem;
     padding: 0.3rem 0.75rem;
-    background: #14142a;
-    border-bottom: 1px solid #222;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--hairline);
     font-size: 0.72rem;
-    color: #99a;
+    color: var(--text-dim);
   }
   .midi-toolbar label {
     display: flex;
@@ -331,14 +331,14 @@
   .midi-sep {
     width: 1px;
     align-self: stretch;
-    background: #2a2a44;
+    background: var(--hairline);
   }
   .midi-hide {
     width: 11rem;
-    background: #0d0d20;
-    border: 1px solid #333;
+    background: var(--bg-sunken);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
-    color: #ccc;
+    color: var(--text);
     font-family: monospace;
     font-size: 0.72rem;
     padding: 0.15rem 0.4rem;
@@ -349,19 +349,19 @@
   .midi-btn {
     padding: 0.15rem 0.6rem;
     font-size: 0.72rem;
-    background: #2a2a50;
-    color: #aab;
-    border: 1px solid #555;
+    background: var(--bg-sunken);
+    color: var(--text-dim);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
     cursor: pointer;
   }
   .midi-btn:hover {
-    background: #3a3a70;
+    background: rgba(192, 137, 74, 0.14);
   }
   .midi-btn.active {
-    background: #5a3a20;
-    border-color: #a76;
-    color: #eca;
+    background: rgba(192, 137, 74, 0.20);
+    border-color: var(--copper);
+    color: var(--copper-bright);
   }
   .midi-body {
     /* Capped against the viewport so both drawers open at once cannot take
@@ -371,20 +371,20 @@
     padding: 0.4rem 0.75rem;
     font-family: monospace;
     font-size: 0.72rem;
-    background: #0b0b18;
+    background: var(--bg-sunken);
   }
   .midi-line {
     display: flex;
     gap: 0.6rem;
     line-height: 1.45;
     white-space: pre;
-    color: #7cb8ff;
+    color: var(--led-3);
   }
   .midi-line.out {
-    color: #6fcf6f;
+    color: var(--led-4);
   }
   .midi-time {
-    color: #445;
+    color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
   .midi-dir {
@@ -394,22 +394,22 @@
     min-width: 5.5rem;
   }
   .midi-chan {
-    color: #667;
+    color: var(--text-faint);
   }
   .midi-detail {
-    color: #ccd;
+    color: var(--text);
     white-space: pre-wrap;
   }
   .midi-hex {
-    color: #665;
+    color: var(--copper-deep);
   }
   .midi-port {
     margin-left: auto;
-    color: #445;
+    color: var(--text-faint);
     padding-left: 1rem;
   }
   .midi-empty {
-    color: #444;
+    color: var(--text-faint);
     font-style: italic;
   }
 </style>

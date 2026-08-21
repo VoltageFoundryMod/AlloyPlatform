@@ -4,7 +4,7 @@ AlloyFlux is a eurorack synthesizer module with three build targets that share a
 
 - **Firmware** — RP2350 (Pico 2), Arduino, PlatformIO
 - **VCV Rack plugin** — Rack SDK 2.6.6, one plugin carrying every module
-- **Web Configurator** — Svelte 5 + TypeScript + Vite
+- **Alloy Controller** — Svelte 5 + TypeScript + Vite
 
 ---
 
@@ -18,7 +18,7 @@ lists every target.
 
 | Target     | Command                  | Notes                                                                                   |
 | ---------- | ------------------------ | --------------------------------------------------------------------------------------- |
-| Firmware   | `make` / `make firmware` | one image per module; `ENV=alloycoil` for the other. Output `.pio/build/$ENV/firmware.uf2` |
+| Firmware   | `make` / `make firmware` | one image per module; `MODULE=alloycoil` for the other. Output `.pio/build/$MODULE/firmware.uf2` |
 |            | `make firmware-all`      | every module's image — run after touching `platform/`                                   |
 |            | `make upload`            | build + flash; `make upload-monitor` also opens the serial console                      |
 | VCV plugin | `make vcv`               | **one** `plugin.dll` with *all* modules in it — there is no per-module VCV build        |
@@ -79,7 +79,7 @@ There is **no engine singleton**. The firmware owns one `SynthEngine` at file sc
 
 `#ifdef ARDUINO` guards exist in a few DSP headers for RP2350-specific timer calls; keep them when editing those files.
 
-### Web Configurator
+### Alloy Controller
 
 [`web-configurator/src/`](web-configurator/src/) — Svelte 5 + TypeScript frontend. Connects to the module via two channels:
 
@@ -88,7 +88,25 @@ There is **no engine singleton**. The firmware owns one `SynthEngine` at file sc
 
 Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
 
-Which module the page shows is **detected at runtime**: on connect it sends REQUEST\_DUMP addressed to the wildcard signature `7F 7F`, which every module answers, and `src/lib/activeModule.ts` reads the module out of the reply's header (`parseSysExBody` returns the sender's identity alongside the CC pairs). One build drives every module. `src/lib/paramMap.ts` exposes the tables as a store (`params`) plus a non-reactive `currentParams()`; `App.svelte` keys the parameter panel on the module id so a switch rebuilds every control. `VITE_MODULE` survives only as the startup default before anything has connected — after that the last detected module is remembered in localStorage.
+Which module the page shows is **detected at runtime**: on connect it sends REQUEST\_DUMP addressed to the wildcard signature `7F 7F`, which every module answers, and `src/lib/activeModule.ts` reads the module out of the reply's header (`parseSysExBody` returns the sender's identity alongside the CC pairs). One build drives every module. `src/lib/paramMap.ts` exposes the tables as a store (`params`) plus a non-reactive `currentParams()`; `App.svelte` keys the parameter panel on the module id so a switch rebuilds every control.
+
+**`make web` takes no `MODULE`** — there is nothing per-module to build. The last detected module is remembered in localStorage; a browser that has never connected opens on AlloyFlux with the header badge muted to say the choice is a guess. `VITE_MODULE` used to set that first-run default and is gone: it looked like a build flag selecting a target while selecting nothing but a name.
+
+The UI is the **panel view** (`src/components/PanelView.svelte`): a single-screen control surface of rotary knobs, segmented switches and LED ladders, styled from the physical panel artwork. The palette lives as CSS custom properties in `src/app.css` and nothing below it should hardcode a colour. `App.svelte` owns the patch state (`paramValues`/`selectValues`) and pushes inbound CC into each control through its exported `applyCC`; the components own no state of their own.
+
+The original scrolling `ParamSlider` grid — the "List" view — has been removed now the panel covers everything it did. Two leftovers of it survive on purpose: the generated tables still export `PARAM_CATEGORIES`/`PARAMS_BY_CATEGORY` (nothing reads them; the panel places controls by name via `panelLayout.ts`), and browsers may still hold an `alloy-view-mode` localStorage key, which is now ignored.
+
+Where a control sits is authored in [`src/lib/panelLayout.ts`](web-configurator/src/lib/panelLayout.ts), against the parameter's `name` — deliberately **not** in `params.json`, which is the firmware contract and would otherwise need the C++ table regenerated to move a knob one column. `layoutFor()` appends any parameter no section places into a per-category catch-all, so forgetting to place a new one costs an ugly trailing group rather than a missing control.
+
+The panel is a **fixed-width stage that zooms**, not a reflowing layout: each module declares a `stageWidth` (AlloyFlux 1700, Alloy Coil 1050), sections take `span` columns of twelve on that stage, and PanelView transform-scales the whole thing to fit both axes of the window. Hand-tuned spans are only safe because of this — a reflowing grid made the same spans read as half-empty outlines on a wide monitor and a column stacked down the left on a narrow one. Aim a stage at roughly 2:1, which is about the window's usable aspect once the chrome and the dock are off; the tighter axis picks the zoom and the other shows slack.
+
+Presets, Keyboard and Settings **dock to a right-hand rail** (`panel/DockPanel.svelte`), several at once. The rail takes its width out of the panel column, and since PanelView measures the room it is given, opening one shrinks the control surface instead of covering it — no overlay, nothing to move out of the way.
+
+The quantizer indicator (`panel/ScaleKeys.svelte`) is **read-only by necessity**. The `scale` CC carries a `ScaleId`, not a mask, so there is no way to send an arbitrary set of semitones; making the keys editable needs a new firmware parameter first. Its masks in `lib/scales.ts` are **mirrored by hand from `modules/alloyflux/include/scale_quantizer.h`** — that header is the authority, and the two must be kept in step. They are not generated because the masks live in a hand-written C++ header rather than in `params.json`, which only ever sees the option labels.
+
+Knob readouts derive their decimal places from the parameter's range *and its CC resolution*, never from the current value. The resolution half matters: `root` is ±48 semitones over 128 CC steps, so exact centre would need CC 63.5 and an initialised patch round-trips to CC 64 = 0.378 st. Printed to one decimal that reads as a module 38 cents sharp out of the box; one CC step there is 0.76 st, so whole semitones is the honest rendering. Don't "fix" that by adding decimals.
+
+Three per-control affordances worth knowing: `size` (`sm`/`md`/`lg`, and the spread is the main tool for saying which control matters), `icons` (glyph strip from `WaveIcon.svelte`, lit nearest the current position — the wave morph uses it), and `disabledParams`, a set of names App.svelte derives from the current mode. Disabled controls are greyed and refuse to put CC on the wire, which is how the AR/ADSR split is shown: AR greys the four ADSR knobs, ADSR greys TIME SCALE. Sections size their dial slots to their largest knob so mixed sizes keep one centre line and one readout baseline.
 
 **Requirement**: Chrome or Edge only — Web Serial and Web MIDI APIs are not supported in Firefox/Safari.
 
@@ -122,7 +140,7 @@ Which module the page shows is **detected at runtime**: on connect it sends REQU
 - **Do not commit** or run `git push` unless explicitly asked.
 - **Do not modify `/c/Users/carlosedp/Rack-SDK/`** — it is a shared external dependency.
 - **Do not increase `DELAY_MAX_MS`** without confirming SRAM budget (`platformio run` reports RAM usage after build).
-- **Adding or changing a parameter**: edit `modules/<module>/params.json` and run `make params`, then commit the regenerated files. That one row supplies the CC number, range, curve, default, label, category, unit and (for discrete params) the option bands to both `param_manifest.generated.h` and the web configurator's `paramMap<Module>.ts` (`paramMap.ts` itself is a hand-written shim that picks between them). Do not hand-edit a generated file; `make params-check` is the CI gate. Only the module's config pack/apply and the VCV param list are still hand-maintained.
+- **Adding or changing a parameter**: edit `modules/<module>/params.json` and run `make params`, then commit the regenerated files. That one row supplies the CC number, range, curve, default, label, category, unit and (for discrete params) the option bands to both `param_manifest.generated.h` and the Alloy Controller's `paramMap<Module>.ts` (`paramMap.ts` itself is a hand-written shim that picks between them). Do not hand-edit a generated file; `make params-check` is the CI gate. A module that sets `"globals_output": true` (Alloy Coil does) also gets `param_globals.generated.h`, which *defines* the parameter globals initialised to the `default` column — include it in exactly one TU per binary — and `applyParamDefaults()` in the manifest for factory reset. Between those two, changing a `default` needs no C++ edit at all. Only the module's config pack/apply (the struct field list, not its defaults) and the VCV param list are still hand-maintained.
 - **Shared DSP changes**: any edit to `modules/<module>/include/dsp/` or `src/SynthEngine.cpp` affects both firmware and VCV — validate both build targets.
 - **Windows VCV build**: run `make vcv` from the repo root — the root Makefile picks up the msys2 shell and toolchain itself, so no MinGW64 shell is needed.
 - **VCV warnings on GCC**: keep `vcv-plugin/Makefile` filtering out `-Wno-vla-extension` from `CXXFLAGS` (Clang-only flag from Rack SDK).

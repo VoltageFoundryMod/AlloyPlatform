@@ -9,16 +9,19 @@
  * identity — see the sync effect in App.svelte.
  *
  * With nothing connected the page shows the last module it saw, remembered in
- * localStorage across sessions. Failing that it falls back to VITE_MODULE, so
- * `make web MODULE=alloycoil` still decides what a fresh browser opens on; it is
- * a default now rather than a lock, and a build for one module happily drives
- * the other.
+ * localStorage across sessions, and a browser that has never connected to
+ * anything opens on AlloyFlux.
+ *
+ * There is no build-time module any more. `VITE_MODULE` used to pick that
+ * first-run default, which meant `make web` took a MODULE that changed nothing
+ * except which name a never-connected page showed — a build flag that looked
+ * like it selected a target and did not.
  */
 
 import { writable } from "svelte/store";
 
 export interface ModuleInfo {
-  /** VITE_MODULE value, and the key in MODULES. */
+  /** Module directory name under modules/, and the key in MODULES. */
   readonly id: string;
   /** Shown in the UI header. */
   readonly name: string;
@@ -62,21 +65,16 @@ function initialModule(): ModuleInfo {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && MODULES[saved]) return MODULES[saved];
   } catch {
-    // Private mode / storage disabled — fall through to the build default.
+    // Private mode / storage disabled — fall through to the default.
   }
-  const requested =
-    (import.meta.env.VITE_MODULE as string | undefined) ?? "alloyflux";
-  if (!MODULES[requested]) {
-    console.warn(
-      `[activeModule] unknown VITE_MODULE "${requested}" — falling back to AlloyFlux. ` +
-        `Known: ${Object.keys(MODULES).join(", ")}`,
-    );
-  }
-  return MODULES[requested] ?? MODULES.alloyflux;
+  // Never connected to anything, or storage is unavailable. Whichever module
+  // is shown is a guess until the probe answers, and the header badge stays
+  // muted to say so.
+  return MODULES.alloyflux;
 }
 
-// Resolved once: initialModule() touches localStorage and can warn about a bad
-// VITE_MODULE, and neither should happen twice.
+// Resolved once: initialModule() touches localStorage, which should not happen
+// twice.
 const startingModule = initialModule();
 
 export const activeModule = writable<ModuleInfo>(startingModule);

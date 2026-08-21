@@ -16,27 +16,31 @@
 
   type Block = { label: string; color: string };
 
+  // One rung of the panel LED strip per block, so a block keeps its colour
+  // wherever the reordering puts it and the eye can follow it across a change.
   const BLOCKS: Record<string, Block> = {
-    Filter: { label: "Filter", color: "#2a4a6a" },
-    Chorus: { label: "Chorus", color: "#2a5a3a" },
-    Delay: { label: "Delay", color: "#5a4a1a" },
-    Reverb: { label: "Reverb", color: "#4a2a5a" },
+    Voice: { label: "Voice", color: "var(--led-3)" },
+    Filter: { label: "Filter", color: "var(--led-2)" },
+    Chorus: { label: "Chorus", color: "var(--led-4)" },
+    Delay: { label: "Delay", color: "var(--led-5)" },
+    Reverb: { label: "Reverb", color: "var(--led-1)" },
+    Out: { label: "Out", color: "var(--led-6)" },
   };
 
   const chain = $derived(
     filterPost
       ? delayPost
-        ? ["Chorus", "Filter", "Reverb", "Delay"]
-        : ["Chorus", "Filter", "Delay", "Reverb"]
+        ? ["Voice", "Chorus", "Filter", "Reverb", "Delay", "Out"]
+        : ["Voice", "Chorus", "Filter", "Delay", "Reverb", "Out"]
       : delayPost
-        ? ["Filter", "Chorus", "Reverb", "Delay"]
-        : ["Filter", "Chorus", "Delay", "Reverb"],
+        ? ["Voice", "Filter", "Chorus", "Reverb", "Delay", "Out"]
+        : ["Voice", "Filter", "Chorus", "Delay", "Reverb", "Out"],
   );
 </script>
 
 <div class="chain">
   {#each chain as name, i}
-    <div class="block" style:background={BLOCKS[name].color}>{name}</div>
+    <div class="block" style:--block={BLOCKS[name].color}>{name}</div>
     {#if i < chain.length - 1}
       <span class="arrow">→</span>
     {/if}
@@ -47,29 +51,36 @@
   .chain {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 0.3rem;
-    padding: 0.45rem 0.6rem;
-    background: #0d0d1a;
-    border: 1px solid #2a2a42;
+    padding: 0.75rem 0.3rem;
+    background: var(--bg-sunken);
+    border: 1px solid var(--hairline);
     border-radius: 6px;
     flex-wrap: wrap;
     margin-bottom: 0.5rem;
   }
 
+  /* Outlined rather than filled: four solid chips would out-shout the knobs
+     around them, and the chain is context, not a control. */
   .block {
-    color: #ccd;
-    font-size: 0.68rem;
+    color: var(--block);
+    font-size: 0.63rem;
     font-weight: 600;
-    padding: 0.28rem 0.65rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--block);
     border-radius: 4px;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.07em;
     text-transform: uppercase;
-    transition: background 0.2s;
+    background: color-mix(in srgb, var(--block) 12%, transparent);
+    transition:
+      color 0.2s,
+      border-color 0.2s;
   }
 
   .arrow {
-    color: #44445a;
-    font-size: 0.8rem;
+    color: var(--copper-deep);
+    font-size: 0.75rem;
     flex-shrink: 0;
   }
 </style>

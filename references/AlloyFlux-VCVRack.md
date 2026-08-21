@@ -9,11 +9,11 @@ AlloyFlux is a versatile multi-voice oscillator module for VCV Rack, inspired by
 - Real-time control over parameters via MIDI CC and USB serial console
 - Preset management with 10 flash slots and SysEx patch dump/restore
 - Web-based configurator for patch editing, MIDI mapping, and console monitoring
-- Signal flow visualizer and interactive MIDI keyboard in the web configurator
+- Signal flow visualizer and interactive MIDI keyboard in the Alloy Controller
 
-## Connecting the Web Configurator to the Rack module
+## Connecting the Alloy Controller to the Rack module
 
-The module and the Web Configurator talk over ordinary MIDI, so they need a virtual MIDI cable between them: **loopMIDI** on Windows, the **IAC Driver** on macOS, or ALSA virtual ports on Linux.
+The module and the Alloy Controller talk over ordinary MIDI, so they need a virtual MIDI cable between them: **loopMIDI** on Windows, the **IAC Driver** on macOS, or ALSA virtual ports on Linux.
 
 **Use two ports, not one.** On Windows a MIDI output device can only be opened by a single process at a time. As soon as Rack's MIDI input is set, the module auto-claims the *same-named* output port for its parameter feedback (`syncMidiOutput()`), and the browser can then no longer open that port to send on. The failure is silent and asymmetrical, and looks exactly like this: knob moves in Rack appear in the browser, nothing sent from the browser arrives, and the port's byte counter never moves for outbound traffic.
 
@@ -23,9 +23,9 @@ Create two ports, e.g. `AlloyFlux-In` and `AlloyFlux-Out`, then:
 | -------------------------------- | --------------------------------------- |
 | Rack module → MIDI input         | `AlloyFlux-In`                          |
 | Rack module → MIDI output        | `AlloyFlux-Out` — **set this manually** |
-| Web Configurator → MIDI dropdown | `AlloyFlux-In`                          |
+| Alloy Controller → MIDI dropdown | `AlloyFlux-In`                          |
 
-`syncMidiOutput()` only auto-assigns the output when it has not been set, so an explicit choice in Rack's MIDI menu is respected. The Web Configurator has no input selector because it listens on *every* input port, so `AlloyFlux-Out` is picked up with no configuration.
+`syncMidiOutput()` only auto-assigns the output when it has not been set, so an explicit choice in Rack's MIDI menu is respected. The Alloy Controller has no input selector because it listens on *every* input port, so `AlloyFlux-Out` is picked up with no configuration.
 
 The **MIDI Monitor** drawer pinned at the bottom of the configurator shows decoded traffic in both directions, tagged with the port each message used, plus **TX** and **RX** byte counters on its tab. Those counters run whether the drawer is open or not, so a glance is enough:
 
@@ -43,7 +43,7 @@ A single shared port does work when the physical module is not involved and Rack
 
 - [User Manual](../modules/alloyflux/MANUAL.md): Panel controls, voice modes, MIDI CC map
 - [Serial Reference](AlloyFlux-serial-reference.md): USB serial console commands and configuration
-- [Web Configurator](../web-configurator/README.md): Instructions for using the browser-based editor to manage patches and control the module
+- [Alloy Controller](../web-configurator/README.md): Instructions for using the browser-based editor to manage patches and control the module
 
 ## Development
 

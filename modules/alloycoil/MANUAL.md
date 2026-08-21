@@ -89,7 +89,7 @@ that row you get, and the **right** column is feedback — what comes back round
 | **PITCH**     | note 16–72    | Where the string is tuned. Summed with V/OCT.                                                                            |
 | **BODY**      | 1–100 ms      | Length of the feedback delay. Short is a tight metallic ping; long is a hollow, tube-like resonance.                     |
 | **FB GAIN**   | −30…+12 dB    | **The main control.** Below about −15 dB the string decays; around 0 dB it sustains; above that it builds and saturates. |
-| ⇧ **EXCITER** | 0–2×          | How hard the FM/EXCITER jack drives the string.                                                                          |
+| ⇧ **EXCITER** | −inf…+6 dB    | How hard the FM/EXCITER jack drives the string. 0 dB is unity — the jack's full swing at the engine's full scale.        |
 | **ECHO SEND** | 0–1           | How much goes into the echo. Tapped after the reverb.                                                                    |
 | **ECHO TIME** | 0.05–4 s      | Delay time.                                                                                                              |
 | **ECHO FBK**  | 0–1.2         | Echo repeats. **Goes past unity on purpose** — above ~0.83 of travel it builds instead of decaying.                      |
@@ -159,6 +159,14 @@ rings on; percussion gives you something to play. Use ⇧ **EXCITER** to set how
 hard it hits. The jack takes ±8 V, hotter than the others, so it can accept a
 raw modular-level signal without clipping the front end.
 
+⇧ **EXCITER** is an input gain on that jack, not a level for anything the module
+makes itself — with nothing patched it does nothing at any setting, and the
+string still self-excites from its own noise floor. It boots at **0 dB**, which
+is unity: the jack's full swing reaches the engine's full scale, exactly as it
+did before the control existed. The **+6 dB** above unity is there because the
+jack is scaled for ±8 V, so an ordinary Eurorack source at ±5 V only reaches
+0.6 of full scale and would otherwise never drive the string all the way.
+
 ---
 
 ## MIDI
@@ -180,7 +188,7 @@ that is sustaining on its own feedback.
 | 16      | String Pitch                                                                                         | note 16–72            |
 | 17      | Feedback Gain                                                                                        | −30…+12 dB            |
 | 18      | Body                                                                                                 | 1–100 ms _(log)_      |
-| 19      | Exciter Level                                                                                        | 0–2×                  |
+| 19      | Exciter Level                                                                                        | −inf…+6 dB            |
 | 74      | Feedback LPF                                                                                         | 100 Hz–18 kHz _(log)_ |
 | 75      | Feedback HPF                                                                                         | 10 Hz–4 kHz _(log)_   |
 | 86      | Echo Time                                                                                            | 0.05–4 s _(log)_      |
@@ -205,7 +213,7 @@ Device signature **`'A' 'U'`**. Full patch dump and restore, plus **nine preset
 slots** addressed by SysEx. A tenth slot auto-saves at startup, so the module
 comes back the way you left it.
 
-The easiest way in is the **Web Configurator** — connect over USB, no drivers
+The easiest way in is the **Alloy Controller** — connect over USB, no drivers
 and no app to install. It reads the device signature and loads Alloy Coil's
 parameter map automatically.
 
@@ -235,7 +243,7 @@ Honest state of things, since this is a module under construction:
 - **Panel controls are not wired yet.** The multiplexed ADC driver does not
   exist, so on hardware the knobs, CV jacks, buttons and LEDs read as inactive.
   Everything above is live in the VCV Rack build, and reachable on hardware over
-  MIDI, SysEx and the Web Configurator.
+  MIDI, SysEx and the Alloy Controller.
 - **FM/EXCITER is control-rate on hardware.** The firmware reads that jack at
   128 Hz, so it can poke and swell the string but cannot yet excite it with
   audio. In VCV Rack it is read every sample and is a true audio input. The jack

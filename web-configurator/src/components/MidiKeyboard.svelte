@@ -284,10 +284,15 @@
 </div>
 
 <style>
+  /* Capped, because the keys are sized as a percentage of this box: left to
+     fill the window the white keys came out several inches wide, which is both
+     ugly and harder to play than a normal-looking octave and a half. */
   .keyboard-wrap {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    width: 100%;
+    max-width: 620px;
   }
   .kbd-toolbar {
     display: flex;
@@ -307,22 +312,22 @@
     font-size: 0.68rem;
     font-weight: 700;
     border-radius: 4px;
-    border: 1px solid #444;
-    background: #1e1e32;
-    color: #777;
+    border: 1px solid var(--hairline-strong);
+    background: var(--bg-sunken);
+    color: var(--text-faint);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
   }
   .vel-btn:hover {
-    background: #2a2a50;
-    color: #bbb;
+    background: var(--bg-raised);
+    color: var(--text);
   }
   .vel-btn.on {
-    background: #1a4020;
-    color: #6fcf6f;
-    border-color: #3a7040;
+    background: rgba(192, 137, 74, 0.16);
+    color: var(--copper-bright);
+    border-color: var(--copper-deep);
   }
 
   .vel-ctrl {
@@ -332,16 +337,16 @@
   }
   .vel-ctrl input[type="range"] {
     width: 90px;
-    accent-color: #7cb8ff;
+    accent-color: var(--copper);
   }
   .lbl {
     font-size: 0.7rem;
-    color: #666;
+    color: var(--text-faint);
   }
   .val {
     min-width: 2rem;
     font-size: 0.8rem;
-    color: #ccc;
+    color: var(--text);
     font-variant-numeric: tabular-nums;
   }
 
@@ -353,19 +358,19 @@
   .oct-btn {
     font-size: 0.7rem;
     padding: 0.15rem 0.45rem;
-    background: #1e1e32;
-    color: #aab;
-    border: 1px solid #444;
+    background: var(--bg-sunken);
+    color: var(--text);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
     cursor: pointer;
   }
   .oct-btn:hover {
-    background: #2a2a50;
+    background: var(--bg-raised);
   }
   .oct-lbl {
     font-size: 0.9rem;
     font-weight: 700;
-    color: #7cb8ff;
+    color: var(--copper-bright);
     min-width: 2.5rem;
     text-align: center;
     font-variant-numeric: tabular-nums;
@@ -379,31 +384,31 @@
     font-size: 0.75rem;
     padding: 0.2rem 0.5rem;
     cursor: pointer;
-    background: #252540;
-    color: #aab;
-    border: 1px solid #555;
+    background: var(--bg-sunken);
+    color: var(--text);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
   }
   button:hover {
-    background: #3a3a70;
+    background: rgba(192, 137, 74, 0.16);
   }
   .panic-btn {
-    color: #cf6f6f;
-    border-color: #703030;
+    color: var(--err);
+    border-color: rgba(208, 90, 82, 0.5);
   }
   .panic-btn:hover {
-    background: #3d1a1a;
+    background: rgba(208, 90, 82, 0.15);
   }
 
   .keyboard {
     position: relative;
     display: flex;
-    height: 130px;
+    height: 104px;
     user-select: none;
     border-radius: 6px;
     overflow: visible;
-    background: #111;
-    border: 1px solid #333;
+    background: var(--bg-sunken);
+    border: 1px solid var(--hairline);
   }
   .key {
     position: relative;
@@ -415,8 +420,8 @@
 
   .key.white {
     height: 100%;
-    background: linear-gradient(175deg, #d8d8d8 0%, #f2f2f2 100%);
-    border: 1px solid #999;
+    background: linear-gradient(175deg, #a8a49c 0%, #cfcabf 100%);
+    border: 1px solid #6d6a63;
     border-top: none;
     z-index: 1;
     display: flex;
@@ -427,10 +432,10 @@
     gap: 1px;
   }
   .key.white:hover:not(.active) {
-    background: #dde8ff;
+    background: #e4d2b6;
   }
   .key.white.active {
-    background: #7cb8ff;
+    background: var(--copper-bright);
   }
 
   .key.black {
@@ -438,7 +443,7 @@
     top: 0;
     height: 58%;
     background: linear-gradient(175deg, #2a2a2a 0%, #111 100%);
-    border: 1px solid #555;
+    border: 1px solid var(--hairline-strong);
     border-top: none;
     z-index: 2;
     border-radius: 0 0 4px 4px;
@@ -452,7 +457,7 @@
     background: linear-gradient(175deg, #484848 0%, #222 100%);
   }
   .key.black.active {
-    background: linear-gradient(175deg, #4a8abb 0%, #2a5a8a 100%);
+    background: linear-gradient(175deg, var(--copper) 0%, var(--copper-deep) 100%);
   }
 
   .kbd-hint {

@@ -43,7 +43,7 @@ and whatever is listening replies with an ordinary PATCH_DUMP carrying its *real
 F0 7D 41 46 02 …  F7   "I am Alloy Flux, and here is my patch"
 ```
 
-One round trip therefore answers both questions — which module, and what is it currently set to. This is how the Web Configurator picks the right control set on connect rather than being built for one module.
+One round trip therefore answers both questions — which module, and what is it currently set to. This is how the Alloy Controller picks the right control set on connect rather than being built for one module.
 
 Only REQUEST\_DUMP is honoured on the wildcard. Every module sharing a MIDI port sees a broadcast, so anything that *changes* state — APPLY\_PATCH, the preset commands, SET\_MIDI\_CH — must carry a real signature and is ignored when broadcast.
 
@@ -59,7 +59,7 @@ Only REQUEST\_DUMP is honoured on the wildcard. Every module sharing a MIDI port
 | 0x06 | Host → Device | PRESET\_RESET | `[slot]` — reset slot to factory defaults; `0x7F` = all slots |
 | 0x07 | Host → Device | SET\_MIDI\_CH | `[ch]` — set receive channel (0 = omni, 1–16 = specific)      |
 
-**How REQUEST\_DUMP works:** Send a REQUEST\_DUMP (cmd 0x01, no payload). The device immediately responds with a PATCH\_DUMP (cmd 0x02) containing all current parameter values as CC pairs. The Web Configurator uses this automatically on connect, addressed to the `7F 7F` wildcard so the reply tells it which module it is talking to. REQUEST\_DUMP is the only command the wildcard accepts.
+**How REQUEST\_DUMP works:** Send a REQUEST\_DUMP (cmd 0x01, no payload). The device immediately responds with a PATCH\_DUMP (cmd 0x02) containing all current parameter values as CC pairs. The Alloy Controller uses this automatically on connect, addressed to the `7F 7F` wildcard so the reply tells it which module it is talking to. REQUEST\_DUMP is the only command the wildcard accepts.
 
 **How APPLY\_PATCH works:** Send a APPLY\_PATCH (cmd 0x03) with an arbitrary subset of CC pairs. The device applies each one immediately — you do not need to send the full set. Useful for partial updates or live automation.
 
@@ -79,7 +79,7 @@ The file contains exactly one SysEx message. A typical full patch is about 84 by
 
 ### Exporting a Patch
 
-**From the Web Configurator:**
+**From the Alloy Controller:**
 
 1. Connect via USB MIDI or Serial.
 2. Open the **Presets** panel on the right.
@@ -94,7 +94,7 @@ Example SysEx string to send: `F0 7D 41 46 01 F7`
 
 ### Importing / Restoring a Patch
 
-**From the Web Configurator:**
+**From the Alloy Controller:**
 
 1. Click **Import** in the Presets panel.
 2. Select a `.syx` file. The configurator applies all CC pairs to the UI and sends an APPLY\_PATCH SysEx to the device immediately.
@@ -116,7 +116,7 @@ Alloy Flux has 10 on-device preset slots (0–9). Slot 0 is the *live state* —
 | 0    | Live state (working) |
 | 1–9  | User preset slots    |
 
-Use PRESET\_SAVE (cmd 0x04, payload = slot number) to write the current live state to a slot. Use PRESET\_LOAD (cmd 0x05) to recall one — the device automatically sends back a PATCH\_DUMP so the Web Configurator stays in sync.
+Use PRESET\_SAVE (cmd 0x04, payload = slot number) to write the current live state to a slot. Use PRESET\_LOAD (cmd 0x05) to recall one — the device automatically sends back a PATCH\_DUMP so the Alloy Controller stays in sync.
 
 PRESET\_RESET (cmd 0x06, payload = slot) restores factory defaults to that slot. Send `0x7F` as the slot byte to reset all slots at once.
 
@@ -126,14 +126,14 @@ PRESET\_RESET (cmd 0x06, payload = slot) restores factory defaults to that slot.
 
 Alloy Flux does not only accept parameter changes, it reports them. Every 250 ms the firmware builds the same CC snapshot used by PATCH\_DUMP, diffs it against the last one sent, and emits a plain CC message for each value that changed — typically none, and only a handful while something is being moved.
 
-The effect is that anything changing a parameter on the module — a panel knob, a button combo, a preset recall, the serial console — shows up on the host within one feedback tick. The Web Configurator uses exactly this to mirror the hardware; any DAW or controller sees it as ordinary CC input.
+The effect is that anything changing a parameter on the module — a panel knob, a button combo, a preset recall, the serial console — shows up on the host within one feedback tick. The Alloy Controller uses exactly this to mirror the hardware; any DAW or controller sees it as ordinary CC input.
 
 Two rules keep the loop from feeding on itself:
 
 - **The device does not echo the host.** A CC received from the host is recorded as if the device had sent it, so it is not immediately transmitted back. This matters most for log or wide-range parameters (filter cutoff, delay time), where the 7-bit round-trip can land a step away from what the host sent and would otherwise nudge the host's control.
 - **A PATCH\_DUMP seeds the same cache.** After a dump the host already has every value, so the next feedback tick does not repeat the whole patch as individual CCs.
 
-The host side is expected to be symmetrical: ignore an inbound CC that merely repeats what you last sent, and ignore inbound CC for a control the user is currently dragging (the Web Configurator uses a 400 ms window — see `shouldIgnoreInbound()` in `src/lib/midi.ts`).
+The host side is expected to be symmetrical: ignore an inbound CC that merely repeats what you last sent, and ignore inbound CC for a control the user is currently dragging (the Alloy Controller uses a 400 ms window — see `shouldIgnoreInbound()` in `src/lib/midi.ts`).
 
 CC 16 (ROOT pitch, ±4 V/Oct) is part of both the dump and the feedback diff, so the ROOT knob position reaches the host like every other control.
 

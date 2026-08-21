@@ -11,7 +11,7 @@
   //
   //   Firmware — ONE IMAGE PER MODULE. The engines cannot be co-resident in
   //              520 KB, so each module is its own PlatformIO env, selected
-  //              with ENV=<module>. Hence "AlloyFlux:" and "Alloy Coil:" tasks.
+  //              with MODULE=<module>. Hence "AlloyFlux:" and "Alloy Coil:" tasks.
   //
   //   VCV      — ONE PLUGIN, ALL MODULES. plugin.dll carries every module and
   //              Rack offers them all in the browser, so there is nothing
@@ -59,28 +59,28 @@
     // 192 is the next step that keeps the I2S divider exact. See platformio.ini.
     {
       "label": "Alloy Coil: Build firmware",
-      "detail": "make firmware ENV=alloycoil — .pio/build/alloycoil/firmware.uf2 (192 MHz)",
+      "detail": "make firmware MODULE=alloycoil — .pio/build/alloycoil/firmware.uf2 (192 MHz)",
       "type": "shell",
       "command": "make",
-      "args": ["firmware", "ENV=alloycoil"],
+      "args": ["firmware", "MODULE=alloycoil"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
     {
       "label": "Alloy Coil: Upload",
-      "detail": "make upload ENV=alloycoil — builds, then flashes over USB",
+      "detail": "make upload MODULE=alloycoil — builds, then flashes over USB",
       "type": "shell",
       "command": "make",
-      "args": ["upload", "ENV=alloycoil"],
+      "args": ["upload", "MODULE=alloycoil"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
     {
       "label": "Alloy Coil: Upload and monitor",
-      "detail": "make upload-monitor ENV=alloycoil — flashes, then opens the serial console",
+      "detail": "make upload-monitor MODULE=alloycoil — flashes, then opens the serial console",
       "type": "shell",
       "command": "make",
-      "args": ["upload-monitor", "ENV=alloycoil"],
+      "args": ["upload-monitor", "MODULE=alloycoil"],
       "group": "build",
       "problemMatcher": ["$gcc"]
     },
@@ -106,7 +106,7 @@
     },
     {
       "label": "Firmware: Serial monitor",
-      "detail": "make monitor — 115200 baud. Add ENV=alloycoil if that is what is flashed; the port is the same either way.",
+      "detail": "make monitor — 115200 baud. Add MODULE=alloycoil if that is what is flashed; the port is the same either way.",
       "type": "shell",
       "command": "make",
       "args": ["monitor"],
@@ -201,12 +201,13 @@
       "problemMatcher": []
     },
 
-    // ── Web Configurator — one build per module ───────────────────────────────
-    // The build picks its parameter map and SysEx signature from VITE_MODULE, and
-    // fails closed: an AlloyFlux build will not connect to an Alloy Coil module
-    // rather than showing the wrong controls. The header names which it is.
+    // ── Alloy Controller — one build, every module ────────────────────────────
+    // There is nothing per-module to build here: the page reads the SysEx
+    // signature off the port and loads that module's parameter map. These used
+    // to be four tasks — a build and a dev server per module, plus a build-all —
+    // back when VITE_MODULE baked the choice in at build time.
     {
-      "label": "Web: Build (AlloyFlux)",
+      "label": "Web: Build",
       "detail": "make web — production build into web-configurator/dist",
       "type": "shell",
       "command": "make",
@@ -215,54 +216,12 @@
       "problemMatcher": ["$tsc"]
     },
     {
-      "label": "Web: Build (Alloy Coil)",
-      "detail": "make web MODULE=alloycoil — production build into web-configurator/dist",
-      "type": "shell",
-      "command": "make",
-      "args": ["web", "MODULE=alloycoil"],
-      "group": "build",
-      "problemMatcher": ["$tsc"]
-    },
-    {
-      "label": "Web: Build all modules",
-      "detail": "make web-all — every module's configurator in turn (each overwrites dist/)",
-      "type": "shell",
-      "command": "make",
-      "args": ["web-all"],
-      "group": "build",
-      "problemMatcher": ["$tsc"]
-    },
-    {
       // Chrome or Edge only — Web Serial and Web MIDI are not in Firefox/Safari.
-      "label": "Web: Dev server (AlloyFlux)",
+      "label": "Web: Dev server",
       "detail": "make web-dev — vite on localhost:5173",
       "type": "shell",
       "command": "make",
       "args": ["web-dev"],
-      "isBackground": true,
-      "problemMatcher": {
-        "owner": "vite",
-        "pattern": {
-          "regexp": "^([^\\s].*)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+(.*)$",
-          "file": 1,
-          "line": 2,
-          "column": 3,
-          "severity": 4,
-          "message": 5
-        },
-        "background": {
-          "activeOnStart": true,
-          "beginsPattern": ".*VITE.*",
-          "endsPattern": ".*ready in.*"
-        }
-      }
-    },
-    {
-      "label": "Web: Dev server (Alloy Coil)",
-      "detail": "make web-dev MODULE=alloycoil — vite on localhost:5173",
-      "type": "shell",
-      "command": "make",
-      "args": ["web-dev", "MODULE=alloycoil"],
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",

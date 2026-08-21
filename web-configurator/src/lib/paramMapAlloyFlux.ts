@@ -197,7 +197,6 @@ export const PARAM_MAP: CCParam[] = [
     default: 0.05,
     unit: "s",
     step: 0.001,
-    rowBreakBefore: true,
   },
   {
     cc: 82,

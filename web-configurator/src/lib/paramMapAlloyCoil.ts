@@ -34,7 +34,6 @@ export const PARAM_MAP: CCParam[] = [
     max: 12.0,
     default: -30.0,
     unit: "dB",
-    rowBreakBefore: true,
   },
   {
     cc: 19,
@@ -44,7 +43,9 @@ export const PARAM_MAP: CCParam[] = [
     min: 0.0,
     max: 2.0,
     default: 1.0,
+    unit: "dB",
     skew: 2.0,
+    displayTransform: "gain-db",
   },
   {
     cc: 18,
@@ -88,7 +89,6 @@ export const PARAM_MAP: CCParam[] = [
     max: 1.0,
     default: 0.0,
     skew: 2.0,
-    rowBreakBefore: true,
   },
   {
     cc: 86,
@@ -118,7 +118,6 @@ export const PARAM_MAP: CCParam[] = [
     min: 0.0,
     max: 1.0,
     default: 0.0,
-    rowBreakBefore: true,
   },
   {
     cc: 92,
@@ -137,9 +136,8 @@ export const PARAM_MAP: CCParam[] = [
     category: "Output",
     min: 0.0,
     max: 1.0,
-    default: 0.5,
+    default: 1.0,
     skew: 2.0,
-    rowBreakBefore: true,
   },
 ];
 

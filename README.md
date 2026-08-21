@@ -4,7 +4,7 @@
 
 A firmware platform for Eurorack synth modules.
 
-One board, one panel family, one build system, one web configurator — and a
+One board, one panel family, one build system, one Alloy Controller — and a
 clean seam between the parts that are the same for every module and the parts
 that make a module itself. A synthesis engine drops in on one side of that seam
 and gets USB and TRS MIDI, a SysEx patch protocol, nine-slot preset storage, a
@@ -22,7 +22,7 @@ same infrastructure. That port is the proof the seam is real.
 | Module                               | What it is                                                                                     | Manual                                   | Status                                             |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------- |
 | **[Alloy Flux](modules/alloyflux/)** | Dual relation oscillator — stereo synth voice, six voice modes, 6-voice poly                   | [MANUAL.md](modules/alloyflux/MANUAL.md) | Firmware, VCV and web complete                     |
-| **[Alloy Coil](modules/alloycoil/)**     | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/alloycoil/MANUAL.md)    | Engine ported and voiced; awaits its `IHardwareIO` |
+| **[Alloy Coil](modules/alloycoil/)** | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/alloycoil/MANUAL.md) | Engine ported and voiced; awaits its `IHardwareIO` |
 
 Both share a PCB and a panel outline, so the same slot numbers land on the same
 physical positions and each module simply names them differently.
@@ -45,11 +45,11 @@ about Alloy Coil here; ask about Audrey II
 
 ## Three targets, one codebase
 
-| Target                                                   | Build                        | Output                                   |
-| -------------------------------------------------------- | ---------------------------- | ---------------------------------------- |
-| **Firmware** — RP2350 (Pico 2), PlatformIO, arduino-pico | `make firmware ENV=<module>` | `.pio/build/<module>/firmware.uf2`       |
-| **VCV Rack plugin** — Rack SDK 2.6.6                     | `make vcv`                   | one `plugin.dll` carrying _every_ module |
-| **Web Configurator** — Svelte 5 + TypeScript + Vite      | `make web`                   | `web-configurator/dist`                  |
+| Target                                                   | Build                           | Output                                   |
+| -------------------------------------------------------- | ------------------------------- | ---------------------------------------- |
+| **Firmware** — RP2350 (Pico 2), PlatformIO, arduino-pico | `make firmware MODULE=<module>` | `.pio/build/<module>/firmware.uf2`       |
+| **VCV Rack plugin** — Rack SDK 2.6.6                     | `make vcv`                      | one `plugin.dll` carrying _every_ module |
+| **Alloy Controller** — Svelte 5 + TypeScript + Vite      | `make web`                      | `web-configurator/dist`                  |
 
 ```sh
 make help              # every target, with the current ENV / MODULE
@@ -65,7 +65,7 @@ directly. On Windows it locates the toolchain itself: it finds `pio.exe` under
 `~/.platformio` and switches `SHELL` and `PATH` to msys2 for the Rack plugin
 build, which is what Rack's POSIX `plugin.mk` needs.
 
-The web configurator needs **Chrome or Edge** — Web Serial and Web MIDI are not
+The Alloy Controller needs **Chrome or Edge** — Web Serial and Web MIDI are not
 available in Firefox or Safari.
 
 ---
@@ -198,7 +198,7 @@ open; the names and the artwork are not.** Fork the module; draw your own front.
 
 | What                                            | Licence          |
 | ----------------------------------------------- | ---------------- |
-| Firmware, VCV plugin, web configurator, tooling | GPL-3.0-or-later |
+| Firmware, VCV plugin, Alloy Controller, tooling | GPL-3.0-or-later |
 | Hardware design (`hardware/`)                   | CERN-OHL-S v2    |
 | Panel artwork (`panel-src/`, `vcv-plugin/res/`) | CC BY-NC-ND 4.0  |
 | Names, marks, logos                             | not licensed     |

@@ -4,7 +4,7 @@
 #
 #   firmware  RP2350 / Pico 2, PlatformIO + Arduino-Pico          (./platformio.ini)
 #   vcv       VCV Rack 2 plugin, Rack SDK                         (./vcv-plugin)
-#   web       Web Configurator, Svelte 5 + Vite                   (./web-configurator)
+#   web       Alloy Controller, Svelte 5 + Vite                   (./web-configurator)
 #
 # `make` builds the firmware — the image you flash. `make everything` builds
 # all three, which is what to run before committing a change under common/,
@@ -117,7 +117,6 @@ BUILD_TMP ?= .build
 # Only needed by `make params`; PlatformIO ships one, so fall back to that
 # rather than requiring a system Python.
 PYTHON ?= $(if $(shell command -v python 2>/dev/null),python,$(HOME)/.platformio/penv/Scripts/python.exe)
-ENV ?= alloyflux
 NPM ?= npm
 
 # Rack SDK checkout. vcv-plugin/Makefile defaults to ../../Rack-SDK, i.e. a
@@ -130,45 +129,45 @@ RACK_ARG = $(if $(RACK_DIR),RACK_DIR=$(RACK_DIR),)
 WEB := web-configurator
 
 .DEFAULT_GOAL := all
-.PHONY: all everything help list
+.PHONY: all everything help
 
 # ── Modules ──────────────────────────────────────────────────────────────────
 # The platform hosts one engine per firmware image, so each module is its own
-# PlatformIO env; ENV selects which. The VCV plugin is the opposite — one .dll
-# carries every module and Rack offers them all, so there is nothing per-module
-# to build there.
+# PlatformIO env, and the env is named after the module. The VCV plugin is the
+# opposite — one .dll carries every module and Rack offers them all — and the
+# controller is module-agnostic entirely, so neither has anything per-module to
+# build.
+#
+# MODULE picks which one, everywhere it can mean anything: the firmware image,
+# the params tables, the host-side checks. It used to share that job with ENV,
+# which named the PlatformIO env — the same two values under two spellings, so
+# `make upload ENV=alloycoil` and `make params MODULE=alloycoil` disagreed about
+# what to call the same thing.
+MODULE ?= alloyflux
 MODULES := alloyflux alloycoil
 
-# `all` is the firmware you flash — AlloyFlux unless ENV says otherwise.
+# `all` is the firmware you flash — AlloyFlux unless MODULE says otherwise.
 all: firmware
 
 # Everything a shared change can break. Both firmware images, because a change
-# under platform/ compiles differently against each module. The web build is
-# module-agnostic now — one bundle drives both — so it is built once; web-all
-# stays for checking that each MODULE default still starts up.
+# under platform/ compiles differently against each module. The controller is
+# built once: one bundle drives every module, detected at runtime.
 everything: firmware-all vcv web
 
-.PHONY: firmware-all web-all
+.PHONY: firmware-all
 firmware-all:
 	@for m in $(MODULES); do \
 	  echo ""; echo "--- firmware: $$m ---"; \
-	  $(MAKE) --no-print-directory firmware ENV=$$m || exit 1; \
+	  $(MAKE) --no-print-directory firmware MODULE=$$m || exit 1; \
 	done
 
-web-all:
-	@for m in $(MODULES); do \
-	  echo ""; echo "--- web: $$m ---"; \
-	  $(MAKE) --no-print-directory web MODULE=$$m || exit 1; \
-	done
-
-help list:
+help:
 	@echo ""
 	@echo "Alloy Platform - make targets"
 	@echo ""
 	@echo "  Modules: $(MODULES)"
-	@echo "    ENV=<module>      picks the firmware image   (current: $(ENV))"
-	@echo "    MODULE=<module>   picks the params target, and the configurator's"
-	@echo "                      startup default          (current: $(MODULE))"
+	@echo "    MODULE=<module>   picks the firmware image and the params"
+	@echo "                      tables                  (current: $(MODULE))"
 	@echo ""
 	@echo "  Firmware (RP2350, one image per module)"
 	@echo "    firmware          build firmware.uf2                  (default)"
@@ -178,7 +177,7 @@ help list:
 	@echo "    monitor           serial monitor only"
 	@echo "    test              PlatformIO native unit tests"
 	@echo "    firmware-clean    clean the PlatformIO build"
-	@echo "      e.g.  make upload ENV=alloycoil"
+	@echo "      e.g.  make upload MODULE=alloycoil"
 	@echo ""
 	@echo "  VCV Rack plugin (ONE plugin, all modules in it)"
 	@echo "    vcv               build vcv-plugin/plugin.dll"
@@ -187,14 +186,13 @@ help list:
 	@echo "    vcv-clean         clean the plugin build"
 	@echo "    print-plugins-dir print Rack's user plugin directory"
 	@echo ""
-	@echo "  Web Configurator (Svelte + Vite, one build drives every module)"
+	@echo "  Alloy Controller (Svelte + Vite, one build drives every module)"
 	@echo "    web               production build into $(WEB)/dist"
-	@echo "    web-all           rebuild once per MODULE default (rarely needed)"
 	@echo "    web-dev           vite dev server on localhost:5173"
 	@echo "    web-check         svelte-check + tsc type validation"
 	@echo "    web-deps          npm install"
 	@echo "    web-clean         remove dist/ and node_modules/"
-	@echo "      e.g.  make web-dev MODULE=alloycoil"
+	@echo "      (no MODULE — the controller detects what is on the port)"
 	@echo ""
 	@echo "  Parameters"
 	@echo "    params            regenerate tables from modules/\$$(MODULE)/params.json"
@@ -218,7 +216,6 @@ help list:
 # regenerates every table derived from it. The output is committed, so an
 # ordinary build never needs Python — only editing params.json does.
 .PHONY: params params-check
-MODULE ?= alloyflux
 
 params:
 	$(PYTHON) tools/gen_params.py modules/$(MODULE)
@@ -228,30 +225,43 @@ params:
 # staleness check. In a dirty working tree it will also fire on generated
 # changes you have made but not yet committed, which is the same instruction:
 # commit them alongside the params.json edit that caused them.
+#
+# The paths come from the generator itself (--list-outputs) rather than being
+# listed here: this gate used to name web-configurator/src/lib/paramMap.ts,
+# which is the hand-written shim and not something `params` ever writes, so a
+# stale paramMapAlloyCoil.ts sailed straight through it.
+#
+# `git status`, not `git diff`: a generated file that is new — as
+# param_globals.generated.h was — is untracked rather than modified, and a
+# plain diff reports nothing at all for it.
 params-check: params
-	@git diff --exit-code -- modules/$(MODULE)/include/param_manifest.generated.h \
-	                         web-configurator/src/lib/paramMap.ts \
-	  || { echo "Generated parameter tables differ from what is committed."; \
-	       echo "If you just edited params.json, commit the regenerated files too."; exit 1; }
+	@outs=$$($(PYTHON) tools/gen_params.py modules/$(MODULE) --list-outputs); \
+	 if [ -n "$$(git status --porcelain -- $$outs)" ]; then \
+	   git status --short -- $$outs; \
+	   git diff -- $$outs; \
+	   echo "Generated parameter tables differ from what is committed."; \
+	   echo "If you just edited params.json, commit the regenerated files too."; \
+	   exit 1; \
+	 fi
 
 # ── Firmware ─────────────────────────────────────────────────────────────────
 # One PlatformIO environment per module: the RP2350 image. See platformio.ini.
 .PHONY: firmware upload upload-monitor monitor firmware-clean
 
 firmware:
-	$(PIO) run -e $(ENV)
+	$(PIO) run -e $(MODULE)
 
 upload:
-	$(PIO) run -e $(ENV) -t upload
+	$(PIO) run -e $(MODULE) -t upload
 
 upload-monitor:
-	$(PIO) run -e $(ENV) -t upload -t monitor
+	$(PIO) run -e $(MODULE) -t upload -t monitor
 
 monitor:
 	$(PIO) device monitor
 
 firmware-clean:
-	$(PIO) run -e $(ENV) -t clean
+	$(PIO) run -e $(MODULE) -t clean
 
 # `pio test` fails outright ("Nothing to build. Please put your test suites to
 # the 'test' folder") when test/ holds only its README, which is the case
@@ -265,7 +275,7 @@ ifeq ($(TEST_SUITES),)
 	@echo "No test suites under test/ - nothing to run."
 	@echo "Add test/test_<name>/ to enable 'make test'."
 else
-	$(PIO) test -e $(ENV)
+	$(PIO) test -e $(MODULE)
 endif
 
 # ── Alloy Coil engine, host build ────────────────────────────────────────────────
@@ -404,11 +414,12 @@ led-shape:
 # gets committed. Both files are tracked — the _src because it is the source,
 # the output because a machine without Inkscape still has to be able to build.
 #
-# ⚠ Use plain `select-all`, NOT `select-all:all`. The docs make `:all` ("every
+# ⚠ Never widen the selection to `select-all:all`. The docs make `:all` ("every
 # object including groups") sound safer, but `object-to-path` then recurses into
 # every group in the document and on a 270 KB panel it does not finish — killed
-# after ten minutes. Plain `select-all` (documented as `no-groups`) does reach
-# text inside layers and groups here: verified, 0 <text> left in the output.
+# after ten minutes. The selection is narrower still now — see PANEL_ACTIONS,
+# which asks for text and nothing else, because text is the only thing here that
+# needs Inkscape at all.
 #
 # `export-plain-svg` drops the inkscape:/sodipodi: namespaces, which nanosvg
 # ignores anyway — 272 KB in, 258 KB out.
@@ -447,7 +458,21 @@ PANEL_HIDE_LAYERS ?= components Drill
 
 # The action list, overridable so a variant can be tried without editing this
 # file: make panels PANEL_ACTIONS="..."
-PANEL_ACTIONS ?= select-all; object-to-path; export-plain-svg; export-filename:$@; export-do
+#
+# Text only. Inkscape is here for one thing nothing else can do — turning glyphs
+# into outlines needs the font metrics — and every other conversion it was being
+# asked for was either unnecessary or ruinous:
+#
+#   rect/circle/ellipse/line/polyline/polygon  nanosvg draws these natively.
+#       Converting them to paths was work with no effect on what Rack renders.
+#   <use>  nanosvg cannot draw it, so it does have to go — but `object-to-path`
+#       unlinks one clone per document rebuild, and a tiled-clone texture of
+#       1927 logos blew straight through the five-minute wall clock. It is a
+#       deep copy per clone, so prep_panel.py does it in well under a second.
+#
+# `select-by-element` needs Inkscape 1.1+. On an older build, fall back with
+#   make panels PANEL_ACTIONS="select-all; object-to-path; export-plain-svg; export-filename:$@; export-do"
+PANEL_ACTIONS ?= select-by-element:text; object-to-path; export-plain-svg; export-filename:$@; export-do
 
 # ⚠ Give the build its own Inkscape application ID. This is what makes the
 # panel step safe to run while you have Inkscape open, and it is not optional.
@@ -587,7 +612,7 @@ vcv-clean:
 print-plugins-dir:
 	@$(MAKE) --no-print-directory -C vcv-plugin print-plugins-dir $(RACK_ARG)
 
-# ── Web Configurator ─────────────────────────────────────────────────────────
+# ── Alloy Controller ─────────────────────────────────────────────────────────
 # Chrome or Edge only at runtime — Web Serial and Web MIDI are not implemented
 # in Firefox or Safari.
 #
@@ -601,15 +626,17 @@ $(WEB)/node_modules:
 web-deps:
 	cd $(WEB) && $(NPM) install
 
-# One build serves every module: the page detects which one is on the MIDI port
-# from its SysEx signature and loads that parameter map. MODULE only sets which
-# module a browser that has never connected to anything opens on — after that
-# the page remembers the last one it saw. See web-configurator/src/lib/activeModule.ts.
+# One build serves every module and takes no MODULE: the page detects which one
+# is on the MIDI port from its SysEx signature and loads that parameter map,
+# remembering the last one it saw across sessions. There used to be a
+# VITE_MODULE that picked what a browser which had never connected to anything
+# opened on; it is gone, and that case now falls back to AlloyFlux.
+# See web-configurator/src/lib/activeModule.ts.
 web: $(WEB)/node_modules
-	cd $(WEB) && VITE_MODULE=$(MODULE) $(NPM) run build
+	cd $(WEB) && $(NPM) run build
 
 web-dev: $(WEB)/node_modules
-	cd $(WEB) && VITE_MODULE=$(MODULE) $(NPM) run dev
+	cd $(WEB) && $(NPM) run dev
 
 web-check: $(WEB)/node_modules
 	cd $(WEB) && $(NPM) run check

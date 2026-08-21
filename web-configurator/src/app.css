@@ -1,17 +1,98 @@
-/* AlloyFlux Web Configurator — global reset & dark theme */
+/* AlloyFlux Web Configurator — global reset & theme
+ *
+ * The palette is lifted from the physical panel artwork (panel-src/*.svg and
+ * references/Panel-ConceptArt.png) rather than invented here, so the app and
+ * the module in the rack read as the same object: near-black slate ground,
+ * copper hairlines and arcs, cool grey secondary text, white only for the
+ * pointer on a control. Anything needing a colour outside that set — a
+ * connection state, an LED ladder — pulls from the LED strip on the panel.
+ */
 
-*, *::before, *::after { box-sizing: border-box; }
+:root {
+  /* Ground, darkest to most raised */
+  --bg: #131518;
+  --bg-panel: #1a1d21;
+  --bg-raised: #22262b;
+  --bg-sunken: #0e1013;
 
-html, body {
+  /* Copper — the panel's only accent. `dim` is the unlit half of an arc. */
+  --copper: #c0894a;
+  --copper-bright: #e0b072;
+  --copper-deep: #8a5f31;
+  --copper-dim: rgba(192, 137, 74, 0.22);
+  --copper-glow: rgba(224, 176, 114, 0.35);
+
+  /* Hairlines. The panel draws groups as thin brackets, never filled boxes. */
+  --hairline: #2b3038;
+  --hairline-strong: #3a414b;
+
+  --text: #ccd3dc;
+  --text-dim: #9aa4b3;
+  --text-faint: #626c78;
+  --pointer: #eef2f6;
+
+  /* LED ladder, in panel order (drift -> peak), plus a sixth so the longest
+     ladder — AlloyFlux's six voice modes — and the FX chain's six blocks each
+     get their own colour instead of wrapping back onto the first. */
+  --led-1: #b46ad0;
+  --led-2: #5c8ff0;
+  --led-3: #35c8d8;
+  --led-4: #58c06a;
+  --led-5: #e0a83a;
+  --led-6: #d9705f;
+
+  --ok: #58c06a;
+  --warn: #e0a83a;
+  --err: #d05a52;
+
+  --font-ui: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-num: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, monospace;
+
+  --radius: 4px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
   margin: 0;
   padding: 0;
-  background: #0f0f1a;
-  color: #ddd;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
   font-size: 14px;
   line-height: 1.5;
 }
 
-h1, h2, h3 { margin: 0; font-weight: 600; }
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+}
 
-a { color: #7cb8ff; }
+a {
+  color: var(--copper-bright);
+}
+
+/* Panel type: condensed uppercase with wide tracking, the way the silkscreen
+ * sets a knob legend. Used by every control label in the panel view. */
+.panel-legend {
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Numeric readouts never reflow as digits change. */
+.panel-readout {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.84rem;
+  color: var(--copper-bright);
+}

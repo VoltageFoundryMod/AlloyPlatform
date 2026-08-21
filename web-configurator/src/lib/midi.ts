@@ -77,6 +77,9 @@ export interface MidiStore {
   lastAnswerAt: number | null;
   /** True when the probe ran to exhaustion with no reply. */
   probeFailed: boolean;
+  /** Output port id twinned with the input a module last answered on, or null.
+   *  Outranks port-name heuristics in pickPort() — see adoptAnsweringPort(). */
+  answeredOutput: string | null;
 }
 
 function createMidi() {
@@ -100,6 +103,7 @@ function createMidi() {
     moduleName: null,
     lastAnswerAt: null,
     probeFailed: false,
+    answeredOutput: null,
   });
 
   let access: MIDIAccess | null = null;
@@ -181,14 +185,36 @@ function createMidi() {
   type CCListener = (cc: number, value: number) => void;
   const ccListeners = new Set<CCListener>();
 
-  // SysEx listeners — receive the body bytes between F0 and F7
-  type SysExListener = (body: Uint8Array) => void;
+  // SysEx listeners — receive the body bytes between F0 and F7, plus the name
+  // of the input port it arrived on.  The port name is what tells the discovery
+  // probe which cable the module is actually on; see adoptAnsweringPort().
+  type SysExListener = (body: Uint8Array, portName: string) => void;
   const sysexListeners = new Set<SysExListener>();
+
+  /**
+   * Run one listener, isolated.
+   *
+   * Every inbound message goes through a single handler shared by every
+   * listener, so a throw in any one of them propagates out of the MIDI event
+   * and takes the rest of the message — and, for a fault that repeats, every
+   * message after it — with it.  The page then receives nothing and sends
+   * nothing, with no error surfaced anywhere, which reads as a dead MIDI link
+   * rather than as the bug it is.  Logging beats swallowing: the console names
+   * the listener that failed.
+   */
+  function runListener(fn: () => void): void {
+    try {
+      fn();
+    } catch (e) {
+      console.error("[midi] listener threw on an inbound message:", e);
+    }
+  }
 
   function handleMidiMessage(event: MIDIMessageEvent) {
     const data = event.data;
     if (!data || data.length < 1) return;
-    emitTraffic("in", data, (event.target as MIDIInput | null)?.name ?? "?");
+    const portName = (event.target as MIDIInput | null)?.name ?? "?";
+    emitTraffic("in", data, portName);
     store.update((s) => ({ ...s, rxBytes: s.rxBytes + data.length }));
     const status = data[0];
 
@@ -197,7 +223,7 @@ function createMidi() {
       const endIdx =
         data[data.length - 1] === 0xf7 ? data.length - 1 : data.length;
       const body = data.slice(1, endIdx);
-      sysexListeners.forEach((fn) => fn(body));
+      sysexListeners.forEach((fn) => runListener(() => fn(body, portName)));
       return;
     }
 
@@ -206,7 +232,7 @@ function createMidi() {
     if (type === 0xb0) {
       // Control Change
       noteDeviceAlive(data[1], data[2]);
-      ccListeners.forEach((fn) => fn(data[1], data[2]));
+      ccListeners.forEach((fn) => runListener(() => fn(data[1], data[2])));
     }
   }
 
@@ -325,12 +351,19 @@ function createMidi() {
     ports: MidiPortInfo[],
     current: string | null,
     userPicked = false,
+    answered: string | null = null,
   ): string | null {
     const present = (id: string | null) =>
       !!id && ports.some((p) => p.id === id);
 
     // A deliberate choice from the dropdown is never overridden.
     if (userPicked && present(current)) return current;
+
+    // A port a module actually answered on outranks every guess below it: those
+    // are name heuristics, this is evidence.  Without it a rack running
+    // alongside hardware loses the port it was found on the next time anything
+    // re-enumerates, because the name rule right below prefers the hardware.
+    if (present(answered)) return answered;
 
     // Hardware outranks a stale automatic pick.  Without this, the common
     // startup order — page open with loopMIDI/IAC already present, module
@@ -376,6 +409,7 @@ function createMidi() {
         outputs,
         s.selectedOutput,
         s.userPickedOutput,
+        s.answeredOutput,
       );
       const selectedInput = pickPort(inputs, s.selectedInput);
       // Auto-connect: if a port is available, mark connected immediately.
@@ -409,6 +443,7 @@ function createMidi() {
               moduleName: null,
               lastAnswerAt: null,
               probeFailed: false,
+              answeredOutput: null,
             }
           : {}),
       };
@@ -540,11 +575,129 @@ function createMidi() {
       }));
       return;
     }
+    sendRawTo(out, bytes);
+  }
+
+  /** Hand bytes to one specific port and account for them. */
+  function sendRawTo(out: MIDIOutput, bytes: number[] | Uint8Array): void {
     out.send(bytes as number[]);
     emitTraffic("out", bytes, out.name ?? "?");
     store.update((s) => ({
       ...s,
       txBytes: s.txBytes + bytes.length,
+      error: null,
+    }));
+  }
+
+  /**
+   * Widen the discovery probe: the selected port, then the other ports an Alloy
+   * module could plausibly be behind.  For the *slow* phase of the probe only —
+   * the fast phase asks the selected port alone, so a correct guess is never
+   * raced (see the sync effect in App.svelte).
+   *
+   * The asymmetry this repairs: inbound has never been port-filtered —
+   * subscribeInputs() listens on all of them — while outbound goes to a single
+   * port pickPort() had to guess.  Guess wrong and the result is the symptom
+   * that is hard to read: the module's own dumps arrive and the page looks
+   * connected, but nothing the page *asks* is ever heard, so the automatic sync
+   * never happens and only a manual "Sync to web" from the module's menu
+   * appears to work.  Guessing wrong is not exotic — a VCV Rack setup on two
+   * one-way virtual cables has the page's inbound and outbound ports under
+   * different names, and hardware plugged in alongside Rack outranks the
+   * loopback port by name, so the probe goes to the board while Rack, which is
+   * what you are looking at, never sees it.
+   *
+   * Candidates, not every port.  An earlier version of this did send to all of
+   * them, and that is not safe on a machine with a lot of gear: an unknown
+   * SysEx handed to a stranger's driver can stall it, and `send()` is
+   * synchronous, so one bad port takes the page's main thread with it — the
+   * page then detects nothing and controls nothing, which looks nothing like a
+   * MIDI routing problem.  An Alloy module is either named for itself or behind
+   * a virtual cable, so those two names plus whatever is already selected cover
+   * every real case and nothing else gets spoken to.
+   *
+   * The selected port is always first and is sent exactly what it was sent
+   * before, so the path that already worked cannot regress.  Probe only:
+   * REQUEST_DUMP asks and changes nothing.  An APPLY_PATCH fanned out this way
+   * would reach modules the user is not driving.
+   */
+  function broadcastSysExWide(
+    cmd: number,
+    payload: number[],
+    dev: SysExDev,
+  ): void {
+    const msg = new Uint8Array([
+      0xf0,
+      SYSEX_MFR,
+      dev[0],
+      dev[1],
+      cmd & 0x7f,
+      ...payload,
+      0xf7,
+    ]);
+    // Unchanged behaviour first: whatever the page would have asked anyway.
+    sendRaw(msg);
+    if (!access) return;
+
+    const { selectedOutput, userPickedOutput } = get(store);
+    // Choosing a port from the dropdown means "talk to *this* module", and the
+    // fan-out must not second-guess that — the same rule pickPort() applies to
+    // the selection itself.
+    //
+    // Overriding it is worse than useless, because only the first answer owns
+    // the session.  With a board on USB and Rack on a loopback cable, asking
+    // both means Rack answers first every time — a virtual port round-trips in
+    // microseconds where USB takes milliseconds — so selecting the board got
+    // you Rack, and the board's dump arrived a moment later and was discarded
+    // for coming from a module that had not won the race.  The board's CC
+    // feedback still arrives, because inbound is never port-filtered, so the
+    // page looks connected to something that answers while insisting it cannot
+    // find the module you picked.
+    if (userPickedOutput) return;
+
+    access.outputs.forEach((out) => {
+      if (out.id === selectedOutput) return; // already sent, above
+      if (out.state === "disconnected") return; // stale entry Chrome kept
+      const name = out.name ?? "";
+      if (!NAME_ALLOY.test(name) && !NAME_VIRTUAL.test(name)) return;
+      try {
+        sendRawTo(out, msg);
+      } catch {
+        // A port that refuses the write must not stop the ones after it.
+      }
+    });
+  }
+
+  /**
+   * A module answered on `inputPortName`; make the page talk back to it.
+   *
+   * The reply proves which cable the module is on, which is better evidence
+   * than any name heuristic — so the matching output port (same name, as
+   * virtual cables and USB devices both pair them) becomes the selected one.
+   * Without this the page would identify the module correctly over one cable
+   * and go on sending its knob moves down another.
+   *
+   * A deliberate choice from the dropdown still wins, and nothing happens when
+   * the answering port is already selected or has no output twin.
+   */
+  function adoptAnsweringPort(inputPortName: string): void {
+    if (!access) return;
+    const s = get(store);
+    const match = s.outputs.find((o) => o.name === inputPortName);
+    if (!match) return;
+    // Remembered even when the user picked the port themselves: the record of
+    // where the answer came from is worth keeping either way, and pickPort()
+    // still puts a deliberate choice first.
+    if (s.userPickedOutput || match.id === s.selectedOutput) {
+      store.update((cur) => ({ ...cur, answeredOutput: match.id }));
+      return;
+    }
+    // Not a syncNonce bump: the probe that led here is mid-flight and has just
+    // succeeded, and restarting it would tear down the listener reading this.
+    store.update((cur) => ({
+      ...cur,
+      selectedOutput: match.id,
+      answeredOutput: match.id,
       error: null,
     }));
   }
@@ -647,6 +800,8 @@ function createMidi() {
     sendDroneReturn,
     sendPanic,
     sendSysEx,
+    broadcastSysExWide,
+    adoptAnsweringPort,
     probeStarted,
     probeAnswered,
     probeUnanswered,

@@ -264,8 +264,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
-    background: #1a1a2e;
-    border: 1px solid #333;
+    background: transparent;
+    border: 1px solid var(--hairline);
     border-radius: 8px;
     padding: 0.75rem;
     min-width: 300px;
@@ -287,32 +287,32 @@
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
-    color: #888;
+    color: var(--text-dim);
     letter-spacing: 0.06em;
   }
   .import-error {
     font-size: 0.7rem;
-    color: #cf7f7f;
-    background: #3a1a1a;
-    border: 1px solid #703030;
+    color: var(--err);
+    background: rgba(208, 90, 82, 0.15);
+    border: 1px solid rgba(208, 90, 82, 0.45);
     border-radius: 4px;
     padding: 0.25rem 0.5rem;
   }
   .sync-note {
     font-size: 0.65rem;
-    color: #6a9f8a;
-    background: #0d2018;
-    border: 1px solid #1a4030;
+    color: var(--ok);
+    background: rgba(88, 192, 106, 0.12);
+    border: 1px solid rgba(88, 192, 106, 0.35);
     border-radius: 4px;
     padding: 0.2rem 0.5rem;
     line-height: 1.4;
   }
   .btn-file {
-    border-color: #2a4a6a;
-    color: #7ab8df;
+    border-color: var(--copper-deep);
+    color: var(--copper-bright);
   }
   .btn-file:hover:not(:disabled) {
-    background: #1a2a4a;
+    background: rgba(192, 137, 74, 0.16);
   }
   .slot-list {
     display: flex;
@@ -325,13 +325,13 @@
     justify-content: space-between;
     padding: 0.3rem 0.5rem;
     border-radius: 5px;
-    background: #14142a;
-    border: 1px solid #2a2a42;
+    background: var(--bg-sunken);
+    border: 1px solid var(--hairline);
     gap: 0.5rem;
   }
   .live-slot {
-    border-color: #3a3a60;
-    background: #1c1c3a;
+    border-color: var(--copper-deep);
+    background: rgba(192, 137, 74, 0.08);
   }
   .slot-left {
     display: flex;
@@ -343,13 +343,13 @@
   }
   .slot-num {
     font-size: 0.75rem;
-    color: #555;
+    color: var(--text-faint);
     min-width: 1rem;
     text-align: center;
   }
   .slot-name {
     font-size: 0.8rem;
-    color: #ccc;
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -357,15 +357,15 @@
   }
   .slot-date {
     font-size: 0.65rem;
-    color: #555;
+    color: var(--text-faint);
     margin-left: auto;
     white-space: nowrap;
   }
   .name-input {
     font-size: 0.8rem;
-    background: #252545;
-    color: #eee;
-    border: 1px solid #7cb8ff;
+    background: rgba(192, 137, 74, 0.14);
+    color: var(--text);
+    border: 1px solid var(--copper);
     border-radius: 3px;
     padding: 0.1rem 0.3rem;
     flex: 1;
@@ -380,52 +380,52 @@
     font-size: 0.7rem;
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
-    border: 1px solid #444;
-    background: #252542;
-    color: #aab;
+    border: 1px solid var(--hairline-strong);
+    background: var(--bg-sunken);
+    color: var(--text-dim);
     cursor: pointer;
   }
   .btn-sm:hover:not(:disabled) {
-    background: #35357a;
+    background: rgba(192, 137, 74, 0.16);
   }
   .btn-sm:disabled {
     opacity: 0.35;
     cursor: not-allowed;
   }
   .btn-load {
-    border-color: #2a5a3a;
-    color: #6fcf9f;
+    border-color: rgba(88, 192, 106, 0.45);
+    color: var(--ok);
   }
   .btn-load:hover:not(:disabled) {
-    background: #1a3a2a;
+    background: rgba(88, 192, 106, 0.16);
   }
   .btn-danger-sm {
-    border-color: #5a2a2a;
-    color: #cf7f7f;
+    border-color: rgba(208, 90, 82, 0.45);
+    color: var(--err);
   }
   .btn-danger-sm:hover:not(:disabled) {
-    background: #3a1a1a;
+    background: rgba(208, 90, 82, 0.15);
   }
   .btn-danger {
     font-size: 0.7rem;
     padding: 0.2rem 0.6rem;
     border-radius: 4px;
-    border: 1px solid #703030;
-    background: #2a1010;
-    color: #cf6f6f;
+    border: 1px solid rgba(208, 90, 82, 0.45);
+    background: rgba(208, 90, 82, 0.10);
+    color: var(--err);
     cursor: pointer;
   }
   .btn-danger:hover:not(:disabled) {
-    background: #3d1a1a;
+    background: rgba(208, 90, 82, 0.20);
   }
   .btn-danger:disabled {
     opacity: 0.35;
     cursor: not-allowed;
   }
   .btn-confirm {
-    border-color: #b06020 !important;
-    background: #3a2000 !important;
-    color: #ffb84d !important;
+    border-color: var(--copper) !important;
+    background: rgba(192, 137, 74, 0.20) !important;
+    color: var(--copper-bright) !important;
     animation: pulse-confirm 0.6s ease-in-out infinite alternate;
   }
   @keyframes pulse-confirm {

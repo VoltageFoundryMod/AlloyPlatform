@@ -142,7 +142,7 @@ midichan omni        → respond to all channels (default)
 
 ### Knob Takeover
 
-A panel knob cannot move itself, so once the Web Configurator, a MIDI CC or a preset recall changes a parameter, the knob is left pointing somewhere else. This selects what happens the next time that knob is turned.
+A panel knob cannot move itself, so once the Alloy Controller, a MIDI CC or a preset recall changes a parameter, the knob is left pointing somewhere else. This selects what happens the next time that knob is turned.
 
 ```txt
 pot                        → print the current takeover mode
@@ -205,13 +205,13 @@ The `AlloyConfig` struct covers all synthesis and effects parameters: shape, mot
 
 ## MIDI SysEx Preset Backup
 
-Alloy Flux supports SysEx dump and restore of the full `AlloyConfig` struct. This allows preset backup/restore via any DAW or MIDI controller that supports SysEx, without needing the Web Configurator.
+Alloy Flux supports SysEx dump and restore of the full `AlloyConfig` struct. This allows preset backup/restore via any DAW or MIDI controller that supports SysEx, without needing the Alloy Controller.
 
 SysEx format details and integration instructions are available in the firmware source at `src/usb_midi.cpp`.
 
 ---
 
-## Web Configurator
+## Alloy Controller
 
 A browser-based configurator connects via Web MIDI API (Chrome/Edge). It provides:
 

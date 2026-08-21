@@ -11,7 +11,7 @@ from one V/OCT cable and one gate.
 | --- | --- |
 | Format | Eurorack, 14 HP |
 | Engine | 6 voices, `int32 ±32512` signal path, 48 kHz |
-| Firmware | `make firmware ENV=alloyflux` → `.pio/build/alloyflux/firmware.uf2` |
+| Firmware | `make firmware MODULE=alloyflux` → `.pio/build/alloyflux/firmware.uf2` |
 | VCV | slug `AlloyFlux`, inside the one `AlloyPlatform` plugin |
 | Web | `make web MODULE=alloyflux` |
 | SysEx ID | `0x41 0x46` (`'A' 'F'`) |
@@ -43,7 +43,7 @@ shared with [Alloy Coil](../alloycoil/).
 
 Edit [`params.json`](params.json) and run `make params`. That one row supplies the
 CC number, range, curve, default, label, category, unit and option bands to both
-`param_manifest.generated.h` and the web configurator's parameter map. Commit the
+`param_manifest.generated.h` and the Alloy Controller's parameter map. Commit the
 regenerated files; `make params-check` is the CI gate.
 
 Only the config pack/apply in `src/config_store.cpp` and the VCV param list in

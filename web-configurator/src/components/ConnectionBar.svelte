@@ -18,6 +18,21 @@
     await midi.scan();
   }
 
+  /**
+   * One button for "sort the MIDI link out".
+   *
+   * Rescan and Recheck were two buttons for two halves of the same question,
+   * and which one you needed depended on internals — whether the port list was
+   * stale (re-flash, hub replug) or the port was fine and the module had not
+   * answered (Rack not started yet). Doing both in order covers either case:
+   * refresh the port list first, then re-run the discovery probe against
+   * whatever that turned up.
+   */
+  async function refreshMidi() {
+    await midi.scan();
+    midi.resync();
+  }
+
   async function connectSerial() {
     await serial.connect();
   }
@@ -29,7 +44,7 @@
        in the module's patch dump, so this follows whatever is actually on the
        port; with nothing connected it is the last module seen. Worth a glance
        before wondering why a knob does nothing. -->
-  <div class="conn-title">{$activeModule.name} Web Configurator</div>
+  <div class="conn-title">Alloy Controller</div>
   <span
     class="module-badge"
     class:detected={$midi.moduleAnswered}
@@ -54,12 +69,12 @@ SysEx signature: {$activeModule.sysexDev
       <button onclick={scanMidi}>Scan for MIDI Devices</button>
     {:else if $midi.outputs.length === 0}
       <span class="badge warn">No devices found</span>
-      <button onclick={scanMidi} title="Refresh device list">Rescan</button>
+      <button onclick={refreshMidi} title="Refresh device list">Refresh</button>
     {:else}
-      <!-- Dropdown + Rescan, no disconnect.  There is nothing useful a manual
+      <!-- Dropdown + Refresh, no disconnect.  There is nothing useful a manual
            disconnect does here: a port either exists or it does not, and
            choosing where to send is the only real decision.  The ✕ used to
-           drop into a state whose only escape was Rescan, which just re-ran
+           drop into a state whose only escape was a rescan, which just re-ran
            auto-selection — so it could strand the user on the wrong port.
 
            The badge reports whether a module has *answered*, not whether a
@@ -70,7 +85,7 @@ SysEx signature: {$activeModule.sysexDev
       {#if $midi.moduleAnswered}
         <span
           class="badge ok"
-          title="{$midi.moduleName} answered the discovery probe on this port. Recheck confirms it is still there."
+          title="{$midi.moduleName} answered the discovery probe on this port. Refresh confirms it is still there."
           >{$midi.moduleName} responding</span
         >
       {:else if $midi.probing}
@@ -103,11 +118,10 @@ Asking again every 5 s — it will pick up on its own once something answers."
       <!-- TX/RX byte counters live on the MIDI Monitor tab at the bottom of
            the page, next to the traffic they describe. -->
       <button
-        onclick={() => midi.resync()}
-        title="Ask the module to identify itself again — a live test of the link, without reloading the page"
-        >Recheck</button
+        onclick={refreshMidi}
+        title="Refresh the MIDI port list, then ask the module to identify itself again — a live test of the link, without reloading the page"
+        >Refresh</button
       >
-      <button onclick={scanMidi} title="Refresh device list">Rescan</button>
     {/if}
     {#if $midi.error}
       <span class="badge error">{$midi.error}</span>
@@ -141,8 +155,8 @@ Asking again every 5 s — it will pick up on its own once something answers."
     gap: 1.5rem;
     align-items: center;
     padding: 0.5rem 1rem;
-    background: #1a1a2e;
-    border-bottom: 1px solid #333;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--hairline);
     flex-wrap: wrap;
   }
   .conn-section {
@@ -150,11 +164,15 @@ Asking again every 5 s — it will pick up on its own once something answers."
     align-items: center;
     gap: 0.5rem;
   }
+  /* Set as a wordmark rather than a page heading: the panel below is the
+     subject, and a 1.5rem title was competing with it for the top of the
+     screen. */
   .conn-title {
-    font-size: 1.5rem;
+    font-size: 0.92rem;
     font-weight: 600;
+    letter-spacing: 0.19em;
     text-transform: uppercase;
-    color: #888;
+    color: var(--text);
     min-width: 3rem;
   }
   /* Deliberately loud. It marks which firmware this page can talk to at all,
@@ -166,9 +184,9 @@ Asking again every 5 s — it will pick up on its own once something answers."
     text-transform: uppercase;
     padding: 0.2rem 0.5rem;
     border-radius: 999px;
-    border: 1px solid #4a7fb5;
-    background: #1b2c3e;
-    color: #8fc0f0;
+    border: 1px solid var(--copper-deep);
+    background: rgba(192, 137, 74, 0.14);
+    color: var(--copper-bright);
     white-space: nowrap;
     cursor: help;
   }
@@ -176,30 +194,30 @@ Asking again every 5 s — it will pick up on its own once something answers."
      port the name is only the last one seen, and it should not look like a
      statement about what is plugged in. */
   .module-badge:not(.detected) {
-    border-color: #3a4553;
-    background: #1a1f28;
-    color: #7d8894;
+    border-color: var(--hairline-strong);
+    background: var(--bg-raised);
+    color: var(--text-faint);
   }
   .conn-label {
     font-size: 0.75rem;
     font-weight: 600;
     text-transform: uppercase;
-    color: #888;
+    color: var(--text-dim);
     min-width: 3rem;
   }
   .badge {
     font-size: 0.75rem;
     padding: 0.15rem 0.5rem;
     border-radius: 999px;
-    background: #252535;
-    color: #8a8a9a;
+    background: var(--bg-raised);
+    color: var(--text-dim);
     cursor: help;
   }
   /* Deliberately not green: the port is open and we are asking, but nothing
      has confirmed it is there yet, and the badge should not imply otherwise. */
   .badge.probing {
-    background: #1a2c3d;
-    color: #6fa8cf;
+    background: rgba(53, 200, 216, 0.12);
+    color: var(--led-3);
   }
   @media (prefers-reduced-motion: no-preference) {
     .badge.probing {
@@ -212,21 +230,21 @@ Asking again every 5 s — it will pick up on its own once something answers."
     }
   }
   .badge.ok {
-    background: #1a3d1a;
-    color: #6fcf6f;
+    background: rgba(88, 192, 106, 0.14);
+    color: var(--ok);
   }
   .badge.error {
-    background: #3d1a1a;
-    color: #cf6f6f;
+    background: rgba(208, 90, 82, 0.15);
+    color: var(--err);
   }
   .badge.warn {
-    background: #3d3010;
-    color: #cfb86f;
+    background: rgba(224, 168, 58, 0.14);
+    color: var(--warn);
   }
   select {
-    background: #252540;
-    color: #ccc;
-    border: 1px solid #444;
+    background: var(--bg-sunken);
+    color: var(--text);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
     padding: 0.2rem 0.4rem;
     font-size: 0.8rem;
@@ -237,17 +255,17 @@ Asking again every 5 s — it will pick up on its own once something answers."
     padding: 0.25rem 0.75rem;
     cursor: pointer;
     border-radius: 4px;
-    background: #2a2a50;
-    color: #aab;
-    border: 1px solid #555;
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--hairline-strong);
   }
   button:hover {
-    background: #3a3a70;
+    background: rgba(192, 137, 74, 0.16);
   }
   .btn-disconnect {
     background: transparent;
-    border: 1px solid #554;
-    color: #a66;
+    border: 1px solid var(--hairline-strong);
+    color: var(--text-faint);
     padding: 0.15rem 0.45rem;
     font-size: 0.75rem;
     line-height: 1;
@@ -255,7 +273,7 @@ Asking again every 5 s — it will pick up on its own once something answers."
     cursor: pointer;
   }
   .btn-disconnect:hover {
-    background: #3d1a1a;
-    color: #cf6f6f;
+    background: rgba(208, 90, 82, 0.15);
+    color: var(--err);
   }
 </style>

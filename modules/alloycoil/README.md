@@ -187,7 +187,7 @@ capped at 1.2 rather than 1.5, reverb decay's `skew: 0.5` rather than upstream's
 
 #### The curve change had two hand-written mirrors, and both were stale
 
-`params.json` is the source of truth, but only two of its four consumers are
+`params.json` was the source of truth, but only two of its four consumers were
 generated. The audit that found the curves also had to find every number
 somebody had worked out by hand from the *old* ones:
 
@@ -198,12 +198,24 @@ somebody had worked out by hand from the *old* ones:
   supposed to be the hardware's A/B reference. Feedback HPF was separately 1.5 %
   off (253.7 Hz for a 250 Hz default), predating M63i. Both are gone: the
   defaults now come from `ParamDescriptor::toPos()` on the manifest row.
-- **The web configurator's slider travel.** `ParamSlider.svelte` drove the range
+- **The Alloy Controller's slider travel.** `ParamSlider.svelte` drove the range
   input in normalized travel for `scale: "log"` but not for `skew`, so six of
   Alloy Coil's knobs were linear-in-value on screen and curved everywhere else.
   The value on the wire was always right — `floatToCC()` applies the skew — but
   the *feel* was not: echo time's 0.05–0.5 s occupied 11 % of the slider against
   34 % of the knob.
+
+The `default` column had two more mirrors that the curve audit did not cover:
+the initialisers on the parameter globals — typed out once per binary in
+`src/main.cpp`, `vcv/AlloyCoil.cpp` and `test/params_check.cpp` — and the
+factory-reset table in `src/config_store.cpp`. Four copies of twelve numbers,
+and editing `params.json` moved none of them, so a changed default reached the
+CC range and the web slider while every boot value stayed behind. All four are
+generated now: `"globals_output": true` emits
+`include/param_globals.generated.h`, which *defines* the globals initialised to
+`default` (include it in one TU per binary), and `applyParamDefaults()` in the
+manifest applies the same column at runtime for factory reset. Changing a
+default is a one-line `params.json` edit plus `make params`.
 
 **`make coil-params`** now walks every knob across its travel and asserts
 `IOBridge.h` lands on exactly what `ParamDescriptor::fromPos()` gives for the

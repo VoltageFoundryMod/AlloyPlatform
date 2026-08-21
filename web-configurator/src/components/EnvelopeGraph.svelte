@@ -153,7 +153,10 @@
         ),
       };
     }
-    return { labels: ["ATK", "DEC", "HOLD", "REL"], ...arGeom(curve, curveTime) };
+    return {
+      labels: ["ATK", "DEC", "HOLD", "REL"],
+      ...arGeom(curve, curveTime),
+    };
   });
 </script>
 
@@ -162,7 +165,7 @@
     viewBox 0 0 216 76 — envelope drawn in x:8–208, y:4–48;
     segment labels at y:58, time axis at y:70.
   -->
-  <svg viewBox="0 0 216 76" width="100%" height="72" aria-hidden="true">
+  <svg viewBox="0 0 216 76" width="100%" height="85" aria-hidden="true">
     <!-- Decade gridlines + labels -->
     {#each ticks as tick (tick.t)}
       <line
@@ -170,7 +173,7 @@
         y1={YT - 3}
         x2={xOf(tick.t)}
         y2={YB}
-        stroke="#191a28"
+        stroke="var(--grid)"
         stroke-width="1"
       />
       {#if tick.label}
@@ -184,7 +187,7 @@
       y1={YB}
       x2={X0 + W + 2}
       y2={YB}
-      stroke="#252535"
+      stroke="var(--axis)"
       stroke-width="1"
     />
 
@@ -194,7 +197,7 @@
       y1={geom.ys}
       x2={X0 + W}
       y2={geom.ys}
-      stroke="#1e2030"
+      stroke="var(--sustain-ref)"
       stroke-width="1"
     />
 
@@ -208,19 +211,19 @@
       y1={YT - 3}
       x2={geom.xSe}
       y2={YB + 3}
-      stroke={geom.pluck ? "#26273a" : "#33344a"}
+      stroke={geom.pluck ? "var(--gate-dim)" : "var(--gate)"}
       stroke-width="1"
       stroke-dasharray="3 2"
     />
 
     <!-- Fill under curve -->
-    <path d="{geom.pathD} Z" fill="rgba(124,184,255,0.07)" />
+    <path d="{geom.pathD} Z" fill="var(--curve-fill)" />
 
     <!-- Envelope curve -->
     <path
       d={geom.pathD}
       fill="none"
-      stroke="#7cb8ff"
+      stroke="var(--curve)"
       stroke-width="1.8"
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -228,7 +231,9 @@
 
     <!-- Segment labels centred under each segment, hidden when too narrow -->
     {#if geom.aw >= MIN_LABEL_W}
-      <text x={X0 + geom.aw * 0.5} y="58" class="seg-label">{geom.labels[0]}</text>
+      <text x={X0 + geom.aw * 0.5} y="58" class="seg-label"
+        >{geom.labels[0]}</text
+      >
     {/if}
     {#if geom.dw >= MIN_LABEL_W}
       <text x={geom.xA + geom.dw * 0.5} y="58" class="seg-label"
@@ -255,9 +260,22 @@
 </div>
 
 <style>
+  /* The drawing's own colours, declared here and picked up by the `stroke` /
+     `fill` presentation attributes on the shapes inside — custom properties
+     inherit into SVG the same way they do into HTML. Only the envelope curve
+     is allowed to be bright; everything else is scaffolding and stays at or
+     below the gridline level. */
   .env-graph {
-    background: #0d0d1a;
-    border: 1px solid #2a2a42;
+    --grid: rgba(192, 137, 74, 0.1);
+    --axis: var(--hairline);
+    --sustain-ref: rgba(154, 164, 179, 0.12);
+    --gate: var(--hairline-strong);
+    --gate-dim: var(--hairline);
+    --curve: var(--copper-bright);
+    --curve-fill: rgba(224, 176, 114, 0.09);
+
+    background: var(--bg-sunken);
+    border: 1px solid var(--hairline);
     border-radius: 6px;
     padding: 0.3rem 0.5rem 0;
   }
@@ -268,7 +286,7 @@
   }
 
   .seg-label {
-    fill: #3a3a5a;
+    fill: var(--text-faint);
     font-size: 7.5px;
     text-anchor: middle;
     font-family: monospace;
@@ -277,7 +295,7 @@
   }
 
   .mode-label {
-    fill: #4a4a6a;
+    fill: var(--copper-deep);
     font-size: 7px;
     font-family: monospace;
     letter-spacing: 0.08em;
@@ -285,14 +303,14 @@
   }
 
   .tick-label {
-    fill: #2c2d40;
+    fill: var(--text-faint);
     font-size: 6px;
     text-anchor: middle;
     font-family: monospace;
   }
 
   .total-label {
-    fill: #5a6a8a;
+    fill: var(--text-dim);
     font-size: 7px;
     text-anchor: end;
     font-family: monospace;

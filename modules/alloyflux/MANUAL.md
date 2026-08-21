@@ -10,7 +10,7 @@ Alloy Flux is a stereo oscillator that sounds rich and full with minimal patchin
 
 The module is built around one idea: **two voices in a relationship.** Rather than exposing two independent oscillators, Alloy Flux gives you a **ROOT** oscillator and a **RELATION** — the second voice is always defined relative to the first. That relationship changes meaning depending on which voice **Mode** is active, from simple interval tuning to full chorus ensemble, harmonic chord stacking, FM synthesis, and true six-voice polyphony.
 
-Want to integrate the module to your DAW or MIDI controller? The built-in USB MIDI and TRS MIDI inputs mirror all parameters to MIDI CCs in real time, and support full patch dump/restore over SysEx. No drivers or native app required — connect with the Web Configurator for an intuitive visual editor, preset management, and serial console access.
+Want to integrate the module to your DAW or MIDI controller? The built-in USB MIDI and TRS MIDI inputs mirror all parameters to MIDI CCs in real time, and support full patch dump/restore over SysEx. No drivers or native app required — connect with the Alloy Controller for an intuitive visual editor, preset management, and serial console access.
 
 ---
 
@@ -364,7 +364,7 @@ When CV 4 is patched, SPACE becomes an attenuverter for that CV.
 
 Glide causes pitch changes to slide smoothly from the previous note to the new one rather than jumping instantly — a classic lead synth and bass effect.
 
-**Enable/disable:** Use CC 65 (≥64 = on, <64 = off) or the **Web Configurator** (Animation → Glide toggle).
+**Enable/disable:** Use CC 65 (≥64 = on, <64 = off) or the **Alloy Controller** (Animation → Glide toggle).
 
 **Glide time:** Use CC 5 to set the slide duration from 0 (instant, effectively off) to 2 seconds. The glide uses a one-pole exponential smoother so short slides are snappy and long slides trail off naturally.
 
@@ -387,7 +387,7 @@ restores the stacking at *any* CURVE setting: feed the module a trigger sequence
 and a slow swell, and an arpeggio assembles itself into a sustained chord.
 
 **Range:** 0 = follow the gate (the classic behaviour, and the default), up to
-2000 ms. Set it with **CC 85**, the **Web Configurator** (Envelope → Gate
+2000 ms. Set it with **CC 85**, the **Alloy Controller** (Envelope → Gate
 Length), or the serial console. There is no panel control — all nine knobs and
 all six SHIFT-secondaries are already assigned.
 
@@ -400,7 +400,7 @@ nothing to stack and the gate behaves as it always did.
 
 The scale quantizer snaps incoming MIDI notes to a chosen musical scale before they are played. Notes that fall outside the scale are shifted to the nearest in-scale semitone (ties go up).
 
-**Scale select:** CC 103 (0 = Off / chromatic, 1–14 = scale index). Available scales: Major, Minor (Natural), Harmonic Minor, Melodic Minor, Pentatonic Major, Pentatonic Minor, Blues, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Whole Tone, Diminished. Select with the **Web Configurator** (Voice → Scale) or send CC 103 directly.
+**Scale select:** CC 103 (0 = Off / chromatic, 1–14 = scale index). Available scales: Major, Minor (Natural), Harmonic Minor, Melodic Minor, Pentatonic Major, Pentatonic Minor, Blues, Dorian, Phrygian, Lydian, Mixolydian, Locrian, Whole Tone, Diminished. Select with the **Alloy Controller** (Voice → Scale) or send CC 103 directly.
 
 **Transpose:** CC 104 shifts all incoming MIDI notes by −24 to +24 semitones. The CC value encodes the offset as `value − 24` (CC 24 = −0 st, CC 0 = −24 st, CC 48 = +24 st). Transpose is applied before scale quantization, so the root stays consistent when you move both together.
 
@@ -427,7 +427,7 @@ ROOT, RELATION, and COLOR have no shift function — full knob travel is needed 
 
 ## Knob Takeover
 
-Alloy Flux can be driven from the panel and from the Web Configurator (or a DAW, or a MIDI controller) at the same time. Whatever changes a parameter, the panel LEDs and the Web Configurator both follow it — the module reports its own state, so a knob you turn shows up on screen, and a slider you move on screen takes effect immediately.
+Alloy Flux can be driven from the panel and from the Alloy Controller (or a DAW, or a MIDI controller) at the same time. Whatever changes a parameter, the panel LEDs and the Alloy Controller both follow it — the module reports its own state, so a knob you turn shows up on screen, and a slider you move on screen takes effect immediately.
 
 Only the panel knobs can be out of step, because a physical knob cannot move itself. When the web sets SHAPE to 0.80 while the knob sits at 0.20, the knob is no longer telling the truth. Turning it hands control back, and how it does that is selectable:
 
@@ -557,7 +557,7 @@ Calibration survives power cycles. Repeat only if pitch tracking drifts.
 
 Alloy Flux responds to USB MIDI and TRS MIDI simultaneously. Connect via USB to a computer or DAW — it appears as a standard USB MIDI device (no driver required). TRS MIDI supports both Type A and Type B automatically.
 
-**Default channel:** omni (responds to all channels). To configure a specific channel, use the Web Configurator or a serial terminal.
+**Default channel:** omni (responds to all channels). To configure a specific channel, use the Alloy Controller or a serial terminal.
 
 ---
 
@@ -570,7 +570,7 @@ Alloy Flux responds to USB MIDI and TRS MIDI simultaneously. Connect via USB to 
 | Pitch Bend         | ±2 semitones                                                              |
 | Program Change 1–6 | Switch voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=POLY) |
 
-The velocity on Note On messages is used to set the output volume of that note, from 0 (off) to 1 (full volume). This can be disabled so all notes play at the global volume level regardless of how hard they are struck. Use the **Web Configurator** (Envelope → Velocity Response), the serial command `veloc off`, or **CC 102 < 64** to disable.
+The velocity on Note On messages is used to set the output volume of that note, from 0 (off) to 1 (full volume). This can be disabled so all notes play at the global volume level regardless of how hard they are struck. Use the **Alloy Controller** (Envelope → Velocity Response), the serial command `veloc off`, or **CC 102 < 64** to disable.
 
 ---
 
@@ -578,7 +578,7 @@ The velocity on Note On messages is used to set the output volume of that note, 
 
 Map your MIDI controller to any of these parameters for expressive real-time control.
 
-> Ranges below are authoritative in [`params.json`](params.json), which generates both the firmware's CC table and the Web Configurator's parameter map. If a value here ever disagrees with the module, the JSON is right.
+> Ranges below are authoritative in [`params.json`](params.json), which generates both the firmware's CC table and the Alloy Controller's parameter map. If a value here ever disagrees with the module, the JSON is right.
 
 #### Core Parameters
 
