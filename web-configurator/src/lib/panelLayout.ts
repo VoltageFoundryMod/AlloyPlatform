@@ -24,7 +24,7 @@
  */
 
 import type { CCParam } from "./paramMapTypes";
-import type { WaveIconName } from "../components/panel/WaveIcon.svelte";
+import type { GlyphName } from "../components/panel/Glyph.svelte";
 
 export interface PanelControl {
   /** `name` from params.json — the stable identity, not the CC or the label. */
@@ -46,11 +46,15 @@ export interface PanelControl {
   /** Shorter legend than param.label, when the full one will not set well. */
   label?: string;
   /**
-   * Glyphs spread across the knob's travel, the nearest one lit. For controls
-   * whose positions are shapes rather than numbers — the wave morph is the
-   * obvious one, but any sweep through named states can carry them.
+   * Glyphs for a control whose positions are shapes rather than numbers — the
+   * wave morph is the obvious one, but any sweep through named states can
+   * carry them.
+   *
+   * On a knob they spread across the travel with the nearest one lit; on a
+   * segmented switch they sit above the option labels, one glyph per option
+   * (any other count is ignored — see PanelSelect).
    */
-  icons?: WaveIconName[];
+  icons?: GlyphName[];
   /** Start a new line within the section before this control. */
   breakBefore?: boolean;
 }
@@ -69,7 +73,7 @@ export interface PanelSectionDef {
    */
   stretch?: boolean;
   /** An inline diagram drawn above the controls. */
-  visual?: "fxchain" | "envelope" | "scale";
+  visual?: "fxchain" | "envelope" | "scale" | "filter";
   controls: PanelControl[];
 }
 
@@ -143,7 +147,7 @@ const ALLOYFLUX: PanelLayout = {
         {
           name: "fat",
           sub: "unison",
-          icons: ["square"],
+          icons: ["uni1", "uni2", "uni3"],
         },
       ],
     },
@@ -152,8 +156,18 @@ const ALLOYFLUX: PanelLayout = {
       span: 4,
       stretch: true,
       controls: [
-        { name: "motion", size: "lg", sub: "drift / chorus" },
-        { name: "dspeed", size: "sm", label: "Drift Rate" },
+        {
+          name: "motion",
+          size: "lg",
+          sub: "drift / chorus",
+          icons: ["flat", "wave-shallow", "wave-deep"],
+        },
+        {
+          name: "dspeed",
+          size: "sm",
+          label: "Drift Rate",
+          icons: ["wave-slow", "wave-fast"],
+        },
         { name: "glidetime", size: "sm", label: "Glide Time" },
         { name: "glide", control: "segmented" },
         // Chorus lives here rather than in a section of its own. It is a
@@ -173,7 +187,13 @@ const ALLOYFLUX: PanelLayout = {
       visual: "envelope",
       controls: [
         { name: "envtype", control: "segmented", label: "Type" },
-        { name: "veloc", control: "segmented", label: "Velocity" },
+        // Flat line vs ramp: the two things velocity can do to the level.
+        {
+          name: "veloc",
+          control: "segmented",
+          label: "Velocity",
+          icons: ["flat", "ramp"],
+        },
         { name: "adsrattack", label: "Attack", breakBefore: true },
         { name: "adsrdecay", label: "Decay" },
         { name: "adsrsustain", label: "Sustain" },
@@ -188,16 +208,33 @@ const ALLOYFLUX: PanelLayout = {
       title: "Filter",
       span: 5,
       stretch: true,
+      visual: "filter",
       controls: [
-        { name: "filtermode", control: "segmented", label: "Mode" },
-        { name: "filtertype", control: "segmented", label: "Algorithm" },
+        // The two knobs ride beside the plot, because they are the two the
+        // plot draws — move one and the curve under your hand moves with it.
+        // The switches, which pick *which* curve, take the line below. That
+        // also keeps the two rows near enough in width (about 530 and 310) to
+        // read as a stack rather than as a full-bleed row above a pair of
+        // knobs adrift in the middle of the section.
+        { name: "filtercutoff", size: "lg", label: "Cutoff" },
+        { name: "filterres", label: "Resonance" },
+        // The four SVF taps as the shapes they are, plus a flat line for OFF —
+        // which is exactly what the plot draws when it is selected.
         {
-          name: "filtercutoff",
-          size: "lg",
-          label: "Cutoff",
+          name: "filtermode",
+          control: "segmented",
+          label: "Mode",
+          icons: ["flat", "lp", "hp", "bp", "notch"],
           breakBefore: true,
         },
-        { name: "filterres", label: "Resonance" },
+        // Two poles against four: the difference the switch makes is the
+        // steepness of the tail, so that is what the glyphs show.
+        {
+          name: "filtertype",
+          control: "segmented",
+          label: "Algorithm",
+          icons: ["slope2", "slope4"],
+        },
       ],
     },
     // ── Band 3 ────────────────────────────────────────────── 3 + 4 + 3 + 2
@@ -242,7 +279,12 @@ const ALLOYFLUX: PanelLayout = {
         { name: "vol", size: "lg", label: "Level" },
         // params.json labels this "Space (Stereo Width)"; on the panel the
         // parenthetical is the sublabel, not part of the legend.
-        { name: "space", label: "Space", sub: "stereo width" },
+        {
+          name: "space",
+          label: "Space",
+          sub: "stereo width",
+          icons: ["mono", "stereo", "wide"],
+        },
       ],
     },
   ],
@@ -321,15 +363,19 @@ export interface ResolvedSection {
    */
   dialBox: number;
   /**
-   * Whether any control here carries a glyph strip. When one does, every knob
+   * Whether any *knob* here carries a glyph strip. When one does, every knob
    * in the section reserves the row — otherwise the one knob with icons sits
    * taller than its neighbours and drops its readout below their baseline,
    * undoing what dialBox is for.
+   *
+   * Selects are excluded: their glyphs sit inside the switch, so a section
+   * whose only glyphs are on a switch would reserve an empty strip under every
+   * knob in it for nothing.
    */
   iconRow: boolean;
   /** Stretch to the tallest section in the band. */
   stretch: boolean;
-  visual?: "fxchain" | "envelope" | "scale";
+  visual?: "fxchain" | "envelope" | "scale" | "filter";
   items: { param: CCParam; control: PanelControl }[];
 }
 
@@ -377,7 +423,10 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
             title: s.title,
             span: s.span,
             dialBox: dialBoxFor(items),
-            iconRow: items.some((i) => (i.control.icons?.length ?? 0) > 0),
+            iconRow: items.some(
+              (i) =>
+                i.param.type !== "select" && (i.control.icons?.length ?? 0) > 0,
+            ),
             stretch: s.stretch ?? false,
             visual: s.visual,
             items,

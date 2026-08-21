@@ -109,6 +109,25 @@ function createMidi() {
   let access: MIDIAccess | null = null;
   let channel = 0; // 0-based, i.e. MIDI channel 1
 
+  /**
+   * Output ports already known to be present, by id.
+   *
+   * `statechange` does not only mean "a device arrived": Web MIDI fires it for
+   * open/close transitions too, and `send()` opens a port implicitly — with
+   * `state` still "connected", since that field reports device presence, not
+   * whether the port is open.  Bumping syncNonce on the bare `state` check
+   * therefore made the page restart its own discovery probe every time the
+   * probe *sent* something to a port it had not written to before, and with a
+   * new MIDIAccess resetting every port to closed, that happened on every
+   * cycle: the probe re-entered its 800 ms fast phase forever instead of
+   * settling into the 5 s retry.
+   *
+   * Comparing against this roster is what separates the two.  Ids are stable
+   * across MIDIAccess instances — pickPort() already relies on that to keep a
+   * selection across a rescan — so it deliberately survives scan().
+   */
+  const knownOutputs = new Set<string>();
+
   // ---------------------------------------------------------------------------
   // Local-edit tracking — the other half of the module's echo suppression.
   //
@@ -396,8 +415,14 @@ function createMidi() {
     // matches, deviceConnected never goes false→true, and the $effect in
     // App.svelte never re-fires to request a fresh dump from the device.
     access.outputs.forEach((o) => {
-      if (o.state !== "disconnected")
+      if (o.state !== "disconnected") {
         outputs.push({ id: o.id, name: o.name ?? o.id });
+        knownOutputs.add(o.id);
+      } else {
+        // Gone as far as enumeration is concerned, so coming back counts as an
+        // arrival even if the disconnect event itself was never delivered.
+        knownOutputs.delete(o.id);
+      }
     });
     access.inputs.forEach((i) => {
       if (i.state !== "disconnected")
@@ -502,8 +527,7 @@ function createMidi() {
       // to replace it with nothing.
       if (previous && previous !== access) releaseAccess(previous);
       access.onstatechange = (e: Event) => {
-        refreshList();
-        // An output port appearing always warrants a fresh dump, even when
+        // An output port *arriving* always warrants a fresh dump, even when
         // refreshList() saw no change worth syncing — a fast re-enumeration
         // after a firmware flash can return the same port id with the flags
         // never observably dropping.  Bumping the nonce directly replaces the
@@ -511,12 +535,22 @@ function createMidi() {
         // microtask, which was unreliable: reactive batching could collapse
         // the pair and the consumer would see no change at all.  That is why
         // the page had to be reloaded to pick the module up.
-        const portEvent = e as MIDIConnectionEvent;
-        if (
-          portEvent.port?.type === "output" &&
-          portEvent.port?.state === "connected" &&
-          get(store).connected
-        ) {
+        //
+        // Arriving, not merely opening: see knownOutputs.  Settled here rather
+        // than after refreshList(), which re-seeds the roster from the port
+        // list and would make every arrival look like one already known.
+        const port = (e as MIDIConnectionEvent).port;
+        let arrived = false;
+        if (port?.type === "output") {
+          if (port.state === "connected") {
+            arrived = !knownOutputs.has(port.id);
+            knownOutputs.add(port.id);
+          } else {
+            knownOutputs.delete(port.id);
+          }
+        }
+        refreshList();
+        if (arrived && get(store).connected) {
           store.update((s) => ({ ...s, syncNonce: s.syncNonce + 1 }));
         }
       };

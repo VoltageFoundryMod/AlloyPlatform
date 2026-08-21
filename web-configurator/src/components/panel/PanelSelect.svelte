@@ -14,12 +14,14 @@
    */
   import type { CCParam } from "../../lib/paramMap";
   import { midi } from "../../lib/midi";
+  import Glyph, { type GlyphName } from "./Glyph.svelte";
 
   let {
     param,
     initial = undefined,
     variant = undefined,
     label = undefined,
+    icons = undefined,
     onchange,
   }: {
     param: CCParam;
@@ -34,6 +36,12 @@
     /** Overrides the shape picked from the option count. */
     variant?: "segmented" | "ladder" | "dropdown";
     label?: string;
+    /**
+     * One glyph per option, drawn above its label on a segmented switch — for
+     * enums whose options are shapes (filter responses, response curves) and
+     * so are read faster as a picture than as two letters.
+     */
+    icons?: GlyphName[];
     onchange?: (ccVal: number) => void;
   } = $props();
 
@@ -46,11 +54,19 @@
   const defCC = initial ?? param.default ?? 0;
   // svelte-ignore state_referenced_locally
   const shape =
-    variant ?? (opts.length <= 4 ? "segmented" : opts.length <= 8 ? "ladder" : "dropdown");
+    variant ??
+    (opts.length <= 4 ? "segmented" : opts.length <= 8 ? "ladder" : "dropdown");
   // svelte-ignore state_referenced_locally
   const legend = label ?? param.label;
+  // All-or-nothing: a partial set would light some options with a glyph and
+  // leave others as a bare label, which reads as a rendering fault rather than
+  // as a design. Static, like everything else read at construction.
+  // svelte-ignore state_referenced_locally
+  const glyphs = icons?.length === opts.length ? icons : undefined;
 
-  const defaultIdx = opts.findIndex((o) => defCC >= o.ccMin && defCC <= o.ccMax);
+  const defaultIdx = opts.findIndex(
+    (o) => defCC >= o.ccMin && defCC <= o.ccMax,
+  );
   let selectedIdx = $state(defaultIdx >= 0 ? defaultIdx : 0);
 
   function select(idx: number) {
@@ -89,9 +105,15 @@
           role="radio"
           aria-checked={selectedIdx === idx}
           class="seg"
+          class:glyphed={glyphs}
           class:active={selectedIdx === idx}
-          onclick={() => select(idx)}>{opt.label}</button
+          onclick={() => select(idx)}
         >
+          {#if glyphs}
+            <Glyph name={glyphs[idx]} size={20} />
+          {/if}
+          <span>{opt.label}</span>
+        </button>
       {/each}
     </div>
   {:else if shape === "ladder"}
@@ -170,6 +192,17 @@
   }
   .seg:last-child {
     border-right: 0;
+  }
+  /* Glyph above its own label, and tighter horizontally to pay for the height
+     the glyph costs — the switch keeps roughly the footprint it had. The glyph
+     is stroked in currentColor, so it lights with the label rather than
+     needing a rule of its own. */
+  .seg.glyphed {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 5px 9px;
+    font-size: 0.68rem;
   }
   .seg:hover {
     color: var(--text);

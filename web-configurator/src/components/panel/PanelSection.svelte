@@ -99,7 +99,7 @@
     align-items: flex-start;
     justify-content: center;
     align-content: center;
-    gap: 14px 16px;
+    gap: 4px 16px;
     min-width: 0;
     height: 100%;
   }

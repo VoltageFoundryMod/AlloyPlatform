@@ -66,7 +66,7 @@
   import { ccToFloat, floatToCC } from "../../lib/paramMap";
   import { formatValue, posToValue, valueToPos } from "../../lib/paramMapTypes";
   import { midi } from "../../lib/midi";
-  import WaveIcon, { type WaveIconName } from "./WaveIcon.svelte";
+  import Glyph, { type GlyphName } from "./Glyph.svelte";
 
   let {
     param,
@@ -95,7 +95,7 @@
      * current position — the silkscreen legend for a control whose positions
      * mean shapes rather than numbers.
      */
-    icons?: WaveIconName[];
+    icons?: GlyphName[];
     /**
      * Greyed and inert: the parameter exists but the current mode ignores it.
      * Left in place rather than hidden so the panel does not reflow every time
@@ -311,7 +311,7 @@
   <div class="icons">
     {#each icons ?? [] as icon, i}
       <span class="icon" class:on={i === activeIcon}>
-        <WaveIcon name={icon} size={size === "sm" ? 15 : 18} />
+        <Glyph name={icon} size={size === "sm" ? 15 : 18} />
       </span>
     {/each}
   </div>

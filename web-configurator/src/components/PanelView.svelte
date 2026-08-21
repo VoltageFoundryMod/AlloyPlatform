@@ -37,6 +37,7 @@
   import PanelSection from "./panel/PanelSection.svelte";
   import FxChainVisual from "./FxChainVisual.svelte";
   import EnvelopeGraph from "./EnvelopeGraph.svelte";
+  import FilterResponse, { type FilterModeName } from "./FilterResponse.svelte";
   import ScaleKeys from "./panel/ScaleKeys.svelte";
 
   let {
@@ -138,15 +139,36 @@
     return cc === undefined ? false : (selectValues[cc] ?? 0) >= 64;
   }
 
+  /**
+   * Which option of a named select is current, as an index into its own option
+   * list — so a diagram reads the same list the switch beside it draws and the
+   * two cannot disagree. Falls back to the first option.
+   */
+  function optionIdx(name: string): number {
+    const param = map.find((p) => p.name === name);
+    const cc = param?.cc;
+    if (!param?.options || cc === undefined) return 0;
+    const v = selectValues[cc] ?? 0;
+    const idx = param.options.findIndex((o) => v >= o.ccMin && v <= o.ccMax);
+    return idx < 0 ? 0 : idx;
+  }
+
+  /** Label of the current option of a named select. */
+  function optionLabel(name: string): string | undefined {
+    return map.find((p) => p.name === name)?.options?.[optionIdx(name)]?.label;
+  }
+
   // Name of the selected scale, read out of the parameter's own option list so
   // the indicator cannot disagree with the dropdown beside it.
-  const scaleLabel = $derived.by(() => {
-    const param = map.find((p) => p.name === "scale");
-    const cc = param?.cc;
-    if (!param?.options || cc === undefined) return undefined;
-    const v = selectValues[cc] ?? 0;
-    return param.options.find((o) => v >= o.ccMin && v <= o.ccMax)?.label;
-  });
+  const scaleLabel = $derived(optionLabel("scale"));
+
+  // Filter mode as the plot names it. The option order in params.json follows
+  // FilterMode in dsp/FilterEngine.h, so the index is the enum.
+  const FILTER_MODES: FilterModeName[] = ["off", "lp", "hp", "bp", "notch"];
+  const filterMode = $derived(
+    FILTER_MODES[optionIdx("filtermode")] ?? ("off" as FilterModeName),
+  );
+  const cutoffParam = $derived(map.find((p) => p.name === "filtercutoff"));
 </script>
 
 <div class="panel">
@@ -192,8 +214,18 @@
                     label={scaleLabel}
                   />
                 </div>
+              {:else if section.visual === "filter"}
+                <div class="visual filter">
+                  <FilterResponse
+                    mode={filterMode}
+                    ladder={isHigh("filtertype")}
+                    cutoff={val("filtercutoff", 1000)}
+                    resonance={val("filterres", 0)}
+                    {cutoffParam}
+                  />
+                </div>
               {:else if section.visual === "envelope"}
-                <div class="visual">
+                <div class="visual envelope">
                   <EnvelopeGraph
                     isAdsr={isHigh("envtype")}
                     attack={val("adsrattack", 0.05)}
@@ -217,6 +249,7 @@
                     variant={control.control === "knob"
                       ? undefined
                       : control.control}
+                    icons={control.icons}
                     initial={selectValues[param.cc]}
                     bind:this={selectRefs[param.cc]}
                     onchange={(v) => (selectValues[param.cc] = v)}
@@ -269,7 +302,6 @@
        narrower than the frame, so no scrollbar appears. */
     overflow-x: auto;
     overflow-y: hidden;
-    margin: 1px 1px;
   }
 
   .stage-box {
@@ -310,14 +342,42 @@
     margin: 0;
   }
 
-  /* Capped rather than full-bleed: the envelope drawing is 216 units wide and
-     stretching it across a six-column section flattened the curve into a line
-     with a lot of empty grid either side of it. */
+  /* Capped rather than full-bleed: stretching a diagram across a six-column
+     section flattens it into a line with a lot of empty grid either side. */
   .visual {
     flex-basis: 100%;
     max-width: 450px;
     min-width: 0;
     margin-bottom: 2px;
+  }
+
+  /* Both plots are sized by width and take their height from their viewBox, so
+     these widths are the whole size: 300 and 290 land them within two pixels
+     of the same height, which is what keeps the two band-2 sections looking
+     like a pair. Neither takes the full row — the switches stand beside them
+     and the knobs go underneath.
+
+     The envelope's width is also what guarantees VELOCITY keeps its line: 300
+     plus TYPE and VELOCITY and their gaps is about 585 of the 928px a
+     seven-column section has inside it, so there is no wrap to be had. */
+  .visual.envelope {
+    flex-basis: auto;
+    width: 300px;
+    max-width: none;
+  }
+
+  /* Sized to leave the mode and algorithm switches (about 290px together, plus
+     gaps) comfortable room inside a five-column section.
+
+     Dropped by a knob's reserved legend height (Knob's .head is 33px plus its
+     3px margin) so the plot starts on the dial line rather than on the legend
+     line. Sharing the row's top edge instead left it floating a full legend
+     above the two dials beside it. */
+  .visual.filter {
+    flex-basis: auto;
+    width: 290px;
+    max-width: none;
+    margin: 36px 0 0;
   }
 
   /* The scale strip is a small fixed-size graphic, not a diagram that wants

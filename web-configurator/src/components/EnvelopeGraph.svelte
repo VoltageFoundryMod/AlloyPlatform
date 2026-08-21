@@ -165,7 +165,7 @@
     viewBox 0 0 216 76 — envelope drawn in x:8–208, y:4–48;
     segment labels at y:58, time axis at y:70.
   -->
-  <svg viewBox="0 0 216 76" width="100%" height="85" aria-hidden="true">
+  <svg viewBox="0 0 216 76" aria-hidden="true">
     <!-- Decade gridlines + labels -->
     {#each ticks as tick (tick.t)}
       <line
@@ -280,8 +280,14 @@
     padding: 0.3rem 0.5rem 0;
   }
 
+  /* Fills the width it is given and takes its height from the viewBox. A fixed
+     height instead makes the SVG letterbox itself inside a percentage width —
+     which is what left the drawing sitting in the middle of a box half again
+     as wide as itself, with dead black either side. */
   svg {
     display: block;
+    width: 100%;
+    height: auto;
     overflow: visible;
   }
 

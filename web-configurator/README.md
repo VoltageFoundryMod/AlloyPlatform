@@ -78,13 +78,15 @@ src/
       Knob.svelte         — rotary control
       PanelSelect.svelte  — enum as segmented switch, LED ladder or dropdown
       PanelSection.svelte — one outlined functional group
-      WaveIcon.svelte     — silkscreen glyphs (sine, saw, pulse, …)
+      Glyph.svelte        — silkscreen glyphs (waveforms, filter responses,
+                            unison spread, stereo width, …)
       DockPanel.svelte    — one panel in the right-hand utility rail
       ScaleKeys.svelte    — quantizer scale indicator
     MidiKeyboard.svelte   — QWERTY piano keyboard
     MidiMonitor.svelte    — MIDI traffic drawer (both directions, decoded)
     FxChainVisual.svelte  — signal-flow diagram
     EnvelopeGraph.svelte  — envelope shape on a log time axis
+    FilterResponse.svelte — filter magnitude response on a log frequency axis
     PresetManager.svelte  — preset save/load/reset/import/export
   lib/
     scales.ts             — scale masks, mirrored from scale_quantizer.h
