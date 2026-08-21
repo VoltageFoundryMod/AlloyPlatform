@@ -29,6 +29,24 @@ extern float gEchoSend;     // 0–1
 extern float gEchoTime;     // seconds, 0.05–COIL_ECHO_MAX_S
 extern float gEchoFeedback; // 0–1.5 — deliberately allowed past unity
 
+/**
+ * Doppler warp — non-zero halves the echo time. Upstream Audrey II's one panel
+ * switch (`kDelaySwitchPin`), and the only performance gesture the engine has.
+ *
+ * Deliberately *not* folded into gEchoTime. This stays the time the knob or CC
+ * asked for; the halving is applied where the goal is read, in
+ * ControlSmoother::Step(). Two reasons: the echo's read head is what produces
+ * the pitch sweep, so the scaling belongs on the path into the engine rather
+ * than on the stored value, and packCoilConfig() saves gEchoTime — a preset
+ * captured with warp on would otherwise come back half as long.
+ *
+ * Latching here, momentary on the panel: Btn::WARP writes it from the button's
+ * live state each control tick (io/IOBridge.h), while CC 20 and SysEx set it
+ * and leave it. Not in CoilConfig for the same reason — a held gesture is not
+ * part of a patch.
+ */
+extern uint8_t gWarp;
+
 // Reverb
 extern float gReverbMix;   // 0–1
 extern float gReverbDecay; // 0.2–1.0
@@ -74,6 +92,16 @@ extern volatile float gExciterIn;
  */
 extern volatile uint32_t gSmoothFrames;
 extern volatile bool     gLimiterEnabled;
+
+/**
+ * Debounced panel button state — bit 0 WARP (SW2), bit 1 SHIFT (SW3).
+ *
+ * Exists for `status`. The proto board has the switches but no LEDs, so there
+ * is nothing on the panel to tell a miswired button from a dead one, and WARP's
+ * only other symptom is an echo tail that pitches — which needs the echo to be
+ * audible first. Defined in main.cpp, where the ButtonEngines live.
+ */
+uint8_t coilButtonsDown();
 
 /**
  * Engine setters called on the most recent smoother step, 0–12.

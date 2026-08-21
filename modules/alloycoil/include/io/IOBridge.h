@@ -22,7 +22,83 @@
 static inline float alloycoilClampf(float v, float lo, float hi)
 { return v < lo ? lo : (v > hi ? hi : v); }
 
-inline void fillCoilParams(IHardwareIO &io)
+/**
+ * Panel button levels as of the previous call, owned by whoever is driving the
+ * panel — the firmware has one, each VCV module instance has its own.
+ *
+ * Deliberately not a static inside fillCoilButtons(). The VCV plugin's
+ * parameter globals are already one set per process rather than per Module
+ * (see the note at the top of vcv/AlloyCoil.cpp), and the thing that keeps two
+ * Alloy Coils in one rack from tearing each other apart is that every tick
+ * overwrites every global from that instance's own controls. Edge state hidden
+ * in a header would be shared, so the second module would see no edges and
+ * inherit the first one's warp.
+ */
+struct CoilButtonState
+{
+    bool warpPrev = false;
+};
+
+/**
+ * The panel switches, on their own.
+ *
+ * Split out of fillCoilParams() below because the two halves of the panel
+ * arrive on different schedules: the buttons are wired on the proto board now,
+ * the pot mux and the CV jacks are a later phase. The firmware calls this every
+ * control tick and leaves fillCoilParams() alone until there is an ADC to feed
+ * it; VCV has the whole panel and calls fillCoilParams(), which calls this. One
+ * implementation either way — a second copy of the WARP line living in main.cpp
+ * is exactly the drift this file exists to prevent.
+ *
+ * ---- WARP — the doppler warp -------------------------------------------
+ *
+ * Upstream Audrey II has a panel toggle wired to exactly this
+ * (`kDelaySwitchPin`, scaling echo time by 0.5), and it is the one performance
+ * gesture the engine has.
+ *
+ * The button writes the parameter; the parameter does the halving, in
+ * ControlSmoother::Step(). It used to scale gEchoTime in place, which made warp
+ * a thing only a panel could do — and gEchoTime is what packCoilConfig() saves,
+ * so a preset taken with the button down came back half as long. Now the panel
+ * and CC 20 are two ways to set one flag.
+ *
+ * The effect is a side effect of how a delay line works: shortening the time
+ * while the buffer is full drags the read head toward the write head, so
+ * everything already in the line is re-read faster and pitches up, then settles
+ * at the new time. EchoDelay glides delay time over 0.5 s (SetLagTime in
+ * Engine::Init), and that glide is the sweep — nothing here has to implement it.
+ *
+ * ⚠ On the **edges**, not the level, and the difference is the whole reason
+ * this needs state. gWarp has two writers — this button and CC 20 — and a level
+ * assignment means the one that runs every control tick wins every control
+ * tick: an un-pressed button would hold warp at zero 128 times a second and the
+ * CC could never take. Writing only when the button *changes* is the same rule
+ * PotTakeover applies to a knob against the web, reduced to two positions: the
+ * panel takes the parameter when it is touched and leaves it alone otherwise.
+ *
+ * So press gives the dive, release gives the rise — the momentary gesture that
+ * is the point of putting a button where upstream had a toggle — and between
+ * gestures CC 20 owns the flag and latches, which is what the original toggle
+ * did. Touching the button takes it back.
+ *
+ * ---- SHIFT ---------------------------------------------------------------
+ *
+ * Nothing to write. SHIFT means "read this knob as its other parameter", so it
+ * has no effect of its own and nothing to do until there are knobs — its state
+ * is read where it is used: by the ADC driver, when that lands, and by
+ * io/CoilLeds.h, which turns the reverb LED white while it is held.
+ */
+inline void fillCoilButtons(IHardwareIO &io, CoilButtonState &st)
+{
+    const bool warpDown = io.readButton(Btn::WARP);
+    if(warpDown != st.warpPrev)
+    {
+        st.warpPrev = warpDown;
+        gWarp       = warpDown ? 1 : 0;
+    }
+}
+
+inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
 {
     // -----------------------------------------------------------------------
     // Resonator pitch. Knob is 0–1 over MIDI notes 16–72; the V/Oct jack adds
@@ -75,23 +151,9 @@ inline void fillCoilParams(IHardwareIO &io)
         gEchoTime     = 0.05f + t * t * ((float)COIL_ECHO_MAX_S - 0.05f);
     }
 
-    // WARP — doppler warp. Upstream Audrey II has a panel toggle wired to
-    // exactly this (`kDelaySwitchPin`, scaling echo time by 0.5), and it is the
-    // one performance gesture the engine has.
-    //
-    // The effect is a side effect of how a delay line works: shortening the
-    // time while the buffer is full drags the read head toward the write head,
-    // so everything already in the line is re-read faster and pitches up, then
-    // settles at the new time. EchoDelay glides delay time over 0.5 s
-    // (SetLagTime in Engine::Init), and that glide is the sweep — nothing here
-    // has to implement it.
-    //
-    // Momentary rather than latching, which is a deliberate departure: upstream
-    // has a physical toggle and two stable settings, we have a button. Holding
-    // gives a dive on press and a rise on release, which is playable in a way a
-    // latch is not. Latching instead is a one-line change here.
-    if(io.readButton(Btn::WARP))
-        gEchoTime *= 0.5f;
+    // WARP and SHIFT — see fillCoilButtons() above, which the firmware also
+    // calls on its own while it has buttons but no ADC.
+    fillCoilButtons(io, btn);
 
     // Echo feedback is knob-only. It had a CV and lost it when the panel spent
     // its four generic jacks elsewhere; MIDI CC 87 still reaches it.

@@ -32,7 +32,7 @@
 // Animations (mode ripple, confirmation flashes, calibration) are driven by
 // notify*() calls and advance on their own using the dt passed to update().
 //
-// Spec: references/AlloyFlux-module-reference.md § "LED Language".
+// Spec: references/AlloyFlux-hardware-design.md § "LED Language".
 // ---------------------------------------------------------------------------
 
 /** Normalised linear RGB, 0.0–1.0 per channel.  Plain aggregate (C++11). */

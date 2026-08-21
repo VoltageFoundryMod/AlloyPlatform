@@ -399,7 +399,7 @@ export const PARAM_MAP: CCParam[] = [
   {
     cc: 91,
     name: "revmix",
-    label: "Mix",
+    label: "Wet",
     category: "Reverb",
     min: 0.0,
     max: 1.0,

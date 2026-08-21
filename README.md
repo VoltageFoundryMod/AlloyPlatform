@@ -22,7 +22,7 @@ same infrastructure. That port is the proof the seam is real.
 | Module                               | What it is                                                                                     | Manual                                   | Status                                             |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------- |
 | **[Alloy Flux](modules/alloyflux/)** | Dual relation oscillator — stereo synth voice, six voice modes, 6-voice poly                   | [MANUAL.md](modules/alloyflux/MANUAL.md) | Firmware, VCV and web complete                     |
-| **[Alloy Coil](modules/alloycoil/)** | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/alloycoil/MANUAL.md) | Engine ported and voiced; awaits its `IHardwareIO` |
+| **[Alloy Coil](modules/alloycoil/)** | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/alloycoil/MANUAL.md) | Engine, VCV and web complete; panel buttons live, ADC mux pending |
 
 Both share a PCB and a panel outline, so the same slot numbers land on the same
 physical positions and each module simply names them differently.

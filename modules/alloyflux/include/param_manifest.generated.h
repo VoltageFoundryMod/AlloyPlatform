@@ -28,7 +28,7 @@ static const ParamDescriptor kParamManifest[] = {
     {  87, "delayfb"       , "Feedback"                , "Delay"       ,                   0.0f,                      0.95f,       0.5f, ParamScale::Linear, nullptr, &gDelayFeedback, 1.0f, ParamDisplay::Direct },
     {  88, "curvetime"     , "Time Scale"              , "Envelope"    ,                  0.25f,                       4.0f,       1.0f, ParamScale::Linear, "×"   , &gCurveTime, 1.0f, ParamDisplay::Direct },
     {  89, "dspeed"        , "Drift Speed"             , "Animation"   ,                 0.001f,                       0.1f,      0.04f, ParamScale::Linear, nullptr, &gDriftSpeed, 1.0f, ParamDisplay::Direct },
-    {  91, "revmix"        , "Mix"                     , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevMix), 1.0f, ParamDisplay::Direct },
+    {  91, "revmix"        , "Wet"                     , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevMix), 1.0f, ParamDisplay::Direct },
     {  92, "color"         , "Color"                   , "Oscillator"  ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gColor, 1.0f, ParamDisplay::Direct },
     {  94, "rel"           , "Relation"                , "Oscillator"  ,                   0.0f,                      24.0f,       0.0f, ParamScale::Linear, "st"  , &gRelation, 1.0f, ParamDisplay::Direct },
     {  95, "delaymix"      , "Mix"                     , "Delay"       ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gDelayMix, 1.0f, ParamDisplay::Direct },

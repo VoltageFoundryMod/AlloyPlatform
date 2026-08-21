@@ -61,7 +61,11 @@ fmtDisplay(char *buf, size_t n, const ParamDescriptor &d, float value)
 int main()
 {
     FlatIO io;
-    int    failures = 0;
+    // FlatIO holds every button up, so this never sees an edge and the bridge
+    // never touches gWarp — which is what the sweep below needs, since warp
+    // would otherwise halve the echo time out from under the comparison.
+    CoilButtonState btn;
+    int             failures = 0;
 
     std::printf("Alloy Coil — IOBridge vs params.json, %d parameters\n\n",
                 (int)kParamManifestCount);
@@ -78,7 +82,7 @@ int main()
         for(int k = 0; k <= 64; k++)
         {
             io.pos = (float)k / 64.0f;
-            fillCoilParams(io);
+            fillCoilParams(io, btn);
 
             const float want = d.fromPos(io.pos);
             const float got  = *d.target;
@@ -114,7 +118,7 @@ int main()
             std::printf("      worst at knob %.4f: IOBridge gives %.6g, "
                         "params.json says %.6g\n",
                         worstPos,
-                        (io.pos = worstPos, fillCoilParams(io), *d.target),
+                        (io.pos = worstPos, fillCoilParams(io, btn), *d.target),
                         d.fromPos(worstPos));
     }
 

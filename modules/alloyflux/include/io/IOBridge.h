@@ -90,7 +90,8 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
 
     // -----------------------------------------------------------------------
     // Effects sends (M56)
-    // DELAY / REVERB pots: 0–1 wet mix, fully CCW = hard bypass (zero CPU).
+    // DELAY / REVERB pots: 0–1 wet send, fully CCW = hard bypass (zero CPU).
+    // These add wet on top of a full-gain dry; they are not dry/wet crossfades.
     // Everything else about the two effects (feedback, damping, modulation)
     // stays on the MIDI/serial side — only mix and the shift-secondary are
     // on the panel.

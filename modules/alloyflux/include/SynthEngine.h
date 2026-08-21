@@ -148,7 +148,12 @@ class SynthEngine
      *
      * revWetL/R  — Core 1's reverb-wet return from the previous frame
      *              (±32512 int32; pass 0 when reverb is disabled).
-     * revMix     — wet-return gain (0.0 = dry only, 1.0 = full wet).
+     * revMix     — wet-return gain, added on top of an unattenuated dry
+     *              (0.0 = dry only, 1.0 = dry + full wet). This is a send
+     *              level, not a dry/wet crossfade — the dry path never
+     *              drops. AlloyCoil's same-named control *does* crossfade;
+     *              the two are deliberately different and labelled apart
+     *              ("Wet" here, "Dry/Wet" there).
      * revEnabled — when false the reverb mix path is skipped entirely.
      * finalL/R   — fully-processed stereo output (±32512 int32).
      * dryForRevL/R — pre-reverb signal for Core 1 to process next frame.

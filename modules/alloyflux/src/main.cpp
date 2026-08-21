@@ -4,7 +4,7 @@
  *
  * Audio: stereo I2S via PIO, 16-bit in 32-bit frames, 48000 Hz.
  * Serial dev console active when SERIAL_CONTROL is defined (build flag).
- * See reference/AlloyFlux-module-reference.md for full design specification.
+ * See reference/AlloyFlux-hardware-design.md for full design specification.
  *
  * Core split (M63b2):
  *   Core 1 — the whole audio path.  Owns the I2S driver and runs every DSP

@@ -24,6 +24,7 @@ float gFeedbackHPF   = 250.0f;
 float gEchoSend      = 0.0f;
 float gEchoTime      = 0.5f;
 float gEchoFeedback  = 0.0f;
+uint8_t gWarp          = 0;
 float gReverbMix     = 0.0f;
 float gReverbDecay   = 0.2f;
 float gOutputLevel   = 1.0f;

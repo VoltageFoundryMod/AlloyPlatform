@@ -37,8 +37,8 @@ static void printParam(const ParamDescriptor &p, Print &out)
 static void cmd_set(const char *args, Print &out)
 {
     // "set <name> <value>"
-    char name[24] = {0};
-    const char *sp = strchr(args, ' ');
+    char        name[24] = {0};
+    const char *sp       = strchr(args, ' ');
     if(!sp || (size_t)(sp - args) >= sizeof(name))
     {
         out.println(F("usage: set <name> <value>   (see 'get' for names)"));
@@ -126,6 +126,16 @@ static void cmd_status(const char *, Print &out)
     }
     out.print(F("  limiter      : "));
     out.println(gLimiterEnabled ? F("on") : F("OFF"));
+    // Live button state, for bring-up: hold a switch and re-run `status`. Both
+    // are active-low with an internal pull-up, so a pin shorted to ground reads
+    // permanently down and an unconnected one permanently up.
+    {
+        const uint8_t b = coilButtonsDown();
+        out.print(F("  buttons      : WARP "));
+        out.print((b & 0x1) ? F("down") : F("up"));
+        out.print(F("   SHIFT "));
+        out.println((b & 0x2) ? F("down") : F("up"));
+    }
     cmd_get("", out);
 }
 
@@ -166,7 +176,7 @@ static void cmd_reset(const char *args, Print &out)
 #ifdef CPU_PROFILE
 static void cmd_perf(const char *args, Print &out)
 {
-    gPerformancePrintEnabled = (*args != '0');
+    gPerformancePrintEnabled = (*args != 'off');
     out.println(gPerformancePrintEnabled ? F("perf on") : F("perf off"));
 }
 
@@ -227,7 +237,7 @@ const CommandEntry kCommands[] = {
     {"smooth", "[n] - smoother interval in frames (0 = off)", cmd_smooth},
     {"limiter", "[0|1] - output limiter on/off", cmd_limiter},
 #ifdef CPU_PROFILE
-    {"perf", "<0|1> - periodic CPU report", cmd_perf},
+    {"perf", "<on|off> - periodic CPU report", cmd_perf},
     {"cpu", "- one CPU report now", cmd_cpu},
 #endif
     {"help", "- this list", cmd_help},

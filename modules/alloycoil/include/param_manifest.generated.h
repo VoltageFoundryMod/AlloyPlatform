@@ -15,7 +15,7 @@ static const ParamDescriptor kParamManifest[] = {
     {  75, "fbhpf"         , "Feedback HPF"            , "Feedback"    ,                  10.0f,                    4000.0f,     250.0f, ParamScale::Log , "Hz"  , &gFeedbackHPF, 1.0f, ParamDisplay::Direct },
     {  86, "echotime"      , "Time"                    , "Echo"        ,                  0.05f,     (float)COIL_ECHO_MAX_S,       0.5f, ParamScale::Linear, "s"   , &gEchoTime, 2.0f, ParamDisplay::Direct },
     {  87, "echofb"        , "Feedback"                , "Echo"        ,                   0.0f,                       1.2f,       0.0f, ParamScale::Linear, nullptr, &gEchoFeedback, 1.0f, ParamDisplay::Direct },
-    {  91, "revmix"        , "Mix"                     , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gReverbMix, 1.0f, ParamDisplay::Direct },
+    {  91, "revmix"        , "Dry/Wet"                 , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gReverbMix, 1.0f, ParamDisplay::Direct },
     {  92, "revdecay"      , "Decay"                   , "Reverb"      ,                   0.2f,                       1.0f,       0.2f, ParamScale::Linear, nullptr, &gReverbDecay, 0.5f, ParamDisplay::Direct },
     {  93, "echosend"      , "Send"                    , "Echo"        ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gEchoSend, 2.0f, ParamDisplay::Direct },
 };
@@ -24,13 +24,20 @@ static const ParamDescriptor kParamManifest[] = {
 static const uint8_t kParamManifestCount
     = sizeof(kParamManifest) / sizeof(kParamManifest[0]);
 
-// clang-format off
 
-// No discrete parameters in this module.
-static const EnumParamDescriptor *const kEnumManifest = nullptr;
+// clang-format off
+static const ParamOption kOpts_warp[] = {
+    { "Off"                   ,   0,  63,   0 },
+    { "On"                    ,  64, 127,   1 },
+};
+
+static const EnumParamDescriptor kEnumManifest[] = {
+    {  20, "warp"        , "Warp"                    , "Echo"        , (uint8_t *)&gWarp, kOpts_warp, sizeof(kOpts_warp) / sizeof(kOpts_warp[0]),   0, nullptr },
+};
 // clang-format on
 
-static const uint8_t kEnumManifestCount = 0;
+static const uint8_t kEnumManifestCount
+    = sizeof(kEnumManifest) / sizeof(kEnumManifest[0]);
 
 /// Write every parameter's `default` from params.json into its target.
 ///

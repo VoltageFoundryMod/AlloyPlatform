@@ -10,11 +10,13 @@
  *   Core 0 — controls, USB MIDI, serial console, flash. Paced by the driver's
  *            control-tick counter, so the control rate follows the audio clock.
  *
- * ⚠ Panel I/O is not wired yet. There is no ADC mux, no LEDs and no buttons on
- * this build: every parameter arrives over USB MIDI, SysEx or the serial
- * console. That is deliberate for bring-up — it is the shortest path to
- * hearing the engine on real hardware and driving it from the Web
- * Configurator, and the I/O layer can land once there is a panel to drive it.
+ * ⚠ Panel I/O is only half wired. The two switches — SW2 (WARP) and SW3
+ * (SHIFT) — are read here; the ADC mux, the CV jacks and the LED chain are not,
+ * so every *parameter* still arrives over USB MIDI, SysEx or the serial console.
+ * That split is the proto board's, not a decision: the buttons are two GPIOs
+ * and the rest is a mux that has not been built. io/HardwarePicoIO.h holds the
+ * seam, and it answers for the unwired half in a way that stays correct when
+ * the rest lands.
  */
 
 #include <stdint.h>
@@ -65,6 +67,10 @@ static constexpr uint8_t kPinI2sData = 18u;
 #include "config_store.h" // platform: save/load/reset
 #include "debug.h"
 #include "io/AudioDriver.h"
+#include "io/ButtonEngine.h"
+#include "io/HardwarePicoIO.h" // IHardwareIO — buttons live, ADC/CV/LEDs pending
+#include "io/IOBridge.h"       // fillCoilButtons()
+#include "io/PanelMap.h"       // Btn:: — Alloy Coil's slot names
 #include "io/serial_console.h"
 #include "io/usb_midi.h"
 #include "params.h"
@@ -119,6 +125,31 @@ static infrasonic::FeedbackSynth::OutputStage     sOutput;
 
 static AudioDriver sAudioDriver;
 
+// ---------------------------------------------------------------------------
+// Panel buttons — SW2 (WARP) and SW3 (SHIFT), polled at the control tick.
+//
+// The rest of the panel is not here yet: no pot mux, no CV jacks, no LED chain.
+// The buttons are, so they work. sHardwareIO is what turns "GP10 is low" into
+// "Btn::WARP is down" without main.cpp learning either the pin or the parameter
+// — the same seam AlloyFlux reads its two switches through, and the one the ADC
+// driver will slot into.
+// ---------------------------------------------------------------------------
+static ButtonEngine   gBtnWarp(PIN_BUTTON_WARP);   // SW2 — doppler warp, held
+static ButtonEngine   gBtnShift(PIN_BUTTON_SHIFT); // SW3 — knob secondaries
+static HardwarePicoIO sHardwareIO(gBtnWarp, gBtnShift);
+// Last button levels the bridge acted on. It writes gWarp on the edges only, so
+// that CC 20 can own the flag between presses — see io/IOBridge.h.
+static CoilButtonState sBtnState;
+
+// Backs the `status` command's button line — commands.cpp has no visibility of
+// the engines above, and a proto board with no LEDs has no other way to tell a
+// miswired switch from a dead one. Declared in params.h.
+uint8_t coilButtonsDown()
+{
+    return (uint8_t)((gBtnWarp.isDown() ? 0x1u : 0u)
+                     | (gBtnShift.isDown() ? 0x2u : 0u));
+}
+
 // Core 0 → Core 1: Core 1 must not start the audio clock before the engine is
 // built. Core 1 → Core 0: the outcome of AudioDriver::begin().
 enum AudioState : uint8_t
@@ -156,6 +187,13 @@ void setup()
     configStore_applyDefaults();
     configStore_load();
 
+    // Claim the two button GPIOs (INPUT_PULLUP, active low) and resolve each
+    // pot slot to its manifest row. Both are cheap and neither touches audio,
+    // so they go here with the rest of the once-only setup.
+    gBtnWarp.begin();
+    gBtnShift.begin();
+    sHardwareIO.begin();
+
     gEngine.Init((float)kAudioRate);
     sOutput.Init();
     // Stepped once per kSmoothFrames in renderAudio(), so that — not the
@@ -191,7 +229,22 @@ void updateControl()
     }
 #endif
 
-    // Nothing here talks to the engine any more. This tick's job is to bring
+    // Panel buttons, at the control tick ButtonEngine's ~31 ms debounce window
+    // is specified against. Poll both before reading either, so a combo would
+    // see one consistent tick — Alloy Coil has no combos yet, and this is the
+    // ordering the one it eventually gets will need.
+    //
+    // fillCoilButtons() rather than fillCoilParams(): the buttons are wired and
+    // the pot mux is not, and the full bridge would drive twelve parameters
+    // from an ADC that does not exist. Switching to fillCoilParams() is the
+    // whole change when it does — HardwarePicoIO already answers every other
+    // question the bridge asks, honestly, and test/params_check.cpp covers what
+    // it will then be doing. See io/HardwarePicoIO.h.
+    gBtnWarp.poll();
+    gBtnShift.poll();
+    fillCoilButtons(sHardwareIO, sBtnState);
+
+    // Nothing else here talks to the engine. This tick's job is to bring
     // the gXxx *goal* values up to date from MIDI, SysEx and the console; the
     // glide onto them, and the engine writes it produces, belong to
     // sSmoother.Step() in renderAudio(). Splitting the two is what lets the

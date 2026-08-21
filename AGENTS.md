@@ -68,7 +68,7 @@ Key files and directories:
 
 `IHardwareIO` (defined in [`platform/include/io/HardwareIO.h`](platform/include/io/HardwareIO.h)) is the only boundary between DSP and hardware. Two implementations:
 
-- **Firmware** — `HardwarePicoIO` in [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h). Alloy Coil has none yet, so its knobs and CV are VCV-only.
+- **Firmware** — `HardwarePicoIO`, one per module: [`modules/alloyflux/include/io/HardwarePicoIO.h`](modules/alloyflux/include/io/HardwarePicoIO.h) and [`modules/alloycoil/include/io/HardwarePicoIO.h`](modules/alloycoil/include/io/HardwarePicoIO.h). Neither has the multiplexed ADC yet, so on both boards the **buttons are real and the knobs are not**: `readPotRaw()` reports the parameter's own position, which makes the knob→parameter path a lossless round-trip instead of a stub that would snap everything to mid-travel. That one function is the whole remaining seam. Alloy Coil's CV jacks additionally report unpatched, and neither module drives Alloy Coil's LEDs.
 - **VCV** — `VCVRackIO` in [`platform/vcv/VCVRackIO.h`](platform/vcv/VCVRackIO.h), shared by every module. `SubMenuSlider.hpp` sits beside it for shift-secondaries.
 
 Its identifiers are **positional** — `PotId::POT_1`, `CVId::CV_3`, `LightId::LIGHT_5`. Each module names them in its own `io/PanelMap.h` — AlloyFlux as `Pot::ROOT`/`Cv::VOCT`, Alloy Coil as `Pot::PITCH`/`Cv::EXCITER` — and **both map the same slot numbers to the same physical positions**, because they share a PCB. Use the `Pot::`/`Cv::` names in module code; never add a semantic name to the HAL. **Slot order is the flash format** — append, never insert.

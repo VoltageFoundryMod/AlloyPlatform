@@ -752,8 +752,8 @@
     {
       "cc": 91,
       "name": "revmix",
-      "label": "Mix",
-      "doc": "Reverb wet level",
+      "label": "Wet",
+      "doc": "Reverb wet send level",
       "category": "Reverb",
       "kind": "float",
       "min": 0.0,

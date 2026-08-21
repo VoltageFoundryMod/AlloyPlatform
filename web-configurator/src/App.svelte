@@ -119,7 +119,7 @@
     const unsubscribe = midi.onCC((cc: number, value: number) => {
       // Drop our own echo, and anything arriving mid-gesture for a control the
       // user is currently working. Full syncs go through applyPatch() instead.
-      if (midi.shouldIgnoreInbound(cc, value)) return;
+      if (midi.shouldIgnoreInbound(cc)) return;
       const param = PARAM_MAP.find((p) => p.cc === cc);
       if (!param) return;
       if (param.type === "select") {

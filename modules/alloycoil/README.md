@@ -373,10 +373,27 @@ links at 477 328 B (91.0 % of the part) with `COIL_ECHO_MAX_S=4`, so the
 inferred 466 KiB budget held and `-DCOIL_ECHO_MAX_S=3` stays in reserve rather
 than being needed. What remains is hardware, not DSP:
 
-- **No `IHardwareIO` implementation.** Alloy Coil's firmware drives its parameters
-  from MIDI, SysEx and the serial console only; `io/PanelMap.h` and
-  `io/IOBridge.h` are live in the VCV build and ready for the knobs, CV, buttons
-  and LEDs whenever the multiplexed ADC driver lands.
+- **Panel I/O is half wired.** `io/HardwarePicoIO.h` exists and the two panel
+  switches are live on it — SW2 (WARP) and SW3 (SHIFT), on GP10/GP11, the same
+  pins AlloyFlux reads them from, polled at the control tick through
+  `fillCoilButtons()`. What is missing is the multiplexed ADC, so every
+  *parameter* still arrives over MIDI, SysEx or the serial console.
+
+  The class answers for the unwired half rather than stubbing it: a pot with no
+  ADC reports the position its own parameter currently holds, read off that
+  parameter's row in `params.json`. So `fillCoilParams()` is a lossless
+  round-trip today and becomes the real thing the moment `readPotRaw()` has a
+  mux to read — that one function is the whole remaining seam. CV jacks report
+  unpatched, which leaves the knob path alone instead of summing a fabricated
+  0 V into it.
+
+  WARP is fully playable now. It is CC 20 (`gWarp`), applied in
+  `ControlSmoother::Step()` rather than in `IOBridge`, and the button writes it
+  on its edges so the panel and the wire can share one flag — press for the
+  dive, release for the rise, and CC 20 latches in between.
+
+  `status` prints live button state, which on a board with no LEDs is the only
+  way to tell a miswired switch from a dead one.
 - **Audio-rate exciter on hardware.** `gExciterIn` is written at the 128 Hz
   control tick, so the jack is a control voltage there and a true audio input in
   Rack. FM IN is on a dedicated direct ADC pin for exactly this, so it is a

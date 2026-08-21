@@ -162,7 +162,18 @@ class ControlSmoother {
                 readGoal(gReverbMix),
                 readGoal(gReverbDecay),
                 readGoal(gEchoSend),
-                readGoal(gEchoTime),
+                // The one goal that is not read straight through. Warp halves
+                // the echo time here rather than at any of the places that
+                // *write* gEchoTime, because those are three (knob, CC, preset)
+                // and this is one — and because the stored time should stay the
+                // time that was asked for. See gWarp in params.h.
+                //
+                // The sweep is not implemented anywhere: this goal steps, the
+                // one-pole below glides onto it over its 0.10 s t60, and
+                // EchoDelay lags that by another 0.5 s. Dropping the time while
+                // the line is full drags the read head toward the write head,
+                // and everything already in the buffer comes back faster.
+                readGoal(gEchoTime) * (readFlag(gWarp) ? 0.5f : 1.0f),
                 readGoal(gEchoFeedback),
                 readGoal(gOutputLevel),
                 readGoal(gExciterLevel),
@@ -282,6 +293,13 @@ class ControlSmoother {
         static inline float readGoal(const float &g)
         {
             return *static_cast<const volatile float *>(&g);
+        }
+
+        /// The same volatile load for a discrete parameter's uint8_t target —
+        /// gWarp is written by the control core and read here on the audio one.
+        static inline bool readFlag(const uint8_t &g)
+        {
+            return *static_cast<const volatile uint8_t *>(&g) != 0;
         }
 
         enum Index {

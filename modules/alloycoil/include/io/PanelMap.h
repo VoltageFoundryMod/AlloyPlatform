@@ -30,7 +30,7 @@
 //     ECHO TIME      ECHO SEND       ECHO FBK        <- mid row: the echo
 //      (POT_4)        (POT_5)         (POT_6)
 //
-//     REV DECAY       REV MIX         FB LPF         <- low row: space + tone
+//     REV DECAY     REV DRY/WET       FB LPF         <- low row: space + tone
 //      (POT_7)        (POT_8)         (POT_9)
 //                    +shift: VOL     +shift: FB HPF
 //                     (POT_14)         (POT_15)
@@ -39,7 +39,7 @@
 //
 //   left    PITCH / ECHO TIME / REV DECAY   — time. Pitch is 1/time, the other
 //                                             two are times outright.
-//   centre  BODY / ECHO SEND / REV MIX      — how much. The wet amount of the
+//   centre  BODY / ECHO SEND / REV DRY/WET — how much. The wet amount of the
 //                                             row below the resonator's own.
 //   right   FB GAIN / ECHO FBK / FB LPF     — feedback. All three are what
 //                                             comes back round; FB LPF is
@@ -57,7 +57,7 @@
 //                     comes from the loop itself or from the exciter jack.
 //   FB LPF / FB HPF   the most natural pair in the set — one knob is the
 //                     feedback band, shift reaches its other edge.
-//   REV MIX / VOL     VOL sits on POT_14, which is *the same slot AlloyFlux
+//   REV DRY/WET / VOL VOL sits on POT_14, which is *the same slot AlloyFlux
 //                     puts VOL on*. SHIFT+centre-bottom means volume on both
 //                     firmwares, so the muscle memory carries across.
 //
@@ -93,15 +93,15 @@ constexpr PotId ECHOFB   = PotId::POT_6; ///< mid R — echo feedback 0–1.2
 
 // ---- low row: space + tone ----
 constexpr PotId REVDECAY = PotId::POT_7; ///< bottom L — reverb decay 0.2–1.0
-constexpr PotId REVMIX   = PotId::POT_8; ///< bottom C — reverb mix 0–1
+constexpr PotId REVMIX   = PotId::POT_8; ///< bottom C — reverb dry/wet 0–1
 constexpr PotId FBLPF    = PotId::POT_9; ///< bottom R — feedback LPF 100–18 kHz
 
 // ---- SHIFT-secondaries ----
-/// SHIFT + bottom-centre, i.e. SHIFT + REV MIX. **The same slot AlloyFlux puts
-/// VOL on**, which is the point: SHIFT+centre-bottom means volume on either
+/// SHIFT + bottom-centre, i.e. SHIFT + REV DRY/WET. **The same slot AlloyFlux
+/// puts VOL on**, which is the point: SHIFT+centre-bottom means volume on either
 /// firmware, so the muscle memory carries across. It is pinned to the position,
-/// not to whichever parameter currently sits there — REV DECAY and REV MIX have
-/// already traded places once and VOL did not move.
+/// not to whichever parameter currently sits there — REV DECAY and REV DRY/WET
+/// have already traded places once and VOL did not move.
 constexpr PotId VOL = PotId::POT_14;
 /// SHIFT + bottom-right, pairing HPF with the LPF knob — one knob is the
 /// feedback band, shift reaches its other edge.
@@ -153,14 +153,14 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
  *   lower row:  EXC IN   CV 3      CV 4      OUT L    OUT R
  *               CV_7     CV_5      CV_6      —        —
  *               EXCITER  ECHOSEND  REVMIX    —        —
- *               "Exc In" "Delay Snd" "Rev. Mix"
+ *               "Exc In" "Delay Snd" "Rev Dry/Wet"
  *
  * Bottom row is left to right as the panel reads it, with the exciter at the
  * left end. MIDI IN is a MIDI jack, not a CV one, and has no slot at all.
  *
  * ⚠ Two parameters lost their CV here and it was a choice, not an oversight:
  * **echo feedback** and **reverb decay** are no longer modulated, while **body**
- * and **reverb mix** now are. There are four generic jacks, and they are spent
+ * and **reverb dry/wet** now are. There are four generic jacks, and they are spent
  * on the resonator's two shaping controls and the two wet/dry amounts rather
  * than on the two coefficients that can run away. Both dropped controls are
  * still reachable by MIDI CC (87 and 92).
@@ -188,7 +188,7 @@ constexpr CVId VOCT     = CVId::CV_1; ///< "Pitch"     — summed with PITCH kno
 constexpr CVId FBBODY   = CVId::CV_3; ///< "Body",  CV 1, top row
 constexpr CVId FBGAIN   = CVId::CV_4; ///< "FB Gain", CV 2, top row
 constexpr CVId ECHOSEND = CVId::CV_5; ///< "Delay Snd", CV 3, lower row
-constexpr CVId REVMIX   = CVId::CV_6; ///< "Rev. Mix", CV 4, lower row
+constexpr CVId REVMIX   = CVId::CV_6; ///< "Rev Dry/Wet", CV 4, lower row
 constexpr CVId EXCITER  = CVId::CV_7; ///< "Exc In"    — external excitation
 
 constexpr uint8_t kCount = 7;

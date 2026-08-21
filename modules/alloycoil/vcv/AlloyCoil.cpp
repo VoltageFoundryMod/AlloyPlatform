@@ -13,10 +13,10 @@
 #include "OutputStage.h"
 #include "ManifestQuantity.hpp" // tooltips that read the manifest's curve
 #include "SubMenuSlider.hpp"    // shift-secondaries as context-menu sliders
-#include "PanelLayout.h"     // shared panel geometry (all modules, one PCB)
-#include "PanelLed.hpp"      // aperture-shaped lights, matching the panel art
-#include "VCVRackIO.h"       // platform: positional slots -> Rack indices
-#include "io/CoilLeds.h"   // the LED language, shared with the firmware
+#include "PanelLayout.h"        // shared panel geometry (all modules, one PCB)
+#include "PanelLed.hpp"  // aperture-shaped lights, matching the panel art
+#include "VCVRackIO.h"   // platform: positional slots -> Rack indices
+#include "io/CoilLeds.h" // the LED language, shared with the firmware
 #include "io/IOBridge.h"
 #include "io/PanelMap.h"
 #include "param_manifest.generated.h" // knob curves, see manifestRow()
@@ -257,10 +257,22 @@ struct AlloyCoil : Module
             {"revdecay", REVDECAY_PARAM},
             {"vol", VOL_PARAM},
             {"excite", EXCITE_PARAM},
+            // Not a knob, and here for a different reason than the rest: a CC
+            // that only wrote gWarp would leave the panel button lit or dark at
+            // random relative to the parameter. Routing it through the widget
+            // keeps the two agreeing, and the bridge picks the change up as an
+            // edge on the next control tick.
+            //
+            // The button is configured 0–1, so cc/127 crosses
+            // VCVRackIO::readButton()'s 0.5 threshold at exactly the Off/On
+            // band boundary params.json declares. Rack's momentary widget stays
+            // lit while the CC holds it, which is the latch the wire has and a
+            // finger on the button does not.
+            {"warp", WARP_PARAM},
         };
         std::memset(_ccToParam, -1, sizeof(_ccToParam));
         _ccOrder.clear();
-        _ccOrder.reserve(kParamManifestCount);
+        _ccOrder.reserve(kParamManifestCount + kEnumManifestCount);
         for(uint8_t i = 0; i < kParamManifestCount; i++)
         {
             for(const KnobOwner &o : kOwners)
@@ -268,6 +280,21 @@ struct AlloyCoil : Module
                 if(std::strcmp(kParamManifest[i].name, o.name) != 0)
                     continue;
                 const uint8_t cc = kParamManifest[i].cc & 0x7f;
+                _ccToParam[cc]   = (int8_t)o.param;
+                _ccOrder.push_back({cc, (uint8_t)o.param});
+                break;
+            }
+        }
+        // Discrete parameters live in their own table — same treatment, so the
+        // dump and the feedback tick carry them too and the configurator's
+        // switches follow the panel the way its knobs do.
+        for(uint8_t i = 0; i < kEnumManifestCount; i++)
+        {
+            for(const KnobOwner &o : kOwners)
+            {
+                if(std::strcmp(kEnumManifest[i].name, o.name) != 0)
+                    continue;
+                const uint8_t cc = kEnumManifest[i].cc & 0x7f;
                 _ccToParam[cc]   = (int8_t)o.param;
                 _ccOrder.push_back({cc, (uint8_t)o.param});
                 break;
@@ -288,7 +315,8 @@ struct AlloyCoil : Module
      * The unit gets the leading space Rack's convention wants; the manifest
      * stores it bare because the web UI composes its readouts differently.
      */
-    void configManifestParam(int paramId, const char *name, const char *rackLabel)
+    void
+    configManifestParam(int paramId, const char *name, const char *rackLabel)
     {
         const ParamDescriptor *d = manifestRow(name);
         // Unreachable for a name that is in params.json, which every call site's
@@ -331,7 +359,7 @@ struct AlloyCoil : Module
         configManifestParam(ECHOSEND_PARAM, "echosend", "Echo send");
         configManifestParam(ECHOTIME_PARAM, "echotime", "Echo time");
         configManifestParam(ECHOFB_PARAM, "echofb", "Echo feedback");
-        configManifestParam(REVMIX_PARAM, "revmix", "Reverb mix");
+        configManifestParam(REVMIX_PARAM, "revmix", "Reverb dry/wet");
         configManifestParam(REVDECAY_PARAM, "revdecay", "Reverb decay");
         configManifestParam(VOL_PARAM, "vol", "Volume");
         // Stored 0–2, shown in dB. The range past unity is what lets a ±5 V
@@ -355,7 +383,7 @@ struct AlloyCoil : Module
         configInput(FBBODY_CV_INPUT, "Body CV");
         configInput(FBGAIN_CV_INPUT, "Feedback gain CV");
         configInput(ECHOSEND_CV_INPUT, "Echo send CV");
-        configInput(REVMIX_CV_INPUT, "Reverb mix CV");
+        configInput(REVMIX_CV_INPUT, "Reverb dry/wet CV");
         configInput(EXCITER_INPUT,
                     "Exciter — audio into the resonator; unpatched, the string "
                     "self-excites from its own noise floor");
@@ -713,7 +741,7 @@ struct AlloyCoil : Module
         if(_controlPhase++ >= kControlDiv)
         {
             _controlPhase = 0;
-            fillCoilParams(_io);
+            fillCoilParams(_io, _btnState);
 
             // LEDs, from the peaks accumulated since the previous tick. Same
             // call the firmware will make once AlloyCoil has an IHardwareIO.
@@ -754,10 +782,10 @@ struct AlloyCoil : Module
         // here would make the same patch cable drive the string 4 dB harder in
         // Rack than on the module. A Eurorack source at ±5 V therefore only
         // reaches 0.625 — which is what EXCITE_PARAM's range past unity is for.
-        const float exciter = inputs[EXCITER_INPUT].isConnected()
-                                  ? inputs[EXCITER_INPUT].getVoltage()
-                                        * CvRange::kFmToUnit
-                                  : 0.0f;
+        const float exciter
+            = inputs[EXCITER_INPUT].isConnected()
+                  ? inputs[EXCITER_INPUT].getVoltage() * CvRange::kFmToUnit
+                  : 0.0f;
 
         float outL = 0.f, outR = 0.f;
         _engine.Process(exciter, outL, outR);
@@ -833,7 +861,8 @@ struct AlloyCoil : Module
                         continue;
                     _presets[s].push_back(
                         {(uint8_t)json_integer_value(json_array_get(pairJ, 0)),
-                         (uint8_t)json_integer_value(json_array_get(pairJ, 1))});
+                         (uint8_t)json_integer_value(
+                             json_array_get(pairJ, 1))});
                 }
             }
         }
@@ -858,9 +887,13 @@ struct AlloyCoil : Module
     infrasonic::FeedbackSynth::ControlSmoother _smoother;
     infrasonic::FeedbackSynth::OutputStage     _output;
     VCVRackIO                                  _io;
-    CoilLed::Engine                            _leds;
-    int                                        _controlPhase = 0;
-    int                                        _smoothPhase  = 0;
+    /// Per-Module, unlike the parameter globals above: the bridge writes gWarp
+    /// only when the button *changes*, and shared edge state would mean a
+    /// second Alloy Coil in the rack never saw an edge. See io/IOBridge.h.
+    CoilButtonState _btnState;
+    CoilLed::Engine _leds;
+    int             _controlPhase = 0;
+    int             _smoothPhase  = 0;
 
     /// CC feedback divider, in frames — set from the host rate so feedback
     /// runs at the firmware's 128 Hz whatever Rack is clocked at.
@@ -878,7 +911,8 @@ struct AlloyCoilWidget : ModuleWidget
     AlloyCoilWidget(AlloyCoil *module)
     {
         setModule(module);
-        setPanel(createPanel(asset::plugin(pluginInstance, "res/AlloyCoil.svg")));
+        setPanel(
+            createPanel(asset::plugin(pluginInstance, "res/AlloyCoil.svg")));
 
         addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));
         addChild(
@@ -910,7 +944,7 @@ struct AlloyCoilWidget : ModuleWidget
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::ECHOFB), module, AlloyCoil::ECHOFB_PARAM));
 
-        // Low row: space and tone. REV MIX and FB LPF each carry a
+        // Low row: space and tone. REV DRY/WET and FB LPF each carry a
         // shift-secondary, exposed in the context menu below.
         //
         // Slot -> parameter is PanelMap's job, so these read straight: the
@@ -993,7 +1027,7 @@ struct AlloyCoilWidget : ModuleWidget
         menu->addChild(new MenuSeparator);
         menu->addChild(createMenuLabel("SHIFT parameters"));
 
-        menu->addChild(createMenuLabel("Volume  (SHIFT + REV MIX)"));
+        menu->addChild(createMenuLabel("Volume  (SHIFT + REV DRY/WET)"));
         auto *volSlider     = new SubMenuSlider;
         volSlider->quantity = m->getParamQuantity(AlloyCoil::VOL_PARAM);
         menu->addChild(volSlider);

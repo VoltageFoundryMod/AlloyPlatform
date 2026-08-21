@@ -61,7 +61,7 @@ repository.
 3. **PITCH** to set where it sits.
 4. **FB LPF** down to darken it, **BODY** to change its character from a tight
    metallic ping to a longer, hollower tube.
-5. Bring **REV MIX** and **ECHO SEND** up to taste.
+5. Bring **REV DRY/WET** and **ECHO SEND** up to taste.
 
 To play it from a keyboard, connect USB or TRS MIDI and send notes — anything
 from **MIDI note 16 to 72** sets the pitch. MIDI note on/off does not stop the string from sustaining, so you can play it like a drone.
@@ -72,11 +72,11 @@ from **MIDI note 16 to 72** sets the pitch. MIDI note on/off does not stop the s
 
 Three rows of three. The row is the section.
 
-|                          | left          | centre               | right                 |
-| ------------------------ | ------------- | -------------------- | --------------------- |
-| **top** — the resonator  | **PITCH**     | **BODY**             | **FB GAIN** ⇧ EXCITER |
-| **mid** — the echo       | **ECHO TIME** | **ECHO SEND**        | **ECHO FBK**          |
-| **low** — space and tone | **REV DECAY** | **REV MIX** ⇧ VOLUME | **FB LPF** ⇧ FB HPF   |
+|                          | left          | centre                   | right                 |
+| ------------------------ | ------------- | ------------------------ | --------------------- |
+| **top** — the resonator  | **PITCH**     | **BODY**                 | **FB GAIN** ⇧ EXCITER |
+| **mid** — the echo       | **ECHO TIME** | **ECHO SEND**            | **ECHO FBK**          |
+| **low** — space and tone | **REV DECAY** | **REV DRY/WET** ⇧ VOLUME | **FB LPF** ⇧ FB HPF   |
 
 ⇧ means hold **SHIFT** and turn that knob.
 
@@ -84,20 +84,20 @@ Read it in columns and the panel teaches itself: the **left** column is time
 (pitch is 1/time, the other two are times), the **centre** column is how much of
 that row you get, and the **right** column is feedback — what comes back round.
 
-| Knob          | Range         | What it does                                                                                                             |
-| ------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **PITCH**     | note 16–72    | Where the string is tuned. Summed with V/OCT.                                                                            |
-| **BODY**      | 1–100 ms      | Length of the feedback delay. Short is a tight metallic ping; long is a hollow, tube-like resonance.                     |
-| **FB GAIN**   | −30…+12 dB    | **The main control.** Below about −15 dB the string decays; around 0 dB it sustains; above that it builds and saturates. |
-| ⇧ **EXCITER** | −inf…+6 dB    | How hard the FM/EXCITER jack drives the string. 0 dB is unity — the jack's full swing at the engine's full scale.        |
-| **ECHO SEND** | 0–1           | How much goes into the echo. Tapped after the reverb.                                                                    |
-| **ECHO TIME** | 0.05–4 s      | Delay time.                                                                                                              |
-| **ECHO FBK**  | 0–1.2         | Echo repeats. **Goes past unity on purpose** — above ~0.83 of travel it builds instead of decaying.                      |
-| **REV DECAY** | 0.2–1.0       | Reverb tail, from a short room to effectively frozen at the top.                                                         |
-| **REV MIX**   | 0–1           | Dry/wet.                                                                                                                 |
-| ⇧ **VOLUME**  | 0–1           | Output level. Same knob position Alloy Flux puts volume on.                                                              |
-| **FB LPF**    | 100 Hz–18 kHz | Low-pass _inside_ the feedback loop. Sweeping it darkens the ring as it circulates.                                      |
-| ⇧ **FB HPF**  | 10 Hz–4 kHz   | High-pass in the same loop. Together with LPF this is the loop's bandwidth.                                              |
+| Knob            | Range         | What it does                                                                                                             |
+| --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **PITCH**       | note 16–72    | Where the string is tuned. Summed with V/OCT.                                                                            |
+| **BODY**        | 1–100 ms      | Length of the feedback delay. Short is a tight metallic ping; long is a hollow, tube-like resonance.                     |
+| **FB GAIN**     | −30…+12 dB    | **The main control.** Below about −15 dB the string decays; around 0 dB it sustains; above that it builds and saturates. |
+| ⇧ **EXCITER**   | −inf…+6 dB    | How hard the FM/EXCITER jack drives the string. 0 dB is unity — the jack's full swing at the engine's full scale.        |
+| **ECHO SEND**   | 0–1           | How much goes into the echo. Tapped after the reverb.                                                                    |
+| **ECHO TIME**   | 0.05–4 s      | Delay time.                                                                                                              |
+| **ECHO FBK**    | 0–1.2         | Echo repeats. **Goes past unity on purpose** — above ~0.83 of travel it builds instead of decaying.                      |
+| **REV DECAY**   | 0.2–1.0       | Reverb tail, from a short room to effectively frozen at the top.                                                         |
+| **REV DRY/WET** | 0–1           | Crossfade between the dry resonator and the reverb. 0 is fully dry, 1 is fully wet.                                      |
+| ⇧ **VOLUME**    | 0–1           | Output level. Same knob position Alloy Flux puts volume on.                                                              |
+| **FB LPF**      | 100 Hz–18 kHz | Low-pass _inside_ the feedback loop. Sweeping it darkens the ring as it circulates.                                      |
+| ⇧ **FB HPF**    | 10 Hz–4 kHz   | High-pass in the same loop. Together with LPF this is the loop's bandwidth.                                              |
 
 ### Buttons
 
@@ -112,6 +112,16 @@ feedback high and the send up.
 
 This is the same control as the toggle switch on the original Synthux Audrey II
 panel, made momentary so it can be played rhythmically rather than set.
+
+Warp is also **CC 20**, so it is reachable from a MIDI controller, from the
+Alloy Controller's panel and from `set warp 1` at the serial console. There it
+behaves the way the original toggle did — it latches and stays where you put it,
+because a CC carries a value and not a gesture.
+
+The two share one flag, and the button only writes it when you actually move it:
+press takes warp on, release takes it off, and between gestures whatever the CC
+last said stands. So you can latch warp from the Alloy Controller and leave it,
+and the first time you touch the panel button the panel has it back.
 
 ### LEDs
 
@@ -141,7 +151,7 @@ Bottom row: **EXC IN**, **CV 3**, **CV 4**, **OUT L**, **OUT R**.
 | **CV 1**       | ±5 V      | Body                                                 |
 | **CV 2**       | ±5 V      | Feedback gain                                        |
 | **CV 3**       | ±5 V      | Echo send                                            |
-| **CV 4**       | ±5 V      | Reverb mix                                           |
+| **CV 4**       | ±5 V      | Reverb dry/wet                                       |
 | **FM/EXCITER** | ±8 V      | Audio into the resonator                             |
 | **OUT L / R**  |           | Stereo out                                           |
 
@@ -218,7 +228,7 @@ that is sustaining on its own feedback.
 
 | CC    | Parameter | Value range | CC range | Description       |
 | ----- | --------- | ----------- | -------- | ----------------- |
-| CC 91 | Mix       | 0–1         | 0–127    | Reverb wet level  |
+| CC 91 | Dry/Wet   | 0–1         | 0–127    | Reverb dry/wet    |
 | CC 92 | Decay     | 0.2–1       | 0–127    | Reverb decay time |
 
 #### Output

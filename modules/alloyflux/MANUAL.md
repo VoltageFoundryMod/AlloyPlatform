@@ -419,7 +419,7 @@ Hold **SHIFT** and turn a knob to access its secondary parameter. The SHIFT LED 
 | CURVE  | Envelope shape (pluck → swell) | **CURVETIME** — envelope time scale |
 | SPACE  | Stereo width                   | **VOL** — master output volume      |
 | DELAY  | Delay wet mix                  | **DELAYTIME** — delay time (ms)     |
-| REVERB | Reverb wet mix                 | **REVERBSIZE** — virtual plate size |
+| REVERB | Reverb wet send                | **REVERBSIZE** — virtual plate size |
 
 ROOT, RELATION, and COLOR have no shift function — full knob travel is needed for precision.
 
@@ -661,7 +661,7 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 
 | CC     | Parameter | Value range | CC range | Description                   |
 | ------ | --------- | ----------- | -------- | ----------------------------- |
-| CC 91  | Mix       | 0–1         | 0–127    | Reverb wet level              |
+| CC 91  | Wet       | 0–1         | 0–127    | Reverb wet send level         |
 | CC 112 | Mod Speed | 0.1–4       | 0–127    | Reverb LFO rate multiplier    |
 | CC 113 | Mod Depth | 0–1         | 0–127    | Reverb LFO depth              |
 | CC 117 | Size      | 0–1         | 0–127    | Plate size / decay time       |

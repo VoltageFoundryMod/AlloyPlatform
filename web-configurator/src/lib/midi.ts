@@ -141,20 +141,38 @@ function createMidi() {
   //   Drag war  — while a slider is being dragged, feedback for that same CC
   //               arrives mid-gesture and fights the pointer.
   //
-  // So a CC is ignored on the way in when it merely repeats what we last sent,
-  // or when we touched that control within the last LOCAL_EDIT_MS.  Full syncs
-  // (SysEx dump, serial dump, file import) deliberately bypass this — they are
-  // explicit "the device is the truth" moments, not feedback.
+  // So a CC is ignored on the way in when we touched that control within the
+  // last LOCAL_EDIT_MS.  Full syncs (SysEx dump, serial dump, file import)
+  // deliberately bypass this — they are explicit "the device is the truth"
+  // moments, not feedback.
+  //
+  // ⚠ The window is the *whole* rule, and it used to have a second clause: drop
+  // an inbound CC whenever it repeated the value we last sent, with no time
+  // bound at all.  That is not echo suppression, it is a permanent veto — the
+  // record is only ever written on send, so once the page had sent a value the
+  // device could never report that value again for as long as the tab was open.
+  //
+  // Alloy Coil's WARP switch is where it became obvious, because a two-state
+  // control revisits its values constantly: click WARP off on the panel, then
+  // hold the button on the module, and the press (127) arrives but the release
+  // (0) matches what the page last sent and is thrown away.  The module warps
+  // and un-warps correctly, the switch on screen latches on and stays there.
+  //
+  // The same trap was always there for knobs, just quieter — a knob returning
+  // to a value the page had previously set would stick.  Both clauses covered
+  // the echo, since an echo arrives within one 250 ms feedback tick and lands
+  // well inside the window; only the unbounded one could reject the truth.
   // ---------------------------------------------------------------------------
   const LOCAL_EDIT_MS = 400;
-  const lastSent = new Map<number, { value: number; t: number }>();
+  /** performance.now() of the last CC the page sent, per CC number. The value
+   *  itself is deliberately not kept — see the warning above. */
+  const lastSentAt = new Map<number, number>();
 
   /** True when an inbound CC is our own echo or lands mid-gesture. */
-  function shouldIgnoreInbound(cc: number, value: number): boolean {
-    const rec = lastSent.get(cc);
-    if (!rec) return false;
-    if (rec.value === value) return true;
-    return performance.now() - rec.t < LOCAL_EDIT_MS;
+  function shouldIgnoreInbound(cc: number): boolean {
+    const t = lastSentAt.get(cc);
+    if (t === undefined) return false;
+    return performance.now() - t < LOCAL_EDIT_MS;
   }
 
   // ---------------------------------------------------------------------------
@@ -250,7 +268,7 @@ function createMidi() {
     const type = status & 0xf0;
     if (type === 0xb0) {
       // Control Change
-      noteDeviceAlive(data[1], data[2]);
+      noteDeviceAlive(data[1]);
       ccListeners.forEach((fn) => runListener(() => fn(data[1], data[2])));
     }
   }
@@ -271,8 +289,8 @@ function createMidi() {
   const ALIVE_THROTTLE_MS = 500;
   let lastAliveNote = 0;
 
-  function noteDeviceAlive(cc: number, value: number): void {
-    if (shouldIgnoreInbound(cc, value)) return;
+  function noteDeviceAlive(cc: number): void {
+    if (shouldIgnoreInbound(cc)) return;
     const now = performance.now();
     if (now - lastAliveNote < ALIVE_THROTTLE_MS) return;
     lastAliveNote = now;
@@ -737,7 +755,7 @@ function createMidi() {
   }
 
   function sendCC(cc: number, value: number /* 0-127 */) {
-    lastSent.set(cc & 0x7f, { value: value & 0x7f, t: performance.now() });
+    lastSentAt.set(cc & 0x7f, performance.now());
     sendRaw([0xb0 | channel, cc & 0x7f, value & 0x7f]);
   }
 

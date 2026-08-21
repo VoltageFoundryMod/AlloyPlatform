@@ -262,7 +262,7 @@ const ALLOYFLUX: PanelLayout = {
       span: 4,
       stretch: true,
       controls: [
-        { name: "revmix", size: "lg", label: "Mix" },
+        { name: "revmix", size: "lg" },
         // The space around the source opening up.
         {
           name: "revsize",
@@ -323,7 +323,7 @@ const ALLOYFLUX: PanelLayout = {
  *
  * The feedback loop is the instrument here: gain and body are what you play,
  * and the two filters are how you keep the loop from running away. They are
- * sized accordingly. Twelve parameters against AlloyFlux's forty, so the
+ * sized accordingly. Thirteen parameters against AlloyFlux's forty, so the
  * sections are wider per control rather than more numerous.
  *
  * Every section stretches. Left to hug their contents, the ones carrying a
@@ -376,6 +376,24 @@ const ALLOYCOIL: PanelLayout = {
         // modules.
         { name: "echotime", label: "Time", icons: ["echo-near", "echo-far"] },
         { name: "echofb", label: "Feedback" },
+        // The panel's WARP button. On the module it is momentary — held, the
+        // tail dives and comes back on release — but CC 20 is a latch, because
+        // a CC carries a value and not a gesture, so it draws as a switch
+        // rather than as something to hold.
+        //
+        // On its own line deliberately, not by wrapping: three knobs already
+        // fill this section's width and a fourth control would spill onto a
+        // second row anyway. Better to place it there and have it centre under
+        // them, which is also where the button sits on the panel — below the
+        // knob row, not in it. Same glyph pair TIME uses, read the same way:
+        // the far echo is the time you set, the near one is warp halving it.
+        {
+          name: "warp",
+          control: "segmented",
+          label: "Warp",
+          icons: ["echo-far", "echo-near"],
+          breakBefore: true,
+        },
       ],
     },
     {
@@ -383,7 +401,7 @@ const ALLOYCOIL: PanelLayout = {
       span: 4,
       stretch: true,
       controls: [
-        { name: "revmix", size: "lg", label: "Mix" },
+        { name: "revmix", size: "lg" },
         // How long the tail runs on.
         {
           name: "revdecay",
