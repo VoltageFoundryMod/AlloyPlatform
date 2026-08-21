@@ -70,7 +70,12 @@
   type Utility = keyof typeof utility;
   const toggleUtility = (u: Utility) => (utility[u] = !utility[u]);
 
-  const anyUtilityOpen = $derived(Object.values(utility).some(Boolean));
+  // The keyboard is deliberately not in this list. It is the one utility whose
+  // natural shape is landscape — fourteen white keys and a toolbar — and in a
+  // 400px rail it got 26px keys and a toolbar three rows deep. It lives in the
+  // bottom dock instead, where it has the width it wants; `utility.keyboard`
+  // still toggles it, so the toolbar button works either way.
+  const railOpen = $derived(utility.presets || utility.settings);
 
   // MIDI receive channel (0=omni, 1-16). Set by CC 110 in patch dump; sent via SysEx 0x07.
   let midiChannel = $state(0);
@@ -587,6 +592,18 @@
     return () => ro.disconnect();
   });
 
+  /**
+   * Room to keep clear below the panel stage: the dock as it currently stands,
+   * plus the footer's own line.
+   *
+   * Measured rather than a constant in PanelView, because the dock is no longer
+   * three collapsed tabs of known height — opening the keyboard adds well over
+   * a hundred pixels, and the panel has to give that ground rather than be sat
+   * on. With every drawer shut this comes out near the 96px the constant used
+   * to be, so nothing moves until a drawer is actually opened.
+   */
+  const panelBottomReserve = $derived(dockHeight + 42);
+
   // ── Serial console drawer ────────────────────────────────────────────────
   let serialLines = $state<string[]>([]);
   let consoleOpen = $state(false);
@@ -729,24 +746,16 @@
           {sliderHints}
           {sliderDisplays}
           {disabledParams}
+          bottomReserve={panelBottomReserve}
         />
       {/key}
     </div>
 
-    {#if anyUtilityOpen}
+    {#if railOpen}
       <aside class="dock-rail">
         {#if utility.presets}
           <DockPanel title="Presets" onclose={() => (utility.presets = false)}>
             <PresetManager {getPatchSnapshot} {applyFromFile} {applyDefaults} />
-          </DockPanel>
-        {/if}
-
-        {#if utility.keyboard}
-          <DockPanel
-            title="Keyboard"
-            onclose={() => (utility.keyboard = false)}
-          >
-            <MidiKeyboard />
           </DockPanel>
         {/if}
 
@@ -785,6 +794,20 @@
        container rather than being individually fixed, so they stack instead
        of overlapping. -->
   <div class="drawer-dock" bind:this={dockEl}>
+    <!-- Topmost of the three, as the one you play rather than read. Toggled by
+         `utility.keyboard`, which the panel toolbar's Keyboard button also
+         drives — the tab and the button are two handles on one flag. -->
+    <div class="kbd-drawer">
+      <button class="kbd-tab" onclick={() => toggleUtility("keyboard")}>
+        Keyboard {utility.keyboard ? "▼" : "▲"}
+      </button>
+      {#if utility.keyboard}
+        <div class="kbd-body">
+          <MidiKeyboard />
+        </div>
+      {/if}
+    </div>
+
     <MidiMonitor />
 
     <!-- Serial console drawer -->
@@ -992,10 +1015,30 @@
     color: var(--text-dim);
     min-width: 3rem;
   }
+  /* Keyboard drawer — same shell as the console and monitor drawers, so the
+     three tabs read as one stack. */
+  .kbd-drawer {
+    background: var(--bg-panel);
+    border-top: 1px solid var(--hairline);
+  }
+  .kbd-body {
+    padding: 0.6rem 1rem 0.75rem;
+  }
+  /* Indented past where the other two tabs put their connection dot, so all
+     three labels start on the same column. A keyboard has nothing to be
+     connected to, so it gets the space rather than a dot.
+
+     Qualified by the drawer to outrank the `padding` shorthand in the shared
+     .kbd-tab/.console-tab rule below, which would otherwise reset this. */
+  .kbd-drawer .kbd-tab {
+    padding-left: calc(1rem + 0.55rem + 0.5rem);
+  }
+
   .console-drawer {
     background: var(--bg-panel);
     border-top: 1px solid var(--hairline);
   }
+  .kbd-tab,
   .console-tab {
     width: 100%;
     padding: 0.35rem 1rem;
@@ -1026,6 +1069,7 @@
     background: var(--ok);
     box-shadow: 0 0 5px var(--ok);
   }
+  .kbd-tab:hover,
   .console-tab:hover {
     background: rgba(192, 137, 74, 0.1);
     color: var(--text-dim);

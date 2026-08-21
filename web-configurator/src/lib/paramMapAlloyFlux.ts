@@ -334,7 +334,7 @@ export const PARAM_MAP: CCParam[] = [
     category: "Envelope",
     min: 0,
     max: 127,
-    default: 0,
+    default: 64,
     type: "select",
     options: [
       { label: "Fixed", ccMin: 0, ccMax: 63 },
@@ -387,7 +387,7 @@ export const PARAM_MAP: CCParam[] = [
     category: "Chorus",
     min: 0,
     max: 127,
-    default: 0,
+    default: 96,
     type: "select",
     options: [
       { label: "Off", ccMin: 0, ccMax: 31 },

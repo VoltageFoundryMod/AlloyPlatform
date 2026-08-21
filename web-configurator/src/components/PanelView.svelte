@@ -13,11 +13,6 @@
   const MIN_SCALE = 0.62;
   /** Nor grow past it — knobs the size of coasters help nobody. */
   const MAX_SCALE = 1.3;
-  /**
-   * Vertical room below the stage to leave for the footer and the two collapsed
-   * drawer tabs, which are pinned to the bottom of the viewport.
-   */
-  const BOTTOM_RESERVE = 96;
 </script>
 
 <script lang="ts">
@@ -50,6 +45,7 @@
     sliderHints = {},
     sliderDisplays = {},
     disabledParams = new Set<string>(),
+    bottomReserve = 96,
   }: {
     moduleId: string;
     map: CCParam[];
@@ -65,6 +61,17 @@
     sliderDisplays?: Record<string, string | undefined>;
     /** Param names the current mode ignores — drawn greyed and inert. */
     disabledParams?: Set<string>;
+    /**
+     * Vertical room to leave below the stage, in px — the footer plus whatever
+     * the pinned bottom dock currently occupies.
+     *
+     * Passed in rather than a constant because the dock's height is not fixed:
+     * a drawer opening adds well over a hundred pixels, and a stage measured
+     * against a stale reserve would be sized to sit underneath it. Same
+     * bargain the utility rail makes horizontally — the panel gives ground
+     * instead of being covered.
+     */
+    bottomReserve?: number;
   } = $props();
 
   const sections = $derived(layoutFor(moduleId, map));
@@ -96,7 +103,7 @@
       const availW = frame.clientWidth;
       // Height left between the top of the stage and the pinned bottom dock.
       const availH =
-        window.innerHeight - frame.getBoundingClientRect().top - BOTTOM_RESERVE;
+        window.innerHeight - frame.getBoundingClientRect().top - bottomReserve;
       if (availW <= 0 || natural <= 0) return;
 
       // Fit both axes, not just width. Fitting width alone is what pushed the

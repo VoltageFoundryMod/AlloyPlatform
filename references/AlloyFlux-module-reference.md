@@ -61,7 +61,7 @@
     - [ISR Budget (M26)](#isr-budget-m26)
   - [Front Panel Controls](#front-panel-controls)
     - [ROOT](#root)
-    - [RELATION *(signature control — largest knob)*](#relation-signature-control--largest-knob)
+    - [RELATION _(signature control — largest knob)_](#relation-signature-control--largest-knob)
     - [SHAPE](#shape)
     - [MOTION](#motion)
     - [FM](#fm)
@@ -105,8 +105,8 @@
       - [Colour Language](#colour-language)
       - [Brightness Language](#brightness-language)
       - [D12 + D22 — Voice Activity (always)](#d12--d22--voice-activity-always)
-      - [D14 — Mode Indicator (near MODE\_SW)](#d14--mode-indicator-near-mode_sw)
-      - [D16 — Shift / Drone State (near SHIFT\_SW)](#d16--shift--drone-state-near-shift_sw)
+      - [D14 — Mode Indicator (near MODE_SW)](#d14--mode-indicator-near-mode_sw)
+      - [D16 — Shift / Drone State (near SHIFT_SW)](#d16--shift--drone-state-near-shift_sw)
       - [D15 — Centre Heartbeat / Global](#d15--centre-heartbeat--global)
       - [D13 + D21 — Modulation \& Stereo Position (always)](#d13--d21--modulation--stereo-position-always)
       - [Mode Change Animation](#mode-change-animation)
@@ -1113,10 +1113,10 @@ reverb off           → disable (gRevEnabled=false, Core 1 outputs zeros)
 
 Stereo ping-pong delay with compile-time configurable maximum (`DELAY_MAX_MS`, default 300ms).
 
-| Max delay | RAM cost | Notes                               |
-| --------- | -------- | ----------------------------------- |
-| 200 ms    | ~26 KB   |                                     |
-| 300 ms    | ~39 KB   | `DelayEngine.h` fallback default    |
+| Max delay | RAM cost | Notes                                                      |
+| --------- | -------- | ---------------------------------------------------------- |
+| 200 ms    | ~26 KB   |                                                            |
+| 300 ms    | ~39 KB   | `DelayEngine.h` fallback default                           |
 | 500 ms    | ~65 KB   | **In use** — set in platformio.ini and vcv-plugin/Makefile |
 
 **Cross-channel feedback** creates the ping-pong effect — echoes alternate L/R/L/R:
@@ -1128,12 +1128,12 @@ R delay line ← inR + feedback × delayedL
 
 Linear interpolation on fractional delay samples eliminates zipper artefacts when time changes. `process()` is `always_inline` — fully absorbed into `updateAudio()` in SRAM.
 
-| Parameter | Range       | Notes                                    |
-| --------- | ----------- | ---------------------------------------- |
-| mix       | 0.0–1.0     | 0 = hard bypass (zero CPU, early return) |
+| Parameter | Range       | Notes                                       |
+| --------- | ----------- | ------------------------------------------- |
+| mix       | 0.0–1.0     | 0 = hard bypass (zero CPU, early return)    |
 | time_ms   | 10–500 ms   | Fractional sample accuracy (`DELAY_MAX_MS`) |
-| feedback  | 0.0–0.95    | Clamped to prevent runaway accumulation  |
-| dry gain  | 1 − mix×0.5 | Slight dry reduction at high mix         |
+| feedback  | 0.0–0.95    | Clamped to prevent runaway accumulation     |
+| dry gain  | 1 − mix×0.5 | Slight dry reduction at high mix            |
 
 ```txt
 delay 0.5 150 0.6    → mix=0.5, time=150ms, feedback=0.6 (ping-pong bounce)
@@ -1157,13 +1157,25 @@ delay off            → hard bypass (zero CPU)
 
 ## Front Panel Controls
 
+| Main Function | Shift Function | Notes                                                                    |
+| ------------- | -------------- | ------------------------------------------------------------------------ |
+| ROOT          | —              | pitch center and harmonic reference for all modes                        |
+| RELATION      | —              | governs harmonic relationship between ROOT and everything else           |
+| SHAPE         | FATNESS        | continuous waveform morphing; shift adjusts sub-oscillator level         |
+| MOTION        | DRIFTSPEED     | depth of all internal animation; shift adjusts drift glide rate          |
+| COLOR         | —              | oscillator interaction depth; attenuverter when FM IN is patched         |
+| CURVE         | CURVETIME      | envelope and response shaping; shift adjusts overall envelope time scale |
+| SPACE         | VOL            | stereo width and positioning; shift adjusts master output volume         |
+| DELAY         | DELAYTIME      | delay effect mix; shift adjusts delay time in ms                         |
+| REVERB        | REVERBSIZE     | reverb effect mix; shift adjusts virtual plate size                      |
+
 ### ROOT
 
 Primary pitch and transposition control. Sets the pitch center of the ROOT oscillator and the global harmonic reference for all modes.
 
 Associated jack: **V/OCT**
 
-### RELATION *(signature control — largest knob)*
+### RELATION _(signature control — largest knob)_
 
 The defining control of Alloy Flux. Its meaning changes per mode but always governs the harmonic relationship between ROOT and everything else.
 
@@ -1258,12 +1270,12 @@ Controls the reverb mix. When no reverb is desired, set to zero for hard bypass 
 Both knobs are ordinary entries in the shared I/O layer, so hardware and VCV
 resolve them through exactly the same code:
 
-| Stage             | Where                                | What it does                                                                         |
-| ----------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
-| Pot identity      | `PotId::DELAY` / `REVERB`            | Physical knobs; `DELAYTIME` / `REVERBSIZE` are their SHIFT-secondaries                 |
-| Read (hardware)   | `HardwarePicoIO::readPot()`          | Normalises `gDelayMix` / `gRevMix` / `gDelayTime` / `gRevSize` back to 0–1             |
-| Read (VCV)        | `VCVRackIO::readPot()`               | Reads `DELAY_MIX_PARAM` / `REV_MIX_PARAM` / `DELAY_TIME_PARAM` / `REV_SIZE_PARAM`      |
-| Translate         | `fillSynthParams()` in `IOBridge.h`  | Writes `delayMix`, `delayTime`, `revMix`, `revSize`, and derives `revEnabled`          |
+| Stage           | Where                               | What it does                                                                      |
+| --------------- | ----------------------------------- | --------------------------------------------------------------------------------- |
+| Pot identity    | `PotId::DELAY` / `REVERB`           | Physical knobs; `DELAYTIME` / `REVERBSIZE` are their SHIFT-secondaries            |
+| Read (hardware) | `HardwarePicoIO::readPot()`         | Normalises `gDelayMix` / `gRevMix` / `gDelayTime` / `gRevSize` back to 0–1        |
+| Read (VCV)      | `VCVRackIO::readPot()`              | Reads `DELAY_MIX_PARAM` / `REV_MIX_PARAM` / `DELAY_TIME_PARAM` / `REV_SIZE_PARAM` |
+| Translate       | `fillSynthParams()` in `IOBridge.h` | Writes `delayMix`, `delayTime`, `revMix`, `revSize`, and derives `revEnabled`     |
 
 `revEnabled` is derived from the mix (`revMix > 0.001`) rather than set by CC, so
 a fully-CCW REVERB knob costs no CPU. The same is true of a zeroed DELAY mix.
@@ -1294,7 +1306,6 @@ ROOT, RELATION, and FM knobs have no shift function — they occupy the full kno
 ---
 
 ## Panel Layout — 14HP
-
 
 **HP:** 14HP (70.96mm panel width)
 **Jacks:** 10× Thonkiconn PJ398SM (switched, vertical mount)
@@ -1558,12 +1569,12 @@ Both active simultaneously. Last-received source wins.
 | CC 7 Volume      | `vol` — master output level (0–1)                                                                     |
 | CC 64 Sustain    | `gate` — hold (≤64=on, <64=off); arms `gGatePatched=true`                                             |
 | CC 71 Timbre     | `curve` — envelope shape (0–1)                                                                        |
-| CC 72 Release    | `curvetime` — envelope time scale (0.25–4)                                                            |
-| CC 73 Attack     | `dspeed` — drift glide speed (0.001–0.1)                                                              |
-| CC 74 Brightness | `shape` — waveform morph (0–1)                                                                        |
-| CC 91 Reverb     | `space` — stereo width (0–2)                                                                          |
-| CC 92 Tremolo    | `detune` — symmetric fine spread (0–200 Hz)                                                           |
-| CC 93 Chorus     | `fat` — sub oscillator level (0–1)                                                                    |
+| CC 72 Release    | `adsrrelease` — ADSR release time (0.001–8 s)                                                         |
+| CC 73 Attack     | `adsrattack` — ADSR attack time (0.001–4 s)                                                           |
+| CC 74 Brightness | `filtercutoff` — filter cutoff (20 Hz – 16 kHz, log)                                                  |
+| CC 91 Reverb     | `revmix` — reverb mix (0–1)                                                                           |
+| CC 92 Tremolo    | `color` — FM depth in PAIR/CASCADE, fine Hz spread in ensemble modes (0–1)                            |
+| CC 93 Chorus     | `chorusmode` — Juno chorus: 0–31=Off, 32–63=I, 64–95=II, 96–127=I+II                                  |
 | CC 94 Celeste    | `rel` — RELATION semitones above ROOT (0–24)                                                          |
 | CC 112           | `revmodspeed` — reverb LFO rate multiplier (0.1–4.0) (M40)                                            |
 | CC 113           | `revmoddepth` — reverb LFO depth multiplier (0.0–1.0) (M40)                                           |
@@ -1574,7 +1585,9 @@ Both active simultaneously. Last-received source wins.
 | CC 115           | Voice mode — 6 bands: 0–20=PAIR, 21–41=CLOUD, 42–62=CHORD, 63–83=CASCADE, 84–104=STRING, 105–127=POLY |
 | Program Change   | Voice mode select (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=POLY)                             |
 
-All CC assignments are defined in `include/param_map.h` / `src/param_map.cpp` — a single shared table iterated by all transports. Adding a new parameter requires one row in that file only.
+All CC assignments come from `modules/alloyflux/params.json`, which generates the C++ descriptor tables and the web configurator's parameter map (`make params`). Adding a new parameter requires one entry there and nothing else.
+
+The table above covers only the assignments that follow standard MIDI CC convention. The complete map — all 39 parameters plus the five action CCs — is in [MANUAL.md § MIDI CC Map](../modules/alloyflux/MANUAL.md#midi-cc-map).
 
 ### MIDI Channel
 
@@ -1714,7 +1727,6 @@ The module's pulse. Shows overall animation and event state. Even without unders
 | CASCADE / FM active   | Magenta dim | Pulses with FM depth                |
 | STRING / chorus heavy | Purple dim  | Slow movement matching chorus rate  |
 
-
 #### D13 + D21 — Modulation & Stereo Position (always)
 
 Together with the voice activity on D12/D22, these give a visual sense of how the sound is moving and modulating. They are the "motion" layer of the LED language. They should follow gradients with the voice activity to show the flow of sound.
@@ -1727,7 +1739,6 @@ Together with the voice activity on D12/D22, these give a visual sense of how th
 | CASCADE | Magenta — MOTION depth | Magenta dimmer — FM depth           |
 | STRING  | Purple — MOTION depth  | Purple dimmer — stereo offset       |
 | POLY    | Green — MOTION depth   | Green dimmer — detune/spread amount |
-
 
 ---
 
@@ -2138,7 +2149,6 @@ delay off            → hard bypass (zero CPU)
 status               → print all parameters (two lines: voice + fx chain)
 cpu                  → print CPU headroom report (Method 2)
 ```
-
 
 ### Teletype I2C Integration
 

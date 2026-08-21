@@ -284,21 +284,33 @@
 </div>
 
 <style>
-  /* Capped, because the keys are sized as a percentage of this box: left to
-     fill the window the white keys came out several inches wide, which is both
-     ugly and harder to play than a normal-looking octave and a half. */
+  /* Toolbar beside the keys rather than above them — the drawer is a landscape
+     strip, so spending its width is free and its height is not: stacked, the
+     block was 30px taller and left 1100px of empty drawer either side of it.
+     Wraps back to stacked when the window is too narrow for the pair.
+
+     The keyboard itself stays capped: the keys are sized as a percentage of
+     their box, and left to fill the window the white keys came out several
+     inches wide — ugly, and harder to play than a normal octave and a half. */
   .keyboard-wrap {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    flex-flow: row wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem 1.75rem;
     width: 100%;
-    max-width: 620px;
+    margin: 0 auto;
   }
   .kbd-toolbar {
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    flex: none;
+  }
+  .keyboard-wrap > .keyboard {
+    flex: 1 1 420px;
+    max-width: 760px;
   }
 
   .vel-presets {
@@ -375,10 +387,12 @@
     text-align: center;
     font-variant-numeric: tabular-nums;
   }
+  /* No `margin-left: auto` any more: it pushed Panic/Drone to the far end of
+     what used to be a horizontal toolbar, and in the column it just knocks the
+     pair out of line with the rows above. */
   .misc-ctrl {
     display: flex;
     gap: 0.3rem;
-    margin-left: auto;
   }
   button {
     font-size: 0.75rem;
@@ -403,7 +417,10 @@
   .keyboard {
     position: relative;
     display: flex;
-    height: 104px;
+    /* A little taller to match the wider keys the drawer allows — at 54px a
+       white key 104px long is a stub rather than a key. Not taller than that:
+       every pixel here is one the panel above gives up. */
+    height: 116px;
     user-select: none;
     border-radius: 6px;
     overflow: visible;

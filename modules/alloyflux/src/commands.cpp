@@ -1290,54 +1290,32 @@ static void cmd_dump(const char * /*args*/, Print &out)
         out.print('=');
         out.println(p.toCC(*p.target));
     }
-    // Special / select params not in the generated table
-    // cc:16 = ROOT pitch as a ±4 V/Oct offset: 0 = −4 V, 64 ≈ 440 Hz, 127 = +4 V
-    out.print(F("cc:16="));
-    out.println((uint8_t)constrain(
-        (int)((log2f(gBaseFreq / 440.0f) + 4.0f) / 8.0f * 127.0f + 0.5f),
-        0,
-        127));
-    out.print(F("cc:76="));
-    out.println((gFilterMode == FilterMode::OFF)  ? 0
-                : (gFilterMode == FilterMode::LP) ? 26
-                : (gFilterMode == FilterMode::HP) ? 51
-                : (gFilterMode == FilterMode::BP) ? 77
-                                                  : 102);
-    out.print(F("cc:77="));
-    out.println(gFilterType == FilterType::SVF ? 0 : 96);
-    out.print(F("cc:79="));
-    out.println(gFxOrder.filterPostChorus ? 96 : 0);
-    out.print(F("cc:80="));
-    out.println(gFxOrder.delayPostReverb ? 96 : 0);
-    out.print(F("cc:81="));
-    out.println(gEnvelopeType == EnvelopeType::ADSR ? 96 : 0);
-    out.print(F("cc:85="));
-    out.println(gDelayMix > 0.001f ? 127 : 0);
-    out.print(F("cc:93="));
-    out.println((gChorusMode == ChorusMode::OFF)  ? 0
-                : (gChorusMode == ChorusMode::I)  ? 48
-                : (gChorusMode == ChorusMode::II) ? 80
-                                                  : 112);
-    out.print(F("cc:90="));
-    out.println(gSubOctave >= 2 ? 96 : 0);
-    out.print(F("cc:65="));
-    out.println(gGlideEnabled ? 127 : 0);
-    out.print(F("cc:102="));
-    out.println(gVelocitySensitive ? 127 : 0);
-    out.print(F("cc:103="));
-    out.println((uint8_t)gQuantizeScale);
+    // Discrete params from the generated enum table. toCC() returns the low
+    // edge of the option's band, which the configurator resolves the same way
+    // as any other value in that band — and is already what the SysEx patch
+    // dump sends, so the two transports now agree by construction.
+    //
+    // This was a hand-written list of ternaries, and it drifted: it still
+    // emitted a `cc:85` derived from gDelayMix, but CC 85 is Gate Length and
+    // the float loop above already printed it. The web replays these lines in
+    // order, so the stale one won and Gate Length jumped to 0 or 2000 ms on
+    // every dump. `cc:16` was duplicated the same way after ROOT moved into
+    // params.json.
+    for(uint8_t i = 0; i < kEnumCount; i++)
+    {
+        const EnumParamDescriptor &e = kEnumTable[i];
+        out.print(F("cc:"));
+        out.print(e.cc);
+        out.print('=');
+        out.println(e.toCC(*e.target));
+    }
+    // Params encoded outside both generated tables — keep in sync with
+    // moduleHook_extraPatchPairs(), which does the same job for SysEx.
     // cc:104 = transpose: encode signed −24…+24 as 0–48 (offset 24) for 7-bit CC safety
     out.print(F("cc:104="));
     out.println((uint8_t)constrain((int)gTranspose + 24, 0, 48));
     out.print(F("cc:114="));
     out.println(gRevFrozen ? 127 : 0);
-    out.print(F("cc:115="));
-    out.println((gVoiceMode == VoiceMode::PAIR)      ? 10
-                : (gVoiceMode == VoiceMode::CLOUD)   ? 31
-                : (gVoiceMode == VoiceMode::CHORD)   ? 52
-                : (gVoiceMode == VoiceMode::CASCADE) ? 73
-                : (gVoiceMode == VoiceMode::STRING)  ? 94
-                                                     : 116); // POLY
     out.print(F("cc:116="));
     out.println(gRevEnabled ? 127 : 0);
     out.print(F("cc:110="));

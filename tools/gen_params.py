@@ -270,7 +270,19 @@ def gen_ts(spec, src):
                 out.append(f'    displayTransform: "{d["displayTransform"]}",\n')
         else:
             out.append("    min: 0,\n    max: 127,\n")
-            out.append(f'    default: {p["options"][0]["ccMin"]},\n')
+            # The web map's `default` is a raw CC value, but params.json's is the
+            # *stored* value the C++ target boots to — so it has to be resolved
+            # through the option table rather than passed straight through. This
+            # used to emit options[0].ccMin unconditionally, which is only right
+            # when the default happens to be the first option: the web UI showed
+            # Chorus "Off" and velocity "Fixed" while the firmware booted to
+            # I+II and velocity-sensitive.
+            opt = next((o for o in p["options"] if o["value"] == p["default"]), None)
+            if opt is None:
+                sys.exit(
+                    f"{p['name']}: default {p['default']!r} matches no option value"
+                )
+            out.append(f'    default: {opt["ccMin"]},\n')
             out.append('    type: "select",\n')
             out.append("    options: [\n")
             for o in p["options"]:
