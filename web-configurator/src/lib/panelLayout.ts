@@ -169,7 +169,8 @@ const ALLOYFLUX: PanelLayout = {
           icons: ["wave-slow", "wave-fast"],
         },
         { name: "glidetime", size: "sm", label: "Glide Time" },
-        { name: "glide", control: "segmented" },
+        // Off steps straight to the new note; on, it ramps there.
+        { name: "glide", control: "segmented", icons: ["step", "slide"] },
         // Chorus lives here rather than in a section of its own. It is a
         // single parameter, so its own outline was three quarters empty — and
         // it belongs next to MOTION regardless: SynthEngine.cpp sets
@@ -186,7 +187,14 @@ const ALLOYFLUX: PanelLayout = {
       stretch: true,
       visual: "envelope",
       controls: [
-        { name: "envtype", control: "segmented", label: "Type" },
+        // The two topologies as their own outlines — a rise and a fall against
+        // one that holds a sustain in between.
+        {
+          name: "envtype",
+          control: "segmented",
+          label: "Type",
+          icons: ["env-ar", "env-adsr"],
+        },
         // Flat line vs ramp: the two things velocity can do to the level.
         {
           name: "veloc",
@@ -244,7 +252,8 @@ const ALLOYFLUX: PanelLayout = {
       stretch: true,
       controls: [
         { name: "delaymix", size: "lg", label: "Mix" },
-        { name: "delaytime", label: "Time" },
+        // Repeats tightening up or spreading out.
+        { name: "delaytime", label: "Time", icons: ["echo-near", "echo-far"] },
         { name: "delayfb", label: "Feedback" },
       ],
     },
@@ -254,10 +263,29 @@ const ALLOYFLUX: PanelLayout = {
       stretch: true,
       controls: [
         { name: "revmix", size: "lg", label: "Mix" },
-        { name: "revsize", label: "Size" },
-        { name: "revdamping", label: "Damping" },
-        { name: "revmodspeed", size: "sm", label: "Mod Rate" },
-        { name: "revmoddepth", size: "sm", label: "Mod Depth" },
+        // The space around the source opening up.
+        {
+          name: "revsize",
+          label: "Size",
+          icons: ["room-sm", "room-md", "room-lg"],
+        },
+        // Damping is a low-pass on the tail, so it is drawn as one: flat at
+        // zero, rolled off at full.
+        { name: "revdamping", label: "Damping", icons: ["flat", "lp"] },
+        // Rate and depth reuse the vocabulary MOTION and DRIFT RATE already
+        // use, because they mean the same two things. Learn the pair once.
+        {
+          name: "revmodspeed",
+          size: "sm",
+          label: "Mod Rate",
+          icons: ["wave-slow", "wave-fast"],
+        },
+        {
+          name: "revmoddepth",
+          size: "sm",
+          label: "Mod Depth",
+          icons: ["flat", "wave-shallow", "wave-deep"],
+        },
       ],
     },
     {
@@ -297,6 +325,10 @@ const ALLOYFLUX: PanelLayout = {
  * and the two filters are how you keep the loop from running away. They are
  * sized accordingly. Twelve parameters against AlloyFlux's forty, so the
  * sections are wider per control rather than more numerous.
+ *
+ * Every section stretches. Left to hug their contents, the ones carrying a
+ * glyph strip stand a row taller than the ones that do not, and with only two
+ * or three outlines to a band the mismatch is the first thing you see.
  */
 const ALLOYCOIL: PanelLayout = {
   stageWidth: 1050,
@@ -305,6 +337,7 @@ const ALLOYCOIL: PanelLayout = {
     {
       title: "Resonator",
       span: 5,
+      stretch: true,
       controls: [
         { name: "pitch", size: "lg", label: "Pitch", sub: "string" },
         { name: "excite", size: "lg", label: "Exciter" },
@@ -313,11 +346,22 @@ const ALLOYCOIL: PanelLayout = {
     {
       title: "Feedback",
       span: 7,
+      stretch: true,
       controls: [
         { name: "fbgain", size: "lg", label: "Gain" },
-        { name: "fbbody", size: "lg", label: "Body" },
-        { name: "fblpf", size: "sm", label: "LPF" },
-        { name: "fbhpf", size: "sm", label: "HPF" },
+        // BODY is the length of the feedback delay — MANUAL.md calls short "a
+        // tight metallic ping" and long "a hollow, tube-like resonance", which
+        // is the space around the source opening up.
+        {
+          name: "fbbody",
+          size: "lg",
+          label: "Body",
+          icons: ["room-sm", "room-md", "room-lg"],
+        },
+        // Both filters are drawn by what they leave: the LPF opens from dark to
+        // flat as it sweeps up, the HPF goes the other way and thins out.
+        { name: "fblpf", size: "sm", label: "LPF", icons: ["lp", "flat"] },
+        { name: "fbhpf", size: "sm", label: "HPF", icons: ["flat", "hp"] },
       ],
     },
 
@@ -325,23 +369,33 @@ const ALLOYCOIL: PanelLayout = {
     {
       title: "Echo",
       span: 5,
+      stretch: true,
       controls: [
         { name: "echosend", size: "lg", label: "Send" },
-        { name: "echotime", label: "Time" },
+        // Same pair as AlloyFlux's delay TIME — one echo vocabulary, two
+        // modules.
+        { name: "echotime", label: "Time", icons: ["echo-near", "echo-far"] },
         { name: "echofb", label: "Feedback" },
       ],
     },
     {
       title: "Reverb",
       span: 4,
+      stretch: true,
       controls: [
         { name: "revmix", size: "lg", label: "Mix" },
-        { name: "revdecay", label: "Decay" },
+        // How long the tail runs on.
+        {
+          name: "revdecay",
+          label: "Decay",
+          icons: ["decay-short", "decay-long"],
+        },
       ],
     },
     {
       title: "Output",
       span: 3,
+      stretch: true,
       controls: [{ name: "vol", size: "lg", label: "Level" }],
     },
   ],

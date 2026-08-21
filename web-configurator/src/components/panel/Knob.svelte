@@ -451,7 +451,6 @@
     justify-content: center;
     gap: 5px;
     height: var(--icon-row, 0px);
-    overflow: hidden;
   }
   .icon {
     color: var(--copper-deep);
