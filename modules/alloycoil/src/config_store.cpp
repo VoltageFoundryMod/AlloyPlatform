@@ -1,5 +1,6 @@
 #include "coil_config.h"
-#include "io/usb_midi.h" // gMidiChannel
+#include "io/usb_midi.h"              // gMidiChannel
+#include "param_manifest.generated.h" // applyParamDefaults()
 #include "params.h"
 #include <string.h> // memset
 
@@ -43,20 +44,9 @@ void applyCoilConfig(const CoilConfig &cfg)
 
 void applyCoilDefaults()
 {
-    // Upstream's registerParams() defaults — see params.json.
-    CoilConfig d  = {};
-    d.stringPitch   = 40.0f;
-    d.feedbackGain  = -30.0f;
-    d.feedbackDelay = 0.001f;
-    d.feedbackLPF   = 18000.0f;
-    d.feedbackHPF   = 250.0f;
-    d.echoSend      = 0.0f;
-    d.echoTime      = 0.5f;
-    d.echoFeedback  = 0.0f;
-    d.reverbMix     = 0.0f;
-    d.reverbDecay   = 0.2f;
-    d.outputLevel   = 0.5f;
-    d.exciterLevel  = 1.0f;
-    d.midiChannel   = 0;
-    applyCoilConfig(d);
+    // Straight off the manifest — every value here used to be a second copy of
+    // params.json's `default` column, and the copy is what went stale.
+    applyParamDefaults();
+    // Not a parameter: the MIDI channel has no manifest row. 0 is omni.
+    gMidiChannel = 0;
 }

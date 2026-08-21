@@ -9,33 +9,33 @@
 
 // clang-format off
 static const ParamDescriptor kParamManifest[] = {
-    {   1, "motion"        , "Motion"                  , "Animation"   ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gMotion, 1.0f },
-    {   5, "glidetime"     , "Glide Time"              , "Animation"   ,                   0.0f,                       2.0f,       0.0f, ParamScale::Linear, "s"   , &gGlideTime, 1.0f },
-    {   7, "vol"           , "Volume"                  , "Output"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, &gVolume, 1.0f },
-    {   8, "space"         , "Space (Stereo Width)"    , "Output"      ,                   0.0f,                       2.0f,       1.0f, ParamScale::Linear, nullptr, &gSpace, 1.0f },
-    {  16, "root"          , "Root"                    , "Oscillator"  ,                  27.5f,                    7040.0f,     440.0f, ParamScale::Log , "Hz"  , &gBaseFreq, 1.0f },
-    {  71, "curve"         , "Curve"                   , "Envelope"    ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, &gCurve, 1.0f },
-    {  72, "adsrrelease"   , "Release"                 , "Envelope"    ,                 0.001f,                       8.0f,       0.3f, ParamScale::Linear, "s"   , &gAdsrRelease, 1.0f },
-    {  73, "adsrattack"    , "Attack"                  , "Envelope"    ,                 0.001f,                       4.0f,      0.05f, ParamScale::Linear, "s"   , &gAdsrAttack, 1.0f },
-    {  74, "filtercutoff"  , "Cutoff"                  , "Filter"      ,                  20.0f,                   16000.0f,     983.2f, ParamScale::Log , "Hz"  , &gFilterCutoff, 1.0f },
-    {  75, "filterres"     , "Resonance"               , "Filter"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gFilterRes, 1.0f },
-    {  78, "shape"         , "Shape"                   , "Oscillator"  ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gShape, 1.0f },
-    {  82, "adsrdecay"     , "Decay"                   , "Envelope"    ,                 0.001f,                       4.0f,       0.1f, ParamScale::Linear, "s"   , &gAdsrDecay, 1.0f },
-    {  83, "adsrsustain"   , "Sustain"                 , "Envelope"    ,                   0.0f,                       1.0f,       0.8f, ParamScale::Linear, nullptr, &gAdsrSustain, 1.0f },
-    {  84, "fat"           , "Fatness"                 , "Oscillator"  ,                   0.0f,                       1.0f,       0.4f, ParamScale::Linear, nullptr, &gFatness, 1.0f },
-    {  85, "gatelen"       , "Gate Length"             , "Envelope"    ,                   0.0f,                    2000.0f,       0.0f, ParamScale::Linear, "ms"  , &gGateLength, 1.0f },
-    {  86, "delaytime"     , "Time"                    , "Delay"       ,                  10.0f,        (float)DELAY_MAX_MS,     100.0f, ParamScale::Linear, "ms"  , &gDelayTime, 1.0f },
-    {  87, "delayfb"       , "Feedback"                , "Delay"       ,                   0.0f,                      0.95f,       0.5f, ParamScale::Linear, nullptr, &gDelayFeedback, 1.0f },
-    {  88, "curvetime"     , "Time Scale"              , "Envelope"    ,                  0.25f,                       4.0f,       1.0f, ParamScale::Linear, "×"   , &gCurveTime, 1.0f },
-    {  89, "dspeed"        , "Drift Speed"             , "Animation"   ,                 0.001f,                       0.1f,      0.04f, ParamScale::Linear, nullptr, &gDriftSpeed, 1.0f },
-    {  91, "revmix"        , "Mix"                     , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevMix), 1.0f },
-    {  92, "color"         , "Color"                   , "Oscillator"  ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gColor, 1.0f },
-    {  94, "rel"           , "Relation"                , "Oscillator"  ,                   0.0f,                      24.0f,       0.0f, ParamScale::Linear, "st"  , &gRelation, 1.0f },
-    {  95, "delaymix"      , "Mix"                     , "Delay"       ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gDelayMix, 1.0f },
-    { 112, "revmodspeed"   , "Mod Speed"               , "Reverb"      ,                   0.1f,                       4.0f,       1.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevModSpeed), 1.0f },
-    { 113, "revmoddepth"   , "Mod Depth"               , "Reverb"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevModDepth), 1.0f },
-    { 117, "revsize"       , "Size"                    , "Reverb"      ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevSize), 1.0f },
-    { 118, "revdamping"    , "Damping"                 , "Reverb"      ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevDamping), 1.0f },
+    {   1, "motion"        , "Motion"                  , "Animation"   ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gMotion, 1.0f, ParamDisplay::Direct },
+    {   5, "glidetime"     , "Glide Time"              , "Animation"   ,                   0.0f,                       2.0f,       0.0f, ParamScale::Linear, "s"   , &gGlideTime, 1.0f, ParamDisplay::Direct },
+    {   7, "vol"           , "Volume"                  , "Output"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, &gVolume, 1.0f, ParamDisplay::Direct },
+    {   8, "space"         , "Space (Stereo Width)"    , "Output"      ,                   0.0f,                       2.0f,       1.0f, ParamScale::Linear, nullptr, &gSpace, 1.0f, ParamDisplay::Direct },
+    {  16, "root"          , "Root"                    , "Oscillator"  ,                  27.5f,                    7040.0f,     440.0f, ParamScale::Log , "Hz"  , &gBaseFreq, 1.0f, ParamDisplay::Direct },
+    {  71, "curve"         , "Curve"                   , "Envelope"    ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, &gCurve, 1.0f, ParamDisplay::Direct },
+    {  72, "adsrrelease"   , "Release"                 , "Envelope"    ,                 0.001f,                       8.0f,       0.3f, ParamScale::Linear, "s"   , &gAdsrRelease, 1.0f, ParamDisplay::Direct },
+    {  73, "adsrattack"    , "Attack"                  , "Envelope"    ,                 0.001f,                       4.0f,      0.05f, ParamScale::Linear, "s"   , &gAdsrAttack, 1.0f, ParamDisplay::Direct },
+    {  74, "filtercutoff"  , "Cutoff"                  , "Filter"      ,                  20.0f,                   16000.0f,     983.2f, ParamScale::Log , "Hz"  , &gFilterCutoff, 1.0f, ParamDisplay::Direct },
+    {  75, "filterres"     , "Resonance"               , "Filter"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gFilterRes, 1.0f, ParamDisplay::Direct },
+    {  78, "shape"         , "Shape"                   , "Oscillator"  ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gShape, 1.0f, ParamDisplay::Direct },
+    {  82, "adsrdecay"     , "Decay"                   , "Envelope"    ,                 0.001f,                       4.0f,       0.1f, ParamScale::Linear, "s"   , &gAdsrDecay, 1.0f, ParamDisplay::Direct },
+    {  83, "adsrsustain"   , "Sustain"                 , "Envelope"    ,                   0.0f,                       1.0f,       0.8f, ParamScale::Linear, nullptr, &gAdsrSustain, 1.0f, ParamDisplay::Direct },
+    {  84, "fat"           , "Fatness"                 , "Oscillator"  ,                   0.0f,                       1.0f,       0.4f, ParamScale::Linear, nullptr, &gFatness, 1.0f, ParamDisplay::Direct },
+    {  85, "gatelen"       , "Gate Length"             , "Envelope"    ,                   0.0f,                    2000.0f,       0.0f, ParamScale::Linear, "ms"  , &gGateLength, 1.0f, ParamDisplay::Direct },
+    {  86, "delaytime"     , "Time"                    , "Delay"       ,                  10.0f,        (float)DELAY_MAX_MS,     100.0f, ParamScale::Linear, "ms"  , &gDelayTime, 1.0f, ParamDisplay::Direct },
+    {  87, "delayfb"       , "Feedback"                , "Delay"       ,                   0.0f,                      0.95f,       0.5f, ParamScale::Linear, nullptr, &gDelayFeedback, 1.0f, ParamDisplay::Direct },
+    {  88, "curvetime"     , "Time Scale"              , "Envelope"    ,                  0.25f,                       4.0f,       1.0f, ParamScale::Linear, "×"   , &gCurveTime, 1.0f, ParamDisplay::Direct },
+    {  89, "dspeed"        , "Drift Speed"             , "Animation"   ,                 0.001f,                       0.1f,      0.04f, ParamScale::Linear, nullptr, &gDriftSpeed, 1.0f, ParamDisplay::Direct },
+    {  91, "revmix"        , "Mix"                     , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevMix), 1.0f, ParamDisplay::Direct },
+    {  92, "color"         , "Color"                   , "Oscillator"  ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gColor, 1.0f, ParamDisplay::Direct },
+    {  94, "rel"           , "Relation"                , "Oscillator"  ,                   0.0f,                      24.0f,       0.0f, ParamScale::Linear, "st"  , &gRelation, 1.0f, ParamDisplay::Direct },
+    {  95, "delaymix"      , "Mix"                     , "Delay"       ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gDelayMix, 1.0f, ParamDisplay::Direct },
+    { 112, "revmodspeed"   , "Mod Speed"               , "Reverb"      ,                   0.1f,                       4.0f,       1.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevModSpeed), 1.0f, ParamDisplay::Direct },
+    { 113, "revmoddepth"   , "Mod Depth"               , "Reverb"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevModDepth), 1.0f, ParamDisplay::Direct },
+    { 117, "revsize"       , "Size"                    , "Reverb"      ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevSize), 1.0f, ParamDisplay::Direct },
+    { 118, "revdamping"    , "Damping"                 , "Reverb"      ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevDamping), 1.0f, ParamDisplay::Direct },
 };
 // clang-format on
 
@@ -130,3 +130,17 @@ static const EnumParamDescriptor kEnumManifest[] = {
 
 static const uint8_t kEnumManifestCount
     = sizeof(kEnumManifest) / sizeof(kEnumManifest[0]);
+
+/// Write every parameter's `default` from params.json into its target.
+///
+/// This is the runtime half of what the initialisers in
+/// param_globals.generated.h do at static-init time: same column, same
+/// targets. Preset "factory reset" paths call it instead of carrying their own
+/// list of defaults.
+static inline void applyParamDefaults()
+{
+    for(uint8_t i = 0; i < kParamManifestCount; i++)
+        *kParamManifest[i].target = kParamManifest[i].defVal;
+    for(uint8_t i = 0; i < kEnumManifestCount; i++)
+        *kEnumManifest[i].target = kEnumManifest[i].defValue;
+}

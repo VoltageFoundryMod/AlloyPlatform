@@ -73,19 +73,12 @@ static constexpr uint8_t kPinI2sData = 18u;
 // ---------------------------------------------------------------------------
 // Parameter globals — one per params.json row. Written by MIDI/SysEx/serial,
 // read once per control tick and pushed into the engine.
+//
+// Defined by the generated header, initialised to params.json's `default`
+// column. This is the one translation unit in the firmware image that includes
+// it; see the header for why that matters.
 // ---------------------------------------------------------------------------
-float gStringPitch   = 40.0f;
-float gFeedbackGain  = -30.0f;
-float gFeedbackDelay = 0.001f;
-float gFeedbackLPF   = 18000.0f;
-float gFeedbackHPF   = 250.0f;
-float gEchoSend      = 0.0f;
-float gEchoTime      = 0.5f;
-float gEchoFeedback  = 0.0f;
-float gReverbMix     = 0.0f;
-float gReverbDecay   = 0.2f;
-float gOutputLevel   = 0.5f;
-float gExciterLevel  = 1.0f;
+#include "param_globals.generated.h"
 
 // External excitation — see params.h. Control-rate on this platform.
 volatile float gExciterIn = 0.0f;
@@ -222,9 +215,9 @@ void updateControl()
         lastCpuReport = now;
         if(gPerformancePrintEnabled)
         {
-            const float budget   = (float)gAudioBudgetUs;
-            const float headroom = (budget - (float)gAudioElapsedUs) / budget
-                                   * 100.0f;
+            const float budget = (float)gAudioBudgetUs;
+            const float headroom
+                = (budget - (float)gAudioElapsedUs) / budget * 100.0f;
             Serial.print(F("[cpu] "));
             Serial.print(gAudioElapsedUs);
             Serial.print(F("us/"));
@@ -277,8 +270,8 @@ renderAudio(float *pOutL, float *pOutR)
     // them end in a transcendental and those cost ~90 µs each on this part.
     // With the deadband the same patch runs at 578 µs. Do not add an
     // unconditional setter to this path.
-    static uint32_t     sSmoothPhase = 0;
-    const uint32_t      smoothFrames = gSmoothFrames;
+    static uint32_t sSmoothPhase = 0;
+    const uint32_t  smoothFrames = gSmoothFrames;
     if(smoothFrames != 0u && ++sSmoothPhase >= smoothFrames)
     {
         sSmoothPhase = 0;

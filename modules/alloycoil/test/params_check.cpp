@@ -7,7 +7,7 @@
 // checking them:
 //
 //   io/IOBridge.h   what a knob or a CV does, on hardware and in VCV
-//   vcv/AlloyCoil.cpp  the knob boot positions (now derived, see defaultPos())
+//   vcv/AlloyCoil.cpp  the knob boot positions (now derived, see manifestRow())
 //
 // The generated consumers — param_manifest.generated.h and the web
 // configurator's paramMapAlloyCoil.ts — cannot drift, because `make params`
@@ -31,18 +31,7 @@
 #include <cstring>
 
 // params.h globals — IOBridge writes these.
-float gStringPitch   = 40.0f;
-float gFeedbackGain  = -30.0f;
-float gFeedbackDelay = 0.001f;
-float gFeedbackLPF   = 18000.0f;
-float gFeedbackHPF   = 250.0f;
-float gEchoSend      = 0.0f;
-float gEchoTime      = 0.5f;
-float gEchoFeedback  = 0.0f;
-float gReverbMix     = 0.0f;
-float gReverbDecay   = 0.2f;
-float gOutputLevel   = 0.5f;
-float gExciterLevel  = 1.0f;
+#include "param_globals.generated.h"
 
 /// Every pot at the same position, nothing patched, no button held — so one
 /// sweep exercises all twelve knobs at once.
@@ -55,6 +44,19 @@ struct FlatIO : IHardwareIO
     bool  readButton(ButtonId) override { return false; }
     void  writeLight(LightId, float, float, float) override {}
 };
+
+/// A readout, formatted the way both front ends format it — the descriptor's
+/// digit count, its unit, and "-inf" for the infinity a zero gain maps to.
+static void
+fmtDisplay(char *buf, size_t n, const ParamDescriptor &d, float value)
+{
+    const float v = d.toDisplay(value);
+    if(!std::isfinite(v))
+        std::snprintf(buf, n, "%sinf %s", v < 0.0f ? "-" : "", d.unit ? d.unit : "");
+    else
+        std::snprintf(
+            buf, n, "%.*f %s", d.displayDigits(), v, d.unit ? d.unit : "");
+}
 
 int main()
 {
@@ -135,6 +137,56 @@ int main()
                     d.defVal,
                     pos,
                     bad ? "   ** does not round-trip" : "");
+    }
+
+    // The readout: value -> display -> value, plus what the two stops print.
+    //
+    // A display transform is the one part of a parameter that never reaches the
+    // engine, so nothing else in this file would notice it going wrong — and
+    // being wrong here means the module and its two front ends disagree about
+    // what a knob is set to, which is precisely the drift this test exists for.
+    std::printf("\n  %-10s %5s %10s %10s %6s\n",
+                "param",
+                "digits",
+                "at min",
+                "at max",
+                "unit");
+    for(uint8_t p = 0; p < kParamManifestCount; p++)
+    {
+        const ParamDescriptor &d = kParamManifest[p];
+
+        // Round trip at the default, where the transform has to be exact or the
+        // boot readout is wrong. Skipped for a value the transform sends to
+        // infinity, which has no finite inverse and is not a defect.
+        const float shown = d.toDisplay(d.defVal);
+        if(std::isfinite(shown))
+        {
+            const float rt  = d.fromDisplay(shown);
+            const bool  bad = std::fabs(rt - d.defVal)
+                             > (std::fabs(d.defVal) > 1e-6f
+                                    ? std::fabs(d.defVal) * 1e-4f
+                                    : 1e-6f);
+            if(bad)
+            {
+                failures++;
+                std::printf("  %-10s ** display round trip: %.6g -> %.6g -> "
+                            "%.6g\n",
+                            d.name,
+                            d.defVal,
+                            shown,
+                            rt);
+            }
+        }
+
+        char lo[32], hi[32];
+        fmtDisplay(lo, sizeof lo, d, d.minVal);
+        fmtDisplay(hi, sizeof hi, d, d.maxVal);
+        std::printf("  %-10s %5d %10s %10s %6s\n",
+                    d.name,
+                    d.displayDigits(),
+                    lo,
+                    hi,
+                    d.unit ? d.unit : "-");
     }
 
     if(failures)

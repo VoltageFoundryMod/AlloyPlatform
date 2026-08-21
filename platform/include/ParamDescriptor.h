@@ -21,6 +21,33 @@ enum class ParamScale : uint8_t
     Log, ///< value = min * (max/min)^t — for frequencies
 };
 
+/**
+ * How a value is *shown*, as opposed to how it is stored.
+ *
+ * Distinct from `scale` and `skew`, which decide where a value sits on the
+ * control: those change the mapping from travel to value, this changes only the
+ * number printed next to it. The stored value, the CC on the wire and the float
+ * the engine multiplies by are identical either way.
+ *
+ * It exists because a linear gain is stored the way the DSP wants it and read
+ * the way an ear works, and those are not the same number. Alloy Coil's exciter
+ * level is the case: the engine wants a multiplier, so the target holds 0–2 and
+ * unity is 1.0 — which reads as "already at half" to anyone who has met a fader
+ * before. As dB it is −inf…+6 with unity at 0, and the neutral point names
+ * itself.
+ *
+ * ⚠ Not reachable through the existing `display` block in params.json. That one
+ * re-parameterises a control by giving it different bounds over the same
+ * travel — AlloyFlux's root is Hz stored and semitones shown — and it works
+ * because both parameterisations are affine in travel. dB of a square-law taper
+ * is not: it goes to −inf at the bottom stop, which no min/max pair expresses.
+ */
+enum class ParamDisplay : uint8_t
+{
+    Direct = 0, ///< the number shown IS the stored value
+    GainDb,     ///< stored value is a linear gain; shown as 20·log10(v)
+};
+
 struct ParamDescriptor
 {
     uint8_t     cc;    ///< MIDI CC number; also the SysEx patch-dump identity
@@ -54,6 +81,80 @@ struct ParamDescriptor
      * that go negative.
      */
     float skew;
+
+    /**
+     * Display transform. Trailing member with a 0 default, so a row written
+     * without it is Direct — which is what all but one of them are.
+     */
+    ParamDisplay display;
+
+    /**
+     * Parameter value → the number a UI prints. See ParamDisplay.
+     *
+     * Returns −INFINITY for a zero gain, which is the honest answer and is what
+     * the two front ends render as "−inf dB". Callers that format this must
+     * therefore test isfinite() before reaching for a printf.
+     */
+    float toDisplay(float v) const
+    {
+        if(display == ParamDisplay::GainDb)
+            return v > 0.0f ? 20.0f * log10f(v) : -INFINITY;
+        return v;
+    }
+
+    /// The inverse of toDisplay() — for typed-in values in a UI's text entry.
+    float fromDisplay(float d) const
+    {
+        if(display == ParamDisplay::GainDb)
+            return powf(10.0f, d / 20.0f);
+        return d;
+    }
+
+    /**
+     * How many decimals a readout should carry.
+     *
+     * Taken from the parameter's *range and CC resolution*, never from the
+     * current value, so a control keeps one precision all the way round instead
+     * of gaining and losing digits as it is turned.
+     *
+     * The resolution half matters more than it looks. A CC is 7 bits, so a
+     * parameter is only known to one part in 127 of its range, and printing past
+     * that claims accuracy the wire cannot carry. AlloyFlux's root is the case
+     * that gives it away: ±48 semitones across 128 steps, so exact centre would
+     * need CC 63.5 and an initialised patch comes back as CC 64 — 0.378 st.
+     * Shown to one decimal that reads as a module sitting 38 cents sharp on a
+     * default patch. One CC step there is 0.76 st, so the honest rendering is a
+     * whole number, and 0.378 rounds to the 0 the user expects.
+     *
+     * ⚠ displayDigits() in paramMapTypes.ts is the mirror of this, and is a
+     * superset: it also handles `step` and `ccRange`, two columns the web map
+     * carries and this descriptor does not. The two therefore agree exactly for
+     * any parameter declaring neither — which is all of Alloy Coil's. A module
+     * that uses either needs those columns here before its VCV build can rely
+     * on the readouts matching the configurator's.
+     */
+    int displayDigits() const
+    {
+        // A dB readout has no single resolution to derive: on a square-law
+        // taper the same CC step is a fraction of a dB at the top of the travel
+        // and tens of dB near the bottom. One decimal is the finest reading
+        // that is honest anywhere on the sweep.
+        if(display == ParamDisplay::GainDb)
+            return 1;
+        const float span = fmaxf(fabsf(minVal), fabsf(maxVal));
+        if(span >= 100.0f)
+            return 0;
+        // A log parameter's step varies across its travel, so it falls back to
+        // the range test above.
+        if(scale == ParamScale::Log)
+            return span >= 10.0f ? 1 : 2;
+        const float res = (maxVal - minVal) / 127.0f;
+        if(res >= 0.5f)
+            return 0;
+        if(res >= 0.05f)
+            return 1;
+        return res >= 0.005f ? 2 : 3;
+    }
 
     /**
      * Control position 0–1 → parameter value, honouring scale and skew.

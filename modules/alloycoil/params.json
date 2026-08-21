@@ -12,23 +12,22 @@
     "Generated consumers (run `make params MODULE=alloycoil` after editing, and",
     "commit the output so a normal build never needs Python):",
     "  include/param_manifest.generated.h  — C++ descriptor table",
+    "  include/param_globals.generated.h   — the globals, initialised to `default`",
     "  ../../web-configurator/src/lib/paramMapAlloyCoil.ts",
+    "",
+    "`default` therefore lands in one place and reaches all four consumers of",
+    "it: the boot value of the global (via param_globals), factory reset (via",
+    "applyParamDefaults), the VCV knob's boot position (via toPos()) and the",
+    "web slider. Changing a default here needs no C++ edit anywhere.",
     "",
     "CC numbers are chosen to line up with AlloyFlux where the meaning matches",
     "(7 volume, 91 reverb mix, 93 echo send, 95 echo mix-ish, 74/75 filters) so",
     "a generic MIDI controller feels familiar across both modules."
   ],
   "ts_output": "../../web-configurator/src/lib/paramMapAlloyCoil.ts",
-  "cpp_includes": [
-    "params.h"
-  ],
-  "categories": [
-    "Resonator",
-    "Feedback",
-    "Echo",
-    "Reverb",
-    "Output"
-  ],
+  "globals_output": true,
+  "cpp_includes": ["params.h"],
+  "categories": ["Resonator", "Feedback", "Echo", "Reverb", "Output"],
   "params": [
     {
       "cc": 16,
@@ -55,7 +54,6 @@
       "scale": "linear",
       "unit": "dB",
       "target": "gFeedbackGain",
-      "rowBreakBefore": true,
       "$comment": [
         "Upstream's min is -60 dB. Narrowed to -30, deliberately keeping the",
         "taper LINEAR — a skew was tried here and reverted, so this fixes the",
@@ -80,7 +78,16 @@
       "default": 1.0,
       "scale": "linear",
       "skew": 2.0,
+      "unit": "dB",
+      "displayTransform": "gain-db",
       "target": "gExciterLevel",
+      "$comment_display": [
+        "Stored as the multiplier the engine wants, shown as dB. 0-2 with the",
+        "default at 1.0 reads as 'already half up' to anyone who has met a",
+        "fader; the same control in dB is -inf...+6 with unity at 0, and the",
+        "neutral point names itself. Nothing on the wire changes — see",
+        "ParamDisplay in platform/include/ParamDescriptor.h."
+      ],
       "$comment": [
         "Gain on the FM/EXCITER jack before it enters the loop. SHIFT + FB GAIN",
         "on the panel: one knob for how much energy is in the loop, whether it",
@@ -171,7 +178,6 @@
       "scale": "linear",
       "skew": 2.0,
       "target": "gEchoSend",
-      "rowBreakBefore": true,
       "$comment": [
         "Audio taper, same reasoning as vol: this is a send level and linear",
         "leaves no useful resolution in the subtle range. skew 2 puts -20 dB",
@@ -243,8 +249,7 @@
       "max": 1.0,
       "default": 0.0,
       "scale": "linear",
-      "target": "gReverbMix",
-      "rowBreakBefore": true
+      "target": "gReverbMix"
     },
     {
       "cc": 92,
@@ -280,11 +285,10 @@
       "kind": "float",
       "min": 0.0,
       "max": 1.0,
-      "default": 0.5,
+      "default": 1.0,
       "scale": "linear",
       "skew": 2.0,
       "target": "gOutputLevel",
-      "rowBreakBefore": true,
       "$comment": [
         "Square-law audio taper. Linear-in-amplitude spends its whole top half",
         "on 6 dB (0.9 dB per 10% of travel by the end) while the bottom 10%",

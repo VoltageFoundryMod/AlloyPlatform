@@ -278,8 +278,6 @@ def gen_ts(spec, src):
                     f'      {{ label: "{o["label"]}", ccMin: {o["ccMin"]}, ccMax: {o["ccMax"]} }},\n'
                 )
             out.append("    ],\n")
-        if p.get("rowBreakBefore"):
-            out.append("    rowBreakBefore: true,\n")
         out.append("  },\n")
     out.append("];\n\n")
     out.append(

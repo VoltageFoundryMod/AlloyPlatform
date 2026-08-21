@@ -322,8 +322,7 @@
       "scale": "linear",
       "unit": "s",
       "target": "gAdsrAttack",
-      "step": 0.001,
-      "rowBreakBefore": true
+      "step": 0.001
     },
     {
       "cc": 82,
