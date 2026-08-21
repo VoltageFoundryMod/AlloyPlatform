@@ -578,92 +578,122 @@ The velocity on Note On messages is used to set the output volume of that note, 
 
 Map your MIDI controller to any of these parameters for expressive real-time control.
 
-> Ranges below are authoritative in [`params.json`](params.json), which generates both the firmware's CC table and the Alloy Controller's parameter map. If a value here ever disagrees with the module, the JSON is right.
+> This table is **generated** from [`params.json`](params.json) by `make params` — the same file that generates the firmware's CC table and the Alloy Controller's parameter map. It cannot disagree with the module. To change a range or a description, edit the JSON and regenerate.
+>
+> **Value range** is the parameter in its own units; **CC range** is what a controller sends.
 
-#### Core Parameters
+<!-- BEGIN GENERATED: cc-map — `make params`, do not edit by hand -->
 
-| CC    | Parameter | Range | Description                                                             |
-| ----- | --------- | ----- | ----------------------------------------------------------------------- |
-| CC 16 | Root      | 0–127 | Root pitch, ±48 semitones around A4 (27.5 Hz – 7040 Hz, log)            |
-| CC 1  | Motion    | 0–127 | Drift + chorus depth (mod wheel)                                        |
-| CC 7  | Volume    | 0–127 | Master output level                                                     |
-| CC 8  | Space     | 0–127 | Stereo width (0–2× — 0=mono, 1=normal, 2=hyper wide)                    |
-| CC 78 | Shape     | 0–127 | Waveform morph (sine → hollow pulse)                                    |
-| CC 84 | Fatness   | 0–127 | Sub oscillator level (0–1)                                              |
-| CC 92 | Color     | 0–127 | Tonal color: FM depth in PAIR/CASCADE; fine Hz spread in ensemble modes |
-| CC 94 | Relation  | 0–127 | RELATION semitones above ROOT (0–24 st)                                 |
+<!-- generated from modules/alloyflux/params.json -->
 
-#### Envelope & Articulation
+#### Voice
 
-| CC     | Parameter            | Range                 | Description                                                                                                                                                                                 |
-| ------ | -------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CC 5   | Glide Time           | 0–127                 | Portamento slide time (0–2 s)                                                                                                                                                               |
-| CC 64  | Sustain              | ≥64=on / <64=off      | Standard sustain pedal — arms the gate and holds it high. Not drone: use CC 119 to release the gate                                                                                          |
-| CC 65  | Glide On/Off         | ≥64=on / <64=off      | Enable or disable portamento glide                                                                                                                                                          |
-| CC 71  | Curve                | 0–127                 | Envelope shape (pluck → swell)                                                                                                                                                              |
-| CC 72  | ADSR Release         | 0–127                 | ADSR release time (0.001–8 s)                                                                                                                                                               |
-| CC 73  | ADSR Attack          | 0–127                 | ADSR attack time (0.001–4 s)                                                                                                                                                                |
-| CC 81  | Envelope Type        | 0–63=AR / 64–127=ADSR | Switch between AR and ADSR envelope                                                                                                                                                         |
-| CC 82  | ADSR Decay           | 0–127                 | ADSR decay time (0.001–4 s)                                                                                                                                                                 |
-| CC 83  | ADSR Sustain         | 0–127                 | ADSR sustain level (0–1)                                                                                                                                                                    |
-| CC 85  | Gate Length          | 0–127                 | GATE note length, 0–2000 ms; 0 = follow the gate                                                                                                                                             |
-| CC 88  | Curve Time           | 0–127                 | Envelope time scale (0.25× – 4×)                                                                                                                                                            |
-| CC 89  | Drift Speed          | 0–127                 | Drift glide rate                                                                                                                                                                            |
-| CC 102 | Velocity Sensitivity | ≥64=on / <64=off      | On = velocity scales volume (default), Off = fixed                                                                                                                                          |
-| CC 103 | Scale Quantizer      | 0–14                  | 0=Off/chromatic, 1=Major, 2=Minor, 3=Harm. Minor, 4=Mel. Minor, 5=Penta Maj, 6=Penta Min, 7=Blues, 8=Dorian, 9=Phrygian, 10=Lydian, 11=Mixolydian, 12=Locrian, 13=Whole Tone, 14=Diminished |
-| CC 104 | Transpose            | 0–48                  | Semitone offset: value−24 (0=−24 st, 24=0 st, 48=+24 st)                                                                                                                                    |
-| CC 119 | Drone Return         | any                   | Clear gate arm, return to continuous drone                                                                                                                                                  |
-| CC 123 | All Notes Off        | any                   | Panic — release all voices                                                                                                                                                                  |
+| CC     | Parameter          | Value range  | CC range                                                                                                                                                                                                                                                          | Description                                                                 |
+| ------ | ------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| CC 103 | Input Quantization | —            | 0 = Chromatic (off) · 1 = Major · 2 = Natural Minor · 3 = Harmonic Minor · 4 = Melodic Minor · 5 = Pentatonic Maj · 6 = Pentatonic Min · 7 = Blues · 8 = Dorian · 9 = Phrygian · 10 = Lydian · 11 = Mixolydian · 12 = Locrian · 13 = Whole Tone · 14 = Diminished | Quantize incoming pitch to a scale                                          |
+| CC 104 | Transpose          | −24 … +24 st | 0–48                                                                                                                                                                                                                                                              | Semitone offset applied after quantization; the CC value is the offset + 24 |
+| CC 115 | Voice Mode         | —            | 0–20 = Pair · 21–41 = Cloud · 42–62 = Chord · 63–83 = Cascade · 84–104 = String · 105–127 = Poly                                                                                                                                                                  | Switch voice mode                                                           |
+
+#### Oscillator
+
+| CC    | Parameter  | Value range  | CC range                        | Description                                                                   |
+| ----- | ---------- | ------------ | ------------------------------- | ----------------------------------------------------------------------------- |
+| CC 16 | Root       | −48 … +48 st | 0–127                           | Root pitch relative to A4; stored internally as 27.5–7040 Hz                  |
+| CC 78 | Shape      | 0–1          | 0–127                           | Waveform morph, sine → hollow pulse                                           |
+| CC 84 | Fatness    | 0–1          | 0–127                           | Sub oscillator level                                                          |
+| CC 90 | Sub Octave | —            | 0–63 = −1 Oct · 64–127 = −2 Oct | Sub oscillator octave below root                                              |
+| CC 92 | Color      | 0–1          | 0–127                           | Tonal colour — FM depth in PAIR/CASCADE, fine Hz spread in the ensemble modes |
+| CC 94 | Relation   | 0–24 st      | 0–127                           | Interval of the RELATION voice above ROOT                                     |
+
+#### Animation
+
+| CC    | Parameter   | Value range | CC range                 | Description                                 |
+| ----- | ----------- | ----------- | ------------------------ | ------------------------------------------- |
+| CC 1  | Motion      | 0–1         | 0–127                    | Drift and chorus depth together (mod wheel) |
+| CC 5  | Glide Time  | 0–2 s       | 0–127                    | Portamento slide time                       |
+| CC 65 | Glide       | —           | 0–63 = Off · 64–127 = On | Enable portamento between notes             |
+| CC 89 | Drift Speed | 0.001–0.1   | 0–127                    | Rate at which drift glides between targets  |
+
+#### Envelope
+
+| CC     | Parameter              | Value range | CC range                                   | Description                                          |
+| ------ | ---------------------- | ----------- | ------------------------------------------ | ---------------------------------------------------- |
+| CC 71  | Curve                  | 0–1         | 0–127                                      | Envelope shape, pluck → swell (AR mode)              |
+| CC 72  | Release                | 0.001–8 s   | 0–127                                      | ADSR release time                                    |
+| CC 73  | Attack                 | 0.001–4 s   | 0–127                                      | ADSR attack time                                     |
+| CC 81  | Type                   | —           | 0–63 = AR · 64–127 = ADSR                  | Envelope generator — two-stage AR or four-stage ADSR |
+| CC 82  | Decay                  | 0.001–4 s   | 0–127                                      | ADSR decay time                                      |
+| CC 83  | Sustain                | 0–1         | 0–127                                      | ADSR sustain level                                   |
+| CC 85  | Gate Length            | 0–2000 ms   | 0–127                                      | GATE note length; 0 follows the incoming gate        |
+| CC 88  | Time Scale             | 0.25–4×     | 0–127                                      | Scales the whole envelope's timing                   |
+| CC 102 | MIDI Velocity Response | —           | 0–63 = Fixed · 64–127 = Velocity-sensitive | Whether MIDI velocity scales volume                  |
 
 #### Filter
 
-| CC    | Parameter        | Range                                                      | Description                               |
-| ----- | ---------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| CC 74 | Filter Cutoff    | 0–127                                                      | Cutoff frequency (20–16000 Hz, log scale) |
-| CC 75 | Filter Resonance | 0–127                                                      | Resonance (0–1)                           |
-| CC 76 | Filter Mode      | 0–25=OFF / 26–50=LP / 51–76=HP / 77–101=BP / 102–127=NOTCH | Select filter type                        |
-| CC 77 | Filter Algorithm | 0–63=SVF / 64–127=Ladder                                   | Cytomic SVF or OTA 4-pole ladder          |
-| CC 79 | Filter Position  | 0–63=pre-chorus / 64–127=post-chorus                       | Effect chain placement                    |
+| CC    | Parameter | Value range      | CC range                                                             | Description                                         |
+| ----- | --------- | ---------------- | -------------------------------------------------------------------- | --------------------------------------------------- |
+| CC 74 | Cutoff    | 20–16000 Hz, log | 0–127                                                                | Filter cutoff frequency                             |
+| CC 75 | Resonance | 0–1              | 0–127                                                                | Filter resonance                                    |
+| CC 76 | Mode      | —                | 0–25 = Off · 26–50 = LP · 51–76 = HP · 77–101 = BP · 102–127 = Notch | Filter response, or Off to bypass the filter        |
+| CC 77 | Algorithm | —                | 0–63 = SVF · 64–127 = Ladder                                         | Filter algorithm — Cytomic SVF or OTA 4-pole ladder |
+
+#### FX Chain
+
+| CC    | Parameter       | Value range | CC range                                 | Description                               |
+| ----- | --------------- | ----------- | ---------------------------------------- | ----------------------------------------- |
+| CC 79 | Filter Position | —           | 0–63 = Pre-Chorus · 64–127 = Post-Chorus | Where the filter sits in the effect chain |
+| CC 80 | Delay Position  | —           | 0–63 = Pre-Reverb · 64–127 = Post-Reverb | Where the delay sits in the effect chain  |
+
+#### Output
+
+| CC   | Parameter            | Value range | CC range | Description                                      |
+| ---- | -------------------- | ----------- | -------- | ------------------------------------------------ |
+| CC 7 | Volume               | 0–1         | 0–127    | Master output level                              |
+| CC 8 | Space (Stereo Width) | 0–2         | 0–127    | Stereo width — 0 is mono, 1 normal, 2 hyper-wide |
 
 #### Chorus
 
-| CC    | Parameter   | Range                                       | Description           |
-| ----- | ----------- | ------------------------------------------- | --------------------- |
-| CC 90 | Sub Octave  | 0–63=1 oct / 64–127=2 oct                   | Sub oscillator octave |
-| CC 93 | Chorus Mode | 0–31=OFF / 32–63=I / 64–95=II / 96–127=I+II | Chorus character      |
+| CC    | Parameter | Value range | CC range                                            | Description                 |
+| ----- | --------- | ----------- | --------------------------------------------------- | --------------------------- |
+| CC 93 | Mode      | —           | 0–31 = Off · 32–63 = I · 64–95 = II · 96–127 = I+II | Juno-style chorus character |
 
 #### Reverb
 
-| CC     | Parameter        | Range            | Description                         |
-| ------ | ---------------- | ---------------- | ----------------------------------- |
-| CC 91  | Reverb Mix       | 0–127            | Reverb wet level (0–1)              |
-| CC 112 | Reverb Mod Speed | 0–127            | Reverb LFO rate multiplier (0.1–4×) |
-| CC 113 | Reverb Mod Depth | 0–127            | Reverb LFO depth (0–1)              |
-| CC 114 | Reverb Freeze    | ≥64=on / <64=off | Freeze reverb tail indefinitely     |
-| CC 117 | Reverb Size      | 0–127            | Plate size / decay time (0–1)       |
-| CC 118 | Reverb Damping   | 0–127            | High frequency damping (0–1)        |
+| CC     | Parameter | Value range | CC range | Description                   |
+| ------ | --------- | ----------- | -------- | ----------------------------- |
+| CC 91  | Mix       | 0–1         | 0–127    | Reverb wet level              |
+| CC 112 | Mod Speed | 0.1–4       | 0–127    | Reverb LFO rate multiplier    |
+| CC 113 | Mod Depth | 0–1         | 0–127    | Reverb LFO depth              |
+| CC 117 | Size      | 0–1         | 0–127    | Plate size / decay time       |
+| CC 118 | Damping   | 0–1         | 0–127    | Reverb high-frequency damping |
 
 #### Delay
 
-| CC    | Parameter      | Range                                | Description              |
-| ----- | -------------- | ------------------------------------ | ------------------------ |
-| CC 80 | Delay Position | 0–63=pre-reverb / 64–127=post-reverb | Effect chain placement   |
-| CC 86 | Delay Time     | 0–127                                | Delay time (10–500 ms)   |
-| CC 87 | Delay Feedback | 0–127                                | Feedback amount (0–0.95) |
-| CC 95 | Delay Mix      | 0–127                                | Delay wet level (0–1)    |
+| CC    | Parameter | Value range | CC range | Description           |
+| ----- | --------- | ----------- | -------- | --------------------- |
+| CC 86 | Time      | 10–500 ms   | 0–127    | Delay time            |
+| CC 87 | Feedback  | 0–0.95      | 0–127    | Delay feedback amount |
+| CC 95 | Mix       | 0–1         | 0–127    | Delay wet level       |
 
-#### Voice Mode & Configuration
+<!-- END GENERATED: cc-map -->
 
-| CC     | Parameter    | Range                                                                                | Description              |
-| ------ | ------------ | ------------------------------------------------------------------------------------ | ------------------------ |
-| CC 115 | Voice Mode   | 0–20=PAIR / 21–41=CLOUD / 42–62=CHORD / 63–83=CASCADE / 84–104=STRING / 105–127=POLY | Switch voice mode        |
-| CC 110 | MIDI Channel | 0–127 → 0=omni, 1–16                                                                 | Set MIDI receive channel |
+### MIDI Messages Outside the Manifest
+
+These are actions rather than parameters, so they carry no value range and are not in `params.json`. They are handled in [`src/module_hooks.cpp`](src/module_hooks.cpp) — except the MIDI channel, which is the platform's.
+
+| CC     | Message       | Range            | Description                                                                                        |
+| ------ | ------------- | ---------------- | -------------------------------------------------------------------------------------------------- |
+| CC 64  | Sustain       | ≥64=on / <64=off | Standard sustain pedal — arms the gate and holds it high. Not drone: use CC 119 to release the gate |
+| CC 110 | MIDI Channel  | 0=omni, 1–16     | Set MIDI receive channel                                                                            |
+| CC 114 | Reverb Freeze | ≥64=on / <64=off | Freeze the reverb tail indefinitely                                                                 |
+| CC 119 | Drone Return  | any              | Clear gate arm, return to continuous drone                                                          |
+| CC 123 | All Notes Off | any              | Panic — release all voices                                                                          |
 
 For MIDI SysEx implementation, check the MIDI & SysEx reference: [AlloyFlux-MIDI-reference.md](../../references/AlloyFlux-MIDI-reference.md).
 
 ---
 
-_For serial console commands, firmware architecture, hardware details, and developer notes, see [AlloyFlux-module-reference.md](../../references/AlloyFlux-module-reference.md)._
+_For serial console commands see [AlloyFlux-serial-reference.md](../../references/AlloyFlux-serial-reference.md); for the board, [AlloyFlux-hardware-design.md](../../references/AlloyFlux-hardware-design.md); for the engines, [AlloyFlux-dsp-design.md](../../references/AlloyFlux-dsp-design.md)._
 
 ---
 

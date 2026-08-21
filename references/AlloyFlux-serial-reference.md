@@ -228,7 +228,7 @@ No driver or installation required. Open in Chrome/Edge, select Alloy Flux as th
 
 ---
 
-*Firmware architecture, hardware pin map, CPU profiling methods, and development milestones are documented in [AlloyFlux-module-reference.md](AlloyFlux-module-reference.md).*
+*The hardware pin map is in [AlloyFlux-hardware-design.md](AlloyFlux-hardware-design.md); the engines and CPU profiling methods in [AlloyFlux-dsp-design.md](AlloyFlux-dsp-design.md); firmware architecture in [README.md](../README.md) and [AGENTS.md](../AGENTS.md); milestones in [AlloyFlux-Development_Milestones.md](AlloyFlux-Development_Milestones.md).*
 
 ---
 

@@ -183,21 +183,57 @@ that is sustaining on its own feedback.
 
 ### Control Changes
 
-| CC      | Parameter                                                                                            | Range                 |
-| ------- | ---------------------------------------------------------------------------------------------------- | --------------------- |
-| 16      | String Pitch                                                                                         | note 16–72            |
-| 17      | Feedback Gain                                                                                        | −30…+12 dB            |
-| 18      | Body                                                                                                 | 1–100 ms _(log)_      |
-| 19      | Exciter Level                                                                                        | −inf…+6 dB            |
-| 74      | Feedback LPF                                                                                         | 100 Hz–18 kHz _(log)_ |
-| 75      | Feedback HPF                                                                                         | 10 Hz–4 kHz _(log)_   |
-| 86      | Echo Time                                                                                            | 0.05–4 s _(log)_      |
-| 87      | Echo Feedback                                                                                        | 0–1.2                 |
-| 91      | Reverb Mix                                                                                           | 0–1                   |
-| 92      | Reverb Decay                                                                                         | 0.2–1.0               |
-| 93      | Echo Send                                                                                            | 0–1                   |
-| 7       | Volume                                                                                               | 0–1                   |
-| **123** | **Panic** — collapses feedback gain and echo feedback to zero. The one thing here that can run away. |                       |
+> Generated from [`params.json`](params.json) by `make params`, the same file the firmware table and the Alloy Controller's map come from.
+
+<!-- BEGIN GENERATED: cc-map — `make params`, do not edit by hand -->
+
+<!-- generated from modules/alloycoil/params.json -->
+
+#### Resonator
+
+| CC    | Parameter     | Value range | CC range | Description                                            |
+| ----- | ------------- | ----------- | -------- | ------------------------------------------------------ |
+| CC 16 | String Pitch  | 16–72 note  | 0–127    | Resonator pitch, as a MIDI note number                 |
+| CC 19 | Exciter Level | −∞ … +6 dB  | 0–127    | Level of the external exciter input into the resonator |
+
+#### Feedback
+
+| CC    | Parameter     | Value range       | CC range | Description                                                          |
+| ----- | ------------- | ----------------- | -------- | -------------------------------------------------------------------- |
+| CC 17 | Feedback Gain | −30 … +12 dB      | 0–127    | Feedback loop gain — the main control over how much the string rings |
+| CC 18 | Body          | 1–100 ms          | 0–127    | Resonator body size — the delay length of the feedback loop          |
+| CC 74 | Feedback LPF  | 100–18000 Hz, log | 0–127    | Low-pass filter in the feedback loop; tames the top end as it rings  |
+| CC 75 | Feedback HPF  | 10–4000 Hz, log   | 0–127    | High-pass filter in the feedback loop; removes rumble from the tail  |
+
+#### Echo
+
+| CC    | Parameter | Value range | CC range                 | Description                                                             |
+| ----- | --------- | ----------- | ------------------------ | ----------------------------------------------------------------------- |
+| CC 20 | Warp      | —           | 0–63 = Off · 64–127 = On | Doppler warp — halves the echo time, pitching the tail up as it settles |
+| CC 86 | Time      | 0.05–4 s    | 0–127                    | Echo delay time                                                         |
+| CC 87 | Feedback  | 0–1.2       | 0–127                    | Echo feedback; above unity it blooms into the soft-clip ceiling         |
+| CC 93 | Send      | 0–1         | 0–127                    | How much of the resonator is sent into the echo                         |
+
+#### Reverb
+
+| CC    | Parameter | Value range | CC range | Description       |
+| ----- | --------- | ----------- | -------- | ----------------- |
+| CC 91 | Mix       | 0–1         | 0–127    | Reverb wet level  |
+| CC 92 | Decay     | 0.2–1       | 0–127    | Reverb decay time |
+
+#### Output
+
+| CC   | Parameter | Value range | CC range | Description         |
+| ---- | --------- | ----------- | -------- | ------------------- |
+| CC 7 | Volume    | 0–1         | 0–127    | Master output level |
+
+<!-- END GENERATED: cc-map -->
+
+One more CC is an action rather than a parameter, so it is not in the manifest:
+
+| CC      | Message   | Description                                                                           |
+| ------- | --------- | ------------------------------------------------------------------------------------- |
+| **123** | **Panic** | Collapses feedback gain and echo feedback to zero. The one thing here that can run away |
 
 CC numbers line up with Alloy Flux wherever the meaning matches (7 volume,
 91 reverb mix, 93 echo send, 74/75 filters), so a generic controller feels

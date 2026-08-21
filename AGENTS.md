@@ -178,9 +178,9 @@ SynthEngine::audio()   @ 48000 Hz  ← oscillators, filters, reverb, output summ
 ## Reference Docs
 
 - [`references/Development_Milestones.md`](references/AlloyFlux-Development_Milestones.md) — project roadmap and feature breakdown
-- [`references/AlloyFlux-module-reference.md`](references/AlloyFlux-module-reference.md) — full parameter/CV specification
-- [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) — CC map and SysEx protocol
+- [`references/AlloyFlux-hardware-design.md`](references/AlloyFlux-hardware-design.md) — pin map, analog front end, power, panel, BOM
+- [`references/AlloyFlux-dsp-design.md`](references/AlloyFlux-dsp-design.md) — the DSP engines and their algorithms
+- [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) — SysEx protocol (the CC map is generated into the manual)
 - [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md) — serial console commands
 - [`modules/alloyflux/MANUAL.md`](modules/alloyflux/MANUAL.md) — Alloy Flux end-user manual
 - [`modules/alloycoil/MANUAL.md`](modules/alloycoil/MANUAL.md) — Alloy Coil end-user manual
-- [`references/ai-notes/`](references/ai-notes/) — AI-generated notes on debugging, refactors, and optimizations (e.g. reverb concurrency, MIDI handling, etc.)

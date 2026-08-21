@@ -383,3 +383,15 @@ than being needed. What remains is hardware, not DSP:
   firmware job rather than a board change.
 - **Long-run stability on hardware.** The host harness covers 10 s; the
   milestone asks for 10 minutes at maximum feedback on a real board.
+
+Two notes kept from the platform design document, which has since been retired:
+
+- **If a PSRAM revision ever happens** (APS6404 on QSPI CS1), the echo can go
+  back to float at 48 kHz with a much longer maximum. The decimation factor and
+  the storage type are compile-time constants precisely so that stays a one-line
+  change — see [Reduction 2](#reduction-2--echo-decimation-and-int16-1875--188-kib).
+- **The panel deserves an homage, not a copy.** Upstream Audrey II has a
+  distinctive ring of circles around the feedback knob. Worth reinterpreting in
+  the copper-on-dark metallurgical language rather than reproducing — and worth
+  crediting Synthux prominently on the panel itself, given the module ships
+  their DSP.

@@ -136,6 +136,31 @@ because every such value is a single aligned word smoothed at control rate. The
 rules that keep it safe are in [`AGENTS.md`](AGENTS.md) — read them before
 touching `renderAudio()`.
 
+### Why the stack is what it is
+
+Building the platform changed exactly one dependency. PlatformIO, arduino-pico,
+TinyUSB, EEPROM flash emulation and the VCV plugin build all stayed — none of
+them was causing the duplication, and all were hardware-validated.
+
+**Mozzi came out** for two reasons, neither of them a complaint about Mozzi: it
+is per-sample only, where a platform wants block processing so modules can pick
+a block size and so DaisySP's block APIs have somewhere to live; and its sample
+rate was a project-wide `#define`, which cannot express two modules running at
+two rates. It was never doing DSP here — `ShapeOsc`, `DattorroReverb`,
+`SVFFilter`, `OTALadder`, `ChorusEngine` and `DelayEngine` are all ours, and
+Mozzi was functioning as an output driver and a tick source. **DaisySP went in**
+because it is pure DSP with zero hardware includes; the vendored subset and its
+local patches are documented in [`vendor/daisysp/`](vendor/daisysp/README.md).
+
+Considered and rejected, so they need not be argued again: **pico-sdk + CMake**
+(costs TinyUSB and EEPROM, solves nothing left unsolved), **replacing
+PlatformIO** (per-env flags and `build_src_filter` are exactly the multi-module
+mechanism needed), **Zephyr** (an RTOS for I²S, DMA and one ADC), **Rust**
+(the engine and all of DaisySP are C++), **a Teensy Audio port** (`int16_t`
+blocks plus a graph model competing with our own — lateral, not an upgrade), and
+**rheslip/DaisySP_Teensy** (unmodified upstream DSP behind a wrapper that allows
+one object instance, where Alloy Coil is stereo pairs throughout).
+
 ---
 
 ## Repository layout
@@ -182,9 +207,10 @@ connected it shows the last module it saw.
 | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | [`AGENTS.md`](AGENTS.md)                                                                           | architecture, build commands, conventions, audio-path rules |
 | [`LICENSING.md`](LICENSING.md)                                                                     | what is licensed how, and why the combination works         |
-| [`references/Alloy-Platform-Design.md`](references/Alloy-Platform-Design.md)                       | the platform design and the decisions behind it             |
 | [`references/AlloyFlux-Development_Milestones.md`](references/AlloyFlux-Development_Milestones.md) | the roadmap, and the record of what was measured            |
-| [`references/AlloyFlux-module-reference.md`](references/AlloyFlux-module-reference.md)             | full parameter/CV spec and LED language                     |
+| [`references/AlloyFlux-hardware-design.md`](references/AlloyFlux-hardware-design.md)               | pin map, analog front end, power, panel, BOM                |
+| [`references/AlloyFlux-dsp-design.md`](references/AlloyFlux-dsp-design.md)                         | the DSP engines and their algorithms                        |
+| [`modules/alloyflux/MANUAL.md`](modules/alloyflux/MANUAL.md)                                       | the user manual — panel, voice modes, LEDs, CC map          |
 | [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md)                 | SysEx protocol                                              |
 | [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md)             | serial console commands                                     |
 

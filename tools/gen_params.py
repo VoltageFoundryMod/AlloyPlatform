@@ -13,9 +13,11 @@ Outputs (committed, so a normal build never needs Python):
     <module>/include/param_manifest.generated.h
     <module>/include/param_globals.generated.h   (only with "globals_output")
     the path named by "ts_output"
+    the path named by "md_output"  (spliced between markers, not overwritten)
 """
 
 import json
+import math
 import os
 import pathlib
 import sys
@@ -212,6 +214,59 @@ def gen_globals(spec, src):
     return "".join(lines)
 
 
+def num_of(v):
+    """A bound may be a plain number or a {symbol, value} pair."""
+    return v["value"] if isinstance(v, dict) else v
+
+
+def to_pos(p, value):
+    """Value → control position 0–1. Mirrors ParamDescriptor::toPos()."""
+    lo, hi = num_of(p["min"]), num_of(p["max"])
+    if p.get("scale") == "log":
+        if lo <= 0 or value <= 0:
+            sys.exit(f"{p['name']}: log scale needs a positive min and default")
+        t = math.log(value / lo) / math.log(hi / lo)
+    else:
+        t = (value - lo) / (hi - lo)
+    t = min(max(t, 0.0), 1.0)
+    skew = p.get("skew", 1.0)
+    return t ** (1.0 / skew) if skew != 1 else t
+
+
+def from_pos(p, t):
+    """Control position 0–1 → value. Mirrors ParamDescriptor::fromPos()."""
+    lo, hi = num_of(p["min"]), num_of(p["max"])
+    skew = p.get("skew", 1.0)
+    if skew != 1 and t > 0:
+        t = t**skew
+    if p.get("scale") == "log":
+        return lo * (hi / lo) ** t
+    return lo + t * (hi - lo)
+
+
+def display_default(p, disp):
+    """The `default` a display-re-parameterised slider should boot to.
+
+    `display` restates a parameter over the same travel in different units, so
+    the honest default is the stored one carried across at equal control
+    position — not a number typed a second time, and emphatically not 0.
+
+    This used to emit `displayDefault` or fall back to 0. Only `root` had a
+    display block and 0 is right for root purely by luck: 440 Hz is the middle
+    of its 8-octave sweep and its display range is ±48 semitones centred on the
+    same point. Any other parameter given a display block booted the web UI to
+    0 — for Alloy Coil's Body, below its own minimum.
+    """
+    if "displayDefault" in p:  # explicit override still wins
+        return p["displayDefault"]
+    merged = {**p, **disp}
+    v = round(from_pos(merged, to_pos(p, p["default"])), 6)
+    # Emit a whole number as an int, so a derived default that lands on one
+    # renders as `0` rather than `0.0` — the literal the hand-written fallback
+    # produced, and the one a reader of the map expects.
+    return int(v) if float(v).is_integer() else v
+
+
 def gen_ts(spec, src):
     """Emit the web configurator's parameter map."""
     out = [
@@ -252,7 +307,11 @@ def gen_ts(spec, src):
             d = {**p, **p.get("display", {})}
             out.append(f'    min: {num(d["min"])},\n')
             out.append(f'    max: {num(d["max"])},\n')
-            default = d["default"] if "display" not in p else d.get("displayDefault", 0)
+            default = (
+                p["default"]
+                if "display" not in p
+                else display_default(p, p["display"])
+            )
             out.append(f'    default: {num(default)},\n')
             if d.get("unit"):
                 out.append(f'    unit: "{d["unit"]}",\n')
@@ -300,6 +359,140 @@ def gen_ts(spec, src):
     return "".join(out)
 
 
+# The MANUAL's CC map used to be typed out by hand, which is how it came to
+# call CC 92 "FM" long after params.json, the firmware and the web UI had all
+# settled on "Color". Only the prose is authored now (the `doc` field); every
+# number in the table below is derived from the same columns the C++ and
+# TypeScript tables are built from, so the three cannot disagree.
+MD_BEGIN = "<!-- BEGIN GENERATED: cc-map — `make params`, do not edit by hand -->"
+MD_END = "<!-- END GENERATED: cc-map -->"
+
+
+# Units that read as a symbol attached to the number ("4×") rather than as a
+# word after it ("4 s").
+TIGHT_UNITS = {"×", "%", "°"}
+
+
+def fmt_num(v):
+    """Render a JSON number the way a reader wants it, not the way repr does."""
+    if isinstance(v, dict):
+        v = v["value"]
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    # A real minus sign, so a negative bound cannot be misread as the dash that
+    # separates the two bounds. No thousands separator: these are engineering
+    # values and "16,000 Hz" invites a decimal-comma misreading.
+    return str(v).replace("-", "−")
+
+
+def md_range(p):
+    """The CC-side range — what a controller actually sends."""
+    if p["kind"] == "enum":
+        # A band one CC wide is a value, not a range: the 15-entry quantizer
+        # table renders as "0 = Chromatic", not "0–0 = Chromatic".
+        return " · ".join(
+            (f"{o['ccMin']}" if o["ccMin"] == o["ccMax"] else f"{o['ccMin']}–{o['ccMax']}")
+            + f" = {o['label']}"
+            for o in p["options"]
+        )
+    cr = p.get("ccRange")
+    return f"{cr['min']}–{cr['max']}" if cr else "0–127"
+
+
+def to_display(v, transform):
+    """Mirror of ParamDescriptor::toDisplay — the stored value is not always
+    the number a reader should see. Kept in step with ParamDescriptor.h."""
+    if transform == "gain-db":
+        if isinstance(v, dict):
+            v = v["value"]
+        # 20·log10(0) is −inf, which is the honest bottom of a gain taper.
+        return "−∞" if v <= 0 else round(20.0 * math.log10(v), 1)
+    return v
+
+
+def md_value(p):
+    """The engineering range, in the units the reader thinks in."""
+    if p["kind"] == "enum":
+        return ""
+    d = {**p, **p.get("display", {})}
+    if d.get("min") is None or d.get("max") is None:
+        return ""
+    xform = d.get("displayTransform")
+    lo, hi = fmt_num(to_display(d["min"], xform)), fmt_num(to_display(d["max"], xform))
+    # An en dash between a negative bound and its partner is unreadable
+    # ("−24–24"), so a signed range gets an ellipsis and an explicit "+".
+    if lo.startswith("−"):
+        span = f"{lo} … +{hi}" if not hi.startswith("−") else f"{lo} … {hi}"
+    else:
+        span = f"{lo}–{hi}"
+    unit = d.get("unit", "")
+    if unit:
+        span += unit if unit in TIGHT_UNITS else f" {unit}"
+    if d.get("scale") == "log":
+        span += ", log"
+    return span
+
+
+def md_width(cell):
+    """Display width of a table cell. Every character these tables use — en
+    dashes, the minus sign, ×, · — is single-width, so this is just len()."""
+    return len(cell)
+
+
+def md_row(cells, width):
+    return "| " + " | ".join(c.ljust(w) for c, w in zip(cells, width)) + " |\n"
+
+
+def gen_md(spec, src, existing):
+    """Splice the CC map into the module's manual, between the markers.
+
+    Unlike the other emitters this one does not own its whole file — the manual
+    is hand-written prose around one generated table — so it edits in place and
+    leaves everything outside the markers alone.
+    """
+    if MD_BEGIN not in existing or MD_END not in existing:
+        sys.exit(
+            f"md_output: markers not found. Add these two lines where the CC "
+            f"map should go:\n  {MD_BEGIN}\n  {MD_END}"
+        )
+    head, rest = existing.split(MD_BEGIN, 1)
+    _, tail = rest.split(MD_END, 1)
+
+    rows = [p for p in spec["params"] if p["kind"] in ("float", "enum", "special")]
+    by_cat = {c: [] for c in spec["categories"]}
+    for p in rows:
+        by_cat[p["category"]].append(p)
+
+    out = [MD_BEGIN, "\n\n", f"<!-- generated from {src} -->\n"]
+    header = ["CC", "Parameter", "Value range", "CC range", "Description"]
+    for cat in spec["categories"]:
+        params = sorted(by_cat[cat], key=lambda p: p["cc"])
+        if not params:
+            continue
+        rows = [
+            [
+                f"CC {p['cc']}",
+                p["label"],
+                md_value(p) or "—",
+                md_range(p),
+                p.get("doc", ""),
+            ]
+            for p in params
+        ]
+        # Pad to the widest cell per column. The surrounding manual is written
+        # with aligned tables and a generated block that is not looks like a
+        # mistake in the diff, every time.
+        width = [max(md_width(r[i]) for r in [header] + rows) for i in range(5)]
+        out.append(f"\n#### {cat}\n\n")
+        out.append(md_row(header, width))
+        out.append("| " + " | ".join("-" * w for w in width) + " |\n")
+        for r in rows:
+            out.append(md_row(r, width))
+    out.append("\n")
+    out.append(MD_END)
+    return head + "".join(out) + tail
+
+
 def outputs(module, spec):
     """Every path this module's params.json generates, in write order."""
     paths = [module / "include" / "param_manifest.generated.h"]
@@ -307,6 +500,8 @@ def outputs(module, spec):
         paths.append(module / "include" / "param_globals.generated.h")
     if spec.get("ts_output"):
         paths.append(module / spec["ts_output"])
+    if spec.get("md_output"):
+        paths.append(module / spec["md_output"])
     return paths
 
 
@@ -351,6 +546,16 @@ def main():
         tsdst = (module / ts).resolve()
         tsdst.write_text(gen_ts(spec, src.as_posix()), encoding="utf-8", newline="\n")
 
+    md = spec.get("md_output")
+    if md:
+        mddst = (module / md).resolve()
+        before = mddst.read_text(encoding="utf-8")
+        after = gen_md(spec, src.as_posix(), before)
+        # Only write on a real change: this file is mostly hand-written prose,
+        # and rewriting it every run would churn its mtime for nothing.
+        if after != before:
+            mddst.write_text(after, encoding="utf-8", newline="\n")
+
     kinds = {}
     for p in spec["params"]:
         kinds[p["kind"]] = kinds.get(p["kind"], 0) + 1
@@ -359,6 +564,8 @@ def main():
         print(f"{globals_dst}: {len(spec['params'])} globals")
     if ts:
         print(f"{tsdst}: {len(spec['params'])} params")
+    if md:
+        print(f"{mddst}: cc-map table {'rewritten' if after != before else 'unchanged'}")
 
 
 if __name__ == "__main__":

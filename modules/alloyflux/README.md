@@ -126,7 +126,8 @@ runs at the host rate.
 ## Documentation
 
 - [`MANUAL.md`](MANUAL.md) — the user manual
-- [`../../references/AlloyFlux-module-reference.md`](../../references/AlloyFlux-module-reference.md) — full parameter/CV spec, LED language, firmware architecture
+- [`../../references/AlloyFlux-hardware-design.md`](../../references/AlloyFlux-hardware-design.md) — pin map, analog front end, power, panel, BOM
+- [`../../references/AlloyFlux-dsp-design.md`](../../references/AlloyFlux-dsp-design.md) — the DSP engines and their algorithms
 - [`../../references/AlloyFlux-MIDI-reference.md`](../../references/AlloyFlux-MIDI-reference.md) — SysEx protocol
 - [`../../references/AlloyFlux-serial-reference.md`](../../references/AlloyFlux-serial-reference.md) — serial console commands
 - [`../../references/AlloyFlux-VCVRack.md`](../../references/AlloyFlux-VCVRack.md) — the Rack build

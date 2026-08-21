@@ -234,6 +234,12 @@ params:
 # `git status`, not `git diff`: a generated file that is new — as
 # param_globals.generated.h was — is untracked rather than modified, and a
 # plain diff reports nothing at all for it.
+#
+# One of the outputs, MANUAL.md, is only PARTLY generated: `make params`
+# rewrites the CC-map table between its markers and leaves the surrounding
+# prose alone. On a clean checkout that distinction does not matter, but in a
+# dirty tree this gate will also fire on hand edits to the manual's prose. The
+# fix is the same either way — commit them.
 params-check: params
 	@outs=$$($(PYTHON) tools/gen_params.py modules/$(MODULE) --list-outputs); \
 	 if [ -n "$$(git status --porcelain -- $$outs)" ]; then \
