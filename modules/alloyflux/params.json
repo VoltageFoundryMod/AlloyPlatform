@@ -73,38 +73,44 @@
         {
           "label": "Pair",
           "ccMin": 0,
-          "ccMax": 20,
+          "ccMax": 17,
           "value": 0
         },
         {
           "label": "Cloud",
-          "ccMin": 21,
-          "ccMax": 41,
+          "ccMin": 18,
+          "ccMax": 35,
           "value": 1
         },
         {
           "label": "Chord",
-          "ccMin": 42,
-          "ccMax": 62,
+          "ccMin": 36,
+          "ccMax": 53,
           "value": 2
         },
         {
           "label": "Cascade",
-          "ccMin": 63,
-          "ccMax": 83,
+          "ccMin": 54,
+          "ccMax": 71,
           "value": 3
         },
         {
           "label": "String",
-          "ccMin": 84,
-          "ccMax": 104,
+          "ccMin": 72,
+          "ccMax": 89,
           "value": 4
         },
         {
           "label": "Poly",
-          "ccMin": 105,
-          "ccMax": 127,
+          "ccMin": 90,
+          "ccMax": 107,
           "value": 5
+        },
+        {
+          "label": "Plasma",
+          "ccMin": 108,
+          "ccMax": 127,
+          "value": 6
         }
       ]
     },

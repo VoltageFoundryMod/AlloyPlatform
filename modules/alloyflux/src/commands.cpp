@@ -202,8 +202,9 @@ static void cmd_mode(const char *args, Print &out)
         {"cascade", VoiceMode::CASCADE, false},
         {"string", VoiceMode::STRING, false},
         {"poly", VoiceMode::POLY, true},
+        {"plasma", VoiceMode::PLASMA, true},
     };
-    for(uint8_t i = 0; i < 6; i++)
+    for(uint8_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
     {
         if(strcasecmp(args, modes[i].name) == 0)
         {

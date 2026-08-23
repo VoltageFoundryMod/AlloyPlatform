@@ -701,6 +701,7 @@ colour means.
                            n = the mode's position in the cycle:
                              PAIR 1  CLOUD 2  CHORD 3
                              CASCADE 4  STRING 5  POLY 6
+                             PLASMA 7  ← the count fills the panel
                            80 ms apart, each staying lit once it fires, in
                            the mode's own colour with a white leading edge
                            on the newest. Every LED past n is forced dark
@@ -710,8 +711,11 @@ colour means.
                            D14 → new mode colour
                            D12/D22 → new mode voice colours
                            D15 → resumes heartbeat role
-Total duration: ~800 ms (PAIR) … ~1.2 s (POLY)
+Total duration: ~800 ms (PAIR) … ~1.3 s (PLASMA)
 ```
+
+**Seven modes is the ceiling**, and it is this animation that sets it. PLASMA
+lights all seven; an eighth mode would have nowhere to show itself.
 
 The chain order, not the role order, is what the count walks — `LedId` pairs
 left with right and would zig-zag across the panel. `kLedPanelOrder` in

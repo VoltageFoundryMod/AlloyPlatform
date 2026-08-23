@@ -528,8 +528,9 @@ struct AlloyFlux : Module
             {115,
              [&]() -> uint8_t
              {
-                 static const uint8_t m[] = {10, 31, 52, 73, 94, 116};
-                 return m[std::max(0, std::min(5, (int)_voiceMode))];
+                 // Band midpoints, seven modes — track params.json.
+                 static const uint8_t m[] = {8, 26, 44, 62, 80, 98, 117};
+                 return m[std::max(0, std::min(6, (int)_voiceMode))];
              }()},
             // Filter mode: stored index 0-4 → 5-band midpoints
             {76,
@@ -700,8 +701,8 @@ struct AlloyFlux : Module
             out.push_back({104, (uint8_t)std::max(0, std::min(127, tr + 24))});
         }
         {
-            static const uint8_t kVMMid[] = {10, 31, 52, 73, 94, 116};
-            int                  vm = std::max(0, std::min(5, (int)_voiceMode));
+            static const uint8_t kVMMid[] = {8, 26, 44, 62, 80, 98, 117};
+            int                  vm = std::max(0, std::min(6, (int)_voiceMode));
             out.push_back({115, kVMMid[vm]});
         }
         cc7(5, 0.f, 2.f, params[GLIDE_TIME_PARAM].getValue());
@@ -841,19 +842,23 @@ struct AlloyFlux : Module
                 break;
             case 115:
             {
+                // Bands must track params.json's `mode` option table — seven
+                // modes across 0–127, ~18 CC values each.
                 VoiceMode vm;
-                if(value <= 20)
+                if(value <= 17)
                     vm = VoiceMode::PAIR;
-                else if(value <= 41)
+                else if(value <= 35)
                     vm = VoiceMode::CLOUD;
-                else if(value <= 62)
+                else if(value <= 53)
                     vm = VoiceMode::CHORD;
-                else if(value <= 83)
+                else if(value <= 71)
                     vm = VoiceMode::CASCADE;
-                else if(value <= 104)
+                else if(value <= 89)
                     vm = VoiceMode::STRING;
-                else
+                else if(value <= 107)
                     vm = VoiceMode::POLY;
+                else
+                    vm = VoiceMode::PLASMA;
                 _voiceMode = vm;
                 break;
             }
@@ -1086,7 +1091,8 @@ struct AlloyFlux : Module
                                                        VoiceMode::CHORD,
                                                        VoiceMode::CASCADE,
                                                        VoiceMode::STRING,
-                                                       VoiceMode::POLY};
+                                                       VoiceMode::POLY,
+                                                       VoiceMode::PLASMA};
                     constexpr int          kN
                         = (int)(sizeof(kModes) / sizeof(kModes[0]));
                     int idx = 0;
@@ -1590,7 +1596,8 @@ struct AlloyFluxWidget : ModuleWidget
                                                    VoiceMode::CHORD,
                                                    VoiceMode::CASCADE,
                                                    VoiceMode::STRING,
-                                                   VoiceMode::POLY};
+                                                   VoiceMode::POLY,
+                                                   VoiceMode::PLASMA};
                 for(int i = 0; i < (int)(sizeof(kModes) / sizeof(kModes[0]));
                     i++)
                 {

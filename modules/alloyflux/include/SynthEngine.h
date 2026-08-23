@@ -433,6 +433,62 @@ class SynthEngine
         return _rngState;
     }
 
+    // -----------------------------------------------------------------------
+    // PLASMA — cross-modulating pair through a ring mod
+    //
+    // Two sine operators, M and C, each phase-modulating the *other* from its
+    // previous sample, each also modulating itself, and the pair multiplied
+    // together as C²·M on the way out.
+    //
+    // The bidirectional coupling is what separates this from CASCADE. CASCADE
+    // is a chain — modulator into carrier, one way, fixed musical ratio, and
+    // it stays harmonic by construction. Here the two operators are a loop:
+    // each one's output is in the other's input, so past a certain depth the
+    // system stops being a pair of oscillators and starts being one coupled
+    // system that rings, beats and eventually breaks up. That is the mode.
+    //
+    // Design owes its topology to Geodesics' Dark Energy (Pierre Collard and
+    // Marc Boulé, GPL-3.0), reimplemented here rather than ported: theirs runs
+    // each operator at 8× with a CIC decimator, which the RP2350 does not have
+    // the budget for alongside the effect chain. Running at rate instead means
+    // feedback FM aliases at high MOTION — on a mode whose whole character is
+    // instability that reads as grit rather than as a defect, and it is the
+    // trade that makes the mode possible at all here.
+    //
+    // Two cells, detuned against each other and panned apart, for the same
+    // reason CASCADE has two pairs: one cell is a mono source and no pan
+    // weight can widen it. Coupled systems diverge, so the two decorrelate on
+    // their own and the image opens up as the sound gets wilder.
+    // -----------------------------------------------------------------------
+
+    /// Per-cell previous outputs — the feedback taps, read next sample.
+    int16_t _plasmaPrevM[2] = {0, 0};
+    int16_t _plasmaPrevC[2] = {0, 0};
+    /// Two-sample averages of the same. Self-feedback FM is unstable on a
+    /// single-sample tap and will latch into a screech; averaging the last two
+    /// damps that without audibly softening the tone. The DX7 did the same.
+    int16_t _plasmaAvgM[2] = {0, 0};
+    int16_t _plasmaAvgC[2] = {0, 0};
+
+    /// COLOR → cross-modulation depth, as a Q16 phase scale.
+    volatile float _plasmaCross = 0.0f;
+    /// MOTION → self-feedback depth, same units.
+    volatile float _plasmaFb = 0.0f;
+
+    /// RELATION → C:M frequency ratio. Cached; powf() only when it moves.
+    float _cachedRelPlasma = -99.0f;
+    float _plasmaRatio     = 1.0f;
+
+    /** Peak phase deviation, in radians, at full COLOR. Deeper than PAIR and
+     *  CASCADE's 3 — the coupling needs room to actually destabilise. */
+    static constexpr float kPlasmaCrossRad = 4.5f;
+    /** Peak self-feedback deviation. Held well below the cross depth: past
+     *  about 2 radians a self-modulating sine stops being a tone at all. */
+    static constexpr float kPlasmaFbRad = 1.6f;
+    /** Radians → the Q16 table-phase units nextPM() expects. */
+    static constexpr float kPlasmaPhaseScale
+        = (2048.0f * 65536.0f) / (2.0f * 3.14159265f * 32512.0f);
+
     // One-pole HPF tracking the played note, applied to CLOUD only. The
     // JP-8000 has one and it is what keeps a seven-saw stack from turning to
     // mud in the low register — without it the detuned partials pile up below

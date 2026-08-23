@@ -393,20 +393,27 @@ void SynthEngine::control(const SynthParams  &p,
             //
             // This replaces a fourth flavour of detune beating, which is what
             // COLOR did here and what RELATION already does better.
-            static const int8_t kVoicing[4][4] = {
-                {0, 0, 0, 0},    // 0  close  — as voiced in the table
-                {0, 0, 12, 12},  // 1  open
-                {0, 12, 12, 24}, // 2  spread
-                {0, 12, 24, 24}, // 3  wide
+            // Six positions, each lifting one more voice by one more octave.
+            // Monotonic in total spread — 0, 12, 24, 36, 48, 60 semitones
+            // added — so the knob opens the chord steadily rather than
+            // jumping about, and no single voice is lifted more than two
+            // octaves at any position.
+            static const int8_t kVoicing[6][4] = {
+                {0, 0, 0, 0},    // 0  close  — as voiced in the chord table
+                {0, 0, 0, 12},   // 1  lift   — top voice up an octave
+                {0, 0, 12, 12},  // 2  open   — top two up
+                {0, 0, 12, 24},  // 3  stack  — top up two octaves
+                {0, 12, 12, 24}, // 4  spread — everything above the root up
+                {0, 12, 24, 24}, // 5  wide
             };
             const int chordIdx = (_sRelation / 24.0f * 10.0f + 0.5f < 10.5f)
                                      ? (int)(_sRelation / 24.0f * 10.0f + 0.5f)
                                      : 10;
-            int       voicingIdx = (int)(_sColor * 3.0f + 0.5f);
+            int       voicingIdx = (int)(_sColor * 5.0f + 0.5f);
             if(voicingIdx < 0)
                 voicingIdx = 0;
-            else if(voicingIdx > 3)
-                voicingIdx = 3;
+            else if(voicingIdx > 5)
+                voicingIdx = 5;
 
             if(chordIdx != _cachedChordIdx || voicingIdx != _cachedVoicingChord
                || fabsf(_sGlidedFreq - _cachedChordBase) > 0.01f || modeChanged)
@@ -745,6 +752,76 @@ void SynthEngine::control(const SynthParams  &p,
             }
             break;
         }
+        case VoiceMode::PLASMA:
+        {
+            // RELATION — C:M ratio, continuous from ÷2 to ×8. Continuous and
+            // not zoned on purpose: CASCADE already offers six ratios chosen
+            // to stay harmonic, and the whole reason to have this mode as well
+            // is to be able to sit *between* them. The clangorous, beating,
+            // faintly wrong ratios are the ones worth reaching for here.
+            if(fabsf(_sRelation - _cachedRelPlasma) > 0.01f || modeChanged)
+            {
+                _plasmaRatio     = 0.5f * powf(2.0f, _sRelation / 24.0f * 4.0f);
+                _cachedRelPlasma = _sRelation;
+            }
+
+            // COLOR → cross-mod depth, MOTION → self-feedback. Both soft-
+            // clipped rather than linear, so the knob keeps resolution in the
+            // range where the system is still musical and compresses the top
+            // end where it is already fully unstable.
+            _plasmaCross
+                = tanhf(_sColor * 2.0f) * kPlasmaCrossRad * kPlasmaPhaseScale;
+            _plasmaFb
+                = tanhf(_sMotion * 1.6f) * kPlasmaFbRad * kPlasmaPhaseScale;
+
+            // Two cells, detuned ±1.4 cents against each other so they do not
+            // start out sample-identical, then left to diverge on their own.
+            static constexpr float kCellA = 0.9992f;
+            static constexpr float kCellB = 1.0008f;
+
+            float fM0 = _sGlidedFreq * kCellA + _drift.offset(0);
+            float fM1 = _sGlidedFreq * kCellB + _drift.offset(2);
+            if(fM0 < 20.0f)
+                fM0 = 20.0f;
+            if(fM1 < 20.0f)
+                fM1 = 20.0f;
+            // C is ceilinged separately: at ×8 ratio on a high root it would
+            // otherwise run past the band limit of the wavetables.
+            const float maxC = (float)_audioRate * 0.22f;
+            float       fC0  = fM0 * _plasmaRatio + _drift.offset(1);
+            float       fC1  = fM1 * _plasmaRatio + _drift.offset(3);
+            if(fC0 < 20.0f)
+                fC0 = 20.0f;
+            else if(fC0 > maxC)
+                fC0 = maxC;
+            if(fC1 < 20.0f)
+                fC1 = 20.0f;
+            else if(fC1 > maxC)
+                fC1 = maxC;
+
+            _voices[0].setFreq(fM0);
+            _voices[1].setFreq(fC0);
+            _voices[2].setFreq(fM1);
+            _voices[3].setFreq(fC1);
+            // SHAPE still morphs both operators. A sine pair is the classic
+            // reading, but feeding the loop a saw or a pulse is where it gets
+            // genuinely violent, and there is no reason to withhold that.
+            for(int i = 0; i < 4; i++)
+                _voices[i].setShape(_sShape);
+
+            // One sub, centred, on the root — the ring-mod product is thin on
+            // its own and this is what gives it a floor to stand on.
+            const float smPlasma = (p.subOctave == 2) ? 0.25f : 0.5f;
+            _subVoices[0].setFreq(fM0 * smPlasma < 20.0f ? 20.0f
+                                                         : fM0 * smPlasma);
+
+            _activeVoices = 4;
+            _panL[0]      = 192;
+            _panR[0]      = 64;
+            _panL[1]      = 64;
+            _panR[1]      = 192;
+            break;
+        }
     } // end switch
 
     // Mode transition cleanup
@@ -760,6 +837,14 @@ void SynthEngine::control(const SynthParams  &p,
         // stale one in the filter is a click.
         _cloudHpXL = _cloudHpYL = 0.0f;
         _cloudHpXR = _cloudHpYR = 0.0f;
+        // PLASMA's feedback taps likewise. A coupled system started from a
+        // stale state can ring before it settles, which on entry sounds like
+        // a fault rather than like the mode.
+        for(int i = 0; i < 2; i++)
+        {
+            _plasmaPrevM[i] = _plasmaPrevC[i] = 0;
+            _plasmaAvgM[i] = _plasmaAvgC[i] = 0;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -779,17 +864,18 @@ void SynthEngine::control(const SynthParams  &p,
     // single sub on its centre voice where PAIR has two.
     // ------------------------------------------------------------------
     {
-        static const float kSubScale[6] = {
+        static const float kSubScale[7] = {
             1.00f, // PAIR    — 2 subs, an interval apart
             1.35f, // CLOUD   — 1 sub, on the centre voice only
             0.70f, // CHORD   — 4 subs on chord tones, incoherent
             1.00f, // CASCADE — 2 audible subs; the modulators' are muted
             0.50f, // STRING  — 4 subs at near-unison, coherent
             0.60f, // POLY    — 6 subs, each on its own note
+            1.35f, // PLASMA  — 1 sub, and the ring mod above it is thin
         };
         const int mi = (int)p.voiceMode;
         _sSubWf
-            = _sFatness * 0.5f * ((mi >= 0 && mi < 6) ? kSubScale[mi] : 1.0f);
+            = _sFatness * 0.5f * ((mi >= 0 && mi < 7) ? kSubScale[mi] : 1.0f);
     }
 
     // Chorus depth — STRING keeps a 0.3 minimum
@@ -914,8 +1000,9 @@ void SynthEngine::audio(int32_t  revWetL,
                         int32_t *dryForRevL,
                         int32_t *dryForRevR)
 {
-    const bool isPolyMode  = (_voiceMode == VoiceMode::POLY);
-    const bool isCloudMode = (_voiceMode == VoiceMode::CLOUD);
+    const bool isPolyMode   = (_voiceMode == VoiceMode::POLY);
+    const bool isCloudMode  = (_voiceMode == VoiceMode::CLOUD);
+    const bool isPlasmaMode = (_voiceMode == VoiceMode::PLASMA);
     const bool isFmMode
         = (_voiceMode == VoiceMode::CASCADE || _voiceMode == VoiceMode::PAIR);
 
@@ -951,6 +1038,60 @@ void SynthEngine::audio(int32_t  revWetL,
                 = (int32_t)((float)modSampleB + (float)sub3 * _sSubWf);
             left += ((m2 * _panL[2]) + (m3 * _panL[3])) >> 8;
             right += ((m2 * _panR[2]) + (m3 * _panR[3])) >> 8;
+        }
+    }
+    else if(isPlasmaMode)
+    {
+        // Two coupled cells. Each operator is phase-modulated by the *other's*
+        // last sample plus a damped tap of its own — read the taps before
+        // either is advanced, so both operators see the same instant and the
+        // loop stays symmetric.
+        const float cross = _plasmaCross;
+        const float fb    = _plasmaFb;
+
+        for(int cell = 0; cell < 2; cell++)
+        {
+            const int vM = cell * 2;     // 0, 2
+            const int vC = cell * 2 + 1; // 1, 3
+
+            const int32_t offM = (int32_t)((float)_plasmaPrevC[cell] * cross
+                                           + (float)_plasmaAvgM[cell] * fb);
+            const int32_t offC = (int32_t)((float)_plasmaPrevM[cell] * cross
+                                           + (float)_plasmaAvgC[cell] * fb);
+
+            const int16_t m = _voices[vM].nextPM(offM);
+            const int16_t c = _voices[vC].nextPM(offC);
+
+            _plasmaAvgM[cell]
+                = (int16_t)(((int32_t)m + _plasmaPrevM[cell]) >> 1);
+            _plasmaAvgC[cell]
+                = (int16_t)(((int32_t)c + _plasmaPrevC[cell]) >> 1);
+            _plasmaPrevM[cell] = m;
+            _plasmaPrevC[cell] = c;
+
+            // Ring mod: C² · M. Squaring C frequency-doubles it and leaves a
+            // DC term, so the product carries both M itself and M rung at
+            // twice C — the metallic half of the sound. Both shifts stay
+            // inside int32: 32512² is 1.06e9 against a 2.15e9 ceiling.
+            //
+            // The two >>15 shifts land the product at full scale on their own
+            // — peak |c| = |m| = 32512 gives 32002 out — so there is no
+            // makeup gain here, and adding one clips. Measured RMS runs 1.5
+            // to 4.5 dB under a plain oscillator depending on ratio and
+            // depth, which is the right amount quieter for what it is.
+            const int32_t c2  = ((int32_t)c * (int32_t)c) >> 15;
+            const int32_t out = (c2 * (int32_t)m) >> 15;
+
+            left += (out * _panL[cell]) >> 8;
+            right += (out * _panR[cell]) >> 8;
+        }
+
+        if(_sSubWf > 0.001f)
+        {
+            const int32_t sub = _subVoices[0].next();
+            const int32_t sm  = (int32_t)((float)sub * _sSubWf);
+            left += sm >> 1; // centred
+            right += sm >> 1;
         }
     }
     else if(isCloudMode)

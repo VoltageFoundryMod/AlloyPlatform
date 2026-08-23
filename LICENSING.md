@@ -103,6 +103,20 @@ Eduardo de Paula, trading as Voltage Foundry Modular.** That includes:
 original visual and hardware design by Roey Tsemah, at Synthux Academy. The
 engine is MIT and used under that licence with attribution preserved.
 
+**Alloy Flux's PLASMA mode owes its design to Geodesics' Dark Energy**, by
+Pierre Collard (Pyer) and Marc Boulé — the cross-modulating operator pair
+feeding a ring modulator is their architecture. No Geodesics code is used here:
+their implementation is welded to the Rack API and oversamples each operator
+8× through a CIC decimator, which the RP2350 has no budget for, so PLASMA is an
+independent implementation of the same idea. Geodesics is GPL-3.0, which would
+have permitted a port; this is a design debt rather than a code one, and it is
+recorded here because it is owed either way.
+
+**The Geodesics name is not ours, and the mode does not carry it.** Their
+licence is explicit that the Geodesics name and logo may not be used in
+derivative works, and "Dark Energy" is theirs. PLASMA is our name for our
+implementation — the same arrangement as Audrey II and Alloy Coil below.
+
 **The name "Audrey II" is not ours either, and Alloy Coil does not carry it.**
 The port was made with the original author's blessing, on the understanding
 that it ship under its own name so that questions, bug reports and support land

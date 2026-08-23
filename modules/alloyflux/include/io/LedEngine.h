@@ -51,15 +51,18 @@ struct LedColor
 // ---------------------------------------------------------------------------
 namespace LedPalette
 {
-constexpr LedColor kOff       = {0.00f, 0.00f, 0.00f};
-constexpr LedColor kWarmRed   = {1.00f, 0.16f, 0.05f}; // ROOT / left channel
-constexpr LedColor kCoolBlue  = {0.10f, 0.35f, 1.00f}; // RELATION / right
-constexpr LedColor kGreen     = {0.10f, 1.00f, 0.20f}; // motion / drift
-constexpr LedColor kPurple    = {0.55f, 0.10f, 1.00f}; // STRING / chorus
-constexpr LedColor kCyan      = {0.00f, 0.85f, 1.00f}; // CLOUD / ensemble
-constexpr LedColor kAmber     = {1.00f, 0.50f, 0.04f}; // CHORD / harmonic stack
-constexpr LedColor kMagenta   = {1.00f, 0.05f, 0.70f}; // CASCADE / FM
-constexpr LedColor kLime      = {0.60f, 1.00f, 0.08f}; // POLY
+constexpr LedColor kOff      = {0.00f, 0.00f, 0.00f};
+constexpr LedColor kWarmRed  = {1.00f, 0.16f, 0.05f}; // ROOT / left channel
+constexpr LedColor kCoolBlue = {0.10f, 0.35f, 1.00f}; // RELATION / right
+constexpr LedColor kGreen    = {0.10f, 1.00f, 0.20f}; // motion / drift
+constexpr LedColor kPurple   = {0.55f, 0.10f, 1.00f}; // STRING / chorus
+constexpr LedColor kCyan     = {0.00f, 0.85f, 1.00f}; // CLOUD / ensemble
+constexpr LedColor kAmber    = {1.00f, 0.50f, 0.04f}; // CHORD / harmonic stack
+constexpr LedColor kMagenta  = {1.00f, 0.05f, 0.70f}; // CASCADE / FM
+constexpr LedColor kLime     = {0.60f, 1.00f, 0.08f}; // POLY
+// PLASMA. A hot red, chosen against the two it could be confused with: it is
+// far redder than kAmber and carries none of kMagenta's blue.
+constexpr LedColor kPlasmaRed = {1.00f, 0.07f, 0.16f};
 constexpr LedColor kSoftWhite = {0.85f, 0.85f, 0.78f}; // PAIR / neutral
 constexpr LedColor kWarmWhite = {1.00f, 0.72f, 0.42f}; // drone breathe
 constexpr LedColor kWhite     = {1.00f, 1.00f, 1.00f}; // confirmation flash
@@ -179,6 +182,7 @@ inline LedColor ledModeColor(VoiceMode m)
         case VoiceMode::CASCADE: return LedPalette::kMagenta;
         case VoiceMode::STRING: return LedPalette::kPurple;
         case VoiceMode::POLY: return LedPalette::kLime;
+        case VoiceMode::PLASMA: return LedPalette::kPlasmaRed;
         default: return LedPalette::kSoftWhite;
     }
 }
@@ -450,6 +454,14 @@ class LedEngine
                 br *= 0.30f + 0.70f * rel;
                 break;
             }
+
+            case VoiceMode::PLASMA:
+                // Left is M, right is C — and the right brightens with the
+                // ratio, so how far the pair has been pushed apart is the
+                // thing the panel shows.
+                cl = cr = LedPalette::kPlasmaRed;
+                br *= 0.30f + 0.70f * rel;
+                break;
         }
 
         _led[int(LedId::VOICE_L)] = ledScale(cl, ledClamp01(bl * gL));
@@ -486,6 +498,7 @@ class LedEngine
             case VoiceMode::CASCADE: c = LedPalette::kMagenta; break;
             case VoiceMode::STRING: c = LedPalette::kPurple; break;
             case VoiceMode::POLY: break;
+            case VoiceMode::PLASMA: c = LedPalette::kPlasmaRed; break;
         }
 
         // Rhythmic pulse at the drift rate, gated by MOTION depth.
@@ -561,6 +574,15 @@ class LedEngine
         {
             base = LedPalette::kPurple; // chorus heavy — slow movement
             amt  = motion * 0.5f + 0.35f;
+        }
+        else if(p.voiceMode == VoiceMode::PLASMA)
+        {
+            // MOTION is self-feedback here, so the heartbeat tracks how hard
+            // the loop is being driven rather than a drift rate. It never goes
+            // fully dark: a PLASMA pair with no feedback is still two coupled
+            // oscillators, and something is always happening.
+            base = LedPalette::kPlasmaRed;
+            amt  = 0.20f + 0.50f * motion + 0.30f * color;
         }
 
         float b;

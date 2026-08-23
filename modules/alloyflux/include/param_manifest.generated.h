@@ -105,12 +105,13 @@ static const ParamOption kOpts_scale[] = {
     { "Diminished"            ,  14,  14,  14 },
 };
 static const ParamOption kOpts_mode[] = {
-    { "Pair"                  ,   0,  20,   0 },
-    { "Cloud"                 ,  21,  41,   1 },
-    { "Chord"                 ,  42,  62,   2 },
-    { "Cascade"               ,  63,  83,   3 },
-    { "String"                ,  84, 104,   4 },
-    { "Poly"                  , 105, 127,   5 },
+    { "Pair"                  ,   0,  17,   0 },
+    { "Cloud"                 ,  18,  35,   1 },
+    { "Chord"                 ,  36,  53,   2 },
+    { "Cascade"               ,  54,  71,   3 },
+    { "String"                ,  72,  89,   4 },
+    { "Poly"                  ,  90, 107,   5 },
+    { "Plasma"                , 108, 127,   6 },
 };
 
 static const EnumParamDescriptor kEnumManifest[] = {

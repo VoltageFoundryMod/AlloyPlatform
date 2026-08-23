@@ -16,18 +16,18 @@ Want to integrate the module to your DAW or MIDI controller? The built-in USB MI
 
 ## Specs at a Glance
 
-|             |                                                                             |
-| ----------- | --------------------------------------------------------------------------- |
-| Format      | Eurorack                                                                    |
-| Width       | 14HP                                                                        |
-| Power       | ~100mA +12V, ~5mA −12V                                                      |
-| Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY                              |
-| Knobs       | 9 — ROOT, COLOR, RELATION / SHAPE, CURVE, MOTION / DELAY, SPACE, REVERB     |
-| Jacks       | 10 — V/OCT, GATE, MIDI, CV 1, CV 2 / FM IN, CV 3, CV 4, L OUT, R OUT        |
-| Buttons     | 2 — MODE + SHIFT                                                            |
-| LEDs        | 7× RGB (voice activity, motion layer, mode, shift/drone, heartbeat)         |
-| Audio       | Stereo 16-bit, 48000 Hz, PCM5102A I2S DAC                                   |
-| MIDI        | USB MIDI + TRS MIDI (simultaneous)                                          |
+|             |                                                                         |
+| ----------- | ----------------------------------------------------------------------- |
+| Format      | Eurorack                                                                |
+| Width       | 14HP                                                                    |
+| Power       | ~100mA +12V, ~5mA −12V                                                  |
+| Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY / PLASMA                 |
+| Knobs       | 9 — ROOT, COLOR, RELATION / SHAPE, CURVE, MOTION / DELAY, SPACE, REVERB |
+| Jacks       | 10 — V/OCT, GATE, MIDI, CV 1, CV 2 / FM IN, CV 3, CV 4, L OUT, R OUT    |
+| Buttons     | 2 — MODE + SHIFT                                                        |
+| LEDs        | 7× RGB (voice activity, motion layer, mode, shift/drone, heartbeat)     |
+| Audio       | Stereo 16-bit, 48000 Hz, PCM5102A I2S DAC                               |
+| MIDI        | USB MIDI + TRS MIDI (simultaneous)                                      |
 
 ---
 
@@ -92,18 +92,18 @@ being named after their destination. What each one modulates is fixed:
 
 ### Buttons
 
-| Button       | Action               | Result                                                                  |
-| ------------ | -------------------- | ----------------------------------------------------------------------- |
-| MODE         | Tap                  | Cycle voice mode: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PAIR |
-| SHIFT        | Hold + knob          | Access secondary function for that knob                                 |
-| SHIFT + MODE | Hold SHIFT, tap MODE | Toggle drone mode (sustained without gate)                              |
-| MODE         | Hold during power-on | Enter V/Oct two-point calibration                                       |
+| Button       | Action               | Result                                                                |
+| ------------ | -------------------- | --------------------------------------------------------------------- |
+| MODE         | Tap                  | Cycle: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PLASMA → PAIR |
+| SHIFT        | Hold + knob          | Access secondary function for that knob                               |
+| SHIFT + MODE | Hold SHIFT, tap MODE | Toggle drone mode (sustained without gate)                            |
+| MODE         | Hold during power-on | Enter V/Oct two-point calibration                                     |
 
 ---
 
 ## Voice Modes
 
-Tap **MODE** to cycle through six voice characters. The MODE LED — lower left, beside the MODE button — shows the current mode colour.
+Tap **MODE** to cycle through seven voice characters. The MODE LED — lower left, beside the MODE button — shows the current mode colour.
 
 ---
 
@@ -167,28 +167,35 @@ A high-pass filter tracks the played note, which is what keeps seven detuned osc
 
 **Sound:** four-voice harmonic content from a single note. RELATION sweeps through 11 chord shapes — from unison to full octave stacks.
 
-| Control  | Effect in CHORD                                                     |
-| -------- | ------------------------------------------------------------------- |
-| RELATION | Selects and morphs between chord shapes (see table below)           |
-| COLOR    | **VOICING** — how the chord is spaced: close, open, spread, or wide |
-| MOTION   | Drift animates each voice of the chord independently                |
-| SPACE    | Distributes chord voices across the stereo field                    |
+| Control  | Effect in CHORD                                                |
+| -------- | -------------------------------------------------------------- |
+| RELATION | Selects and morphs between chord shapes (see table below)      |
+| COLOR    | **VOICING** — how the chord is spaced, from close to wide open |
+| MOTION   | Drift animates each voice of the chord independently           |
+| SPACE    | Distributes chord voices across the stereo field               |
 
 **COLOR sets the voicing.** RELATION says which chord; COLOR says how it is
-spaced, lifting the upper voices away from the root in octaves. Four positions
-across the knob:
+spaced, lifting the upper voices away from the root in octaves. Six positions
+across the knob, each one opening the chord a little further:
 
-| COLOR   | Voicing | What moves                          |
-| ------- | ------- | ----------------------------------- |
-| 0–15%   | Close   | as written in the table above       |
-| 15–50%  | Open    | top two voices up an octave         |
-| 50–85%  | Spread  | middle voices up, top up two        |
-| 85–100% | Wide    | the chord opens across the register |
+| COLOR   | Voicing | Octaves added | What moves                          |
+| ------- | ------- | ------------- | ----------------------------------- |
+| 0–10%   | Close   | 0, 0, 0, 0    | as written in the table above       |
+| 10–30%  | Lift    | 0, 0, 0, +1   | top voice up an octave              |
+| 30–50%  | Open    | 0, 0, +1, +1  | top two voices up                   |
+| 50–70%  | Stack   | 0, 0, +1, +2  | top voice up two octaves            |
+| 70–90%  | Spread  | 0, +1, +1, +2 | everything above the root lifts     |
+| 90–100% | Wide    | 0, +1, +2, +2 | the chord opens across the register |
 
 It steps rather than sweeps, and moves in octaves rather than semitones, so the
 chord is in tune at every knob position — a continuous sweep would glide the
 upper voices through every microtone on the way and spend most of its travel
 out of tune.
+
+The steps are monotonic, so turning COLOR up always opens the chord further,
+never doubles a voice back down. No voice is ever lifted more than two octaves,
+which keeps the top of the stack inside the wavetables' usable range even on
+the Octaves chord.
 
 **Chord table:**
 
@@ -210,6 +217,9 @@ out of tune.
 
 - CV 1 (RELATION) from a sample-and-hold creates instant random chord changes
 - Morphing RELATION slowly during a long swell envelope = chord evolution
+- Hold one chord and walk COLOR up through all six voicings — same harmony,
+  six different registers, and every one of them in tune
+- An envelope or slow LFO on COLOR opens and closes the chord as it plays
 - The voice LEDs show amber in CHORD mode
 
 ---
@@ -321,6 +331,71 @@ opens up as more voices are held, reaching full depth on a six-note chord.
 
 ---
 
+### PLASMA — Coupled Oscillators
+
+**Sound:** unstable. Bell-like and hollow when handled gently, clangorous and
+metallic in the middle, and genuinely violent at the top. The only mode here
+that can be made to break up.
+
+Two oscillators, **M** and **C**, each phase-modulating the other from the
+other's last output, each also modulating itself, and the two multiplied
+together through a ring modulator on the way out.
+
+The bidirectional coupling is the whole thing, and it is what separates PLASMA
+from CASCADE. CASCADE is a chain: modulator into carrier, one direction, at a
+ratio chosen to stay harmonic. PLASMA is a **loop** — each oscillator's output
+is already in the other's input — so past a certain depth it stops behaving
+like two oscillators and starts behaving like one coupled system that rings,
+beats, and eventually tears itself apart. Small changes to any control can
+produce large changes in the sound. That is not a defect to be tuned out; it is
+the reason the mode exists.
+
+| Control  | Effect in PLASMA                                                       |
+| -------- | ---------------------------------------------------------------------- |
+| RELATION | **RATIO** — C against M, continuous from ÷2 to ×8                      |
+| COLOR    | **CROSS-MOD** — how hard each oscillator drives the other              |
+| MOTION   | **FEEDBACK** — how hard each oscillator drives itself                  |
+| SHAPE    | Morphs both oscillators. Sine is the classic; saw and pulse are savage |
+| SPACE    | Width of the two cells — CCW to mono, CW throws them apart             |
+| FATNESS  | One sub oscillator at the root, under the ring mod                     |
+
+**RELATION sweeps continuously**, not in zones. CASCADE already gives you six
+ratios picked to stay harmonic — the reason to come here instead is to sit
+_between_ them. The clangorous, beating, faintly-wrong ratios are the ones
+worth hunting for.
+
+**COLOR and MOTION both drive the loop**, from different directions: COLOR is
+how hard the two oscillators push on each other, MOTION is how hard each one
+pushes on itself. Low COLOR with high MOTION gives a single bright, reedy tone;
+high COLOR with low MOTION gives ringing metallic intervals; both up is where
+it comes apart.
+
+Like CASCADE, PLASMA runs **two cells**, detuned a hair against each other and
+panned apart. Coupled systems diverge, so the two drift out of step on their
+own — the wilder the sound gets, the wider it gets.
+
+**Tips:**
+
+- Start with COLOR and MOTION at zero and bring COLOR up slowly — the first
+  third is where the musical bell tones live
+- Sweep RELATION slowly with both depths at about half: this is the mode's
+  signature move
+- Short CURVE plucks turn the harsh settings into percussion — the ugly part
+  is over before it becomes tiring
+- Use the filter. PLASMA generates a lot of high-frequency content and a low
+  pass with some resonance is what turns noise back into a tone
+- CV 1 into RELATION with slow COLOR movement is a whole patch on its own
+- The MODE LED shows hot red in PLASMA, and the heartbeat never goes fully
+  dark — a coupled pair is always doing something
+
+**On aliasing:** feedback FM at 48 kHz aliases, and PLASMA at high MOTION will.
+The oversampling that would prevent it does not fit the module's CPU budget
+alongside the effect chain, and on a mode built around instability the grit
+reads as part of the character. If you want it clean, keep MOTION below about
+half.
+
+---
+
 ## Controls Reference
 
 ### ROOT
@@ -383,13 +458,14 @@ voices are **tuned**, COLOR sets what they are **made of**. What that means
 changes per mode, but it is never a second detune — that is RELATION's job, and
 one spread control is enough.
 
-| Mode         | COLOR does                                                                           |
-| ------------ | ------------------------------------------------------------------------------------ |
-| PAIR         | **FM depth** — the RELATION voice phase-modulates ROOT. Warmth to bell to metal      |
-| CLOUD        | **MIX** — the six outer supersaw oscillators against the centre one                  |
-| CHORD        | **VOICING** — close, open, spread or wide. RELATION picks the chord, COLOR spaces it |
-| CASCADE      | **FM depth** — as PAIR, but the modulator is never heard directly                    |
-| STRING, POLY | **TIMBRE SPREAD** — fans the voices apart across the SHAPE morph                     |
+| Mode         | COLOR does                                                                            |
+| ------------ | ------------------------------------------------------------------------------------- |
+| PAIR         | **FM depth** — the RELATION voice phase-modulates ROOT. Warmth to bell to metal       |
+| CLOUD        | **MIX** — the six outer supersaw oscillators against the centre one                   |
+| CHORD        | **VOICING** — six positions, close to wide. RELATION picks the chord, COLOR spaces it |
+| CASCADE      | **FM depth** — as PAIR, but the modulator is never heard directly                     |
+| STRING, POLY | **TIMBRE SPREAD** — fans the voices apart across the SHAPE morph                      |
+| PLASMA       | **CROSS-MOD** — how hard the two coupled oscillators drive each other                 |
 
 At COLOR = 0 every mode sits at its neutral position: no FM, centre voice only,
 close voicing, every voice on the same waveform.
@@ -536,6 +612,7 @@ Always shows the current voice mode as a steady colour.
 | CASCADE | Magenta             |
 | STRING  | Purple              |
 | POLY    | Lime / yellow-green |
+| PLASMA  | Hot red             |
 
 When changing mode the panel plays two things in a row. First the CENTRE LED
 ignites white and the flash ripples outward through the others — that says
@@ -558,6 +635,7 @@ position in the cycle.
 | CASCADE | 4        | Magenta             |
 | STRING  | 5        | Purple              |
 | POLY    | 6        | Lime / yellow-green |
+| PLASMA  | 7        | Hot red             |
 
 Each LED stays lit once it fires, so by the end of the sweep you can simply
 count them; the newest one carries a white leading edge so the advance is easy
@@ -582,6 +660,7 @@ active.
 | CASCADE | Magenta — carrier activity    | Magenta brighter — modulator depth |
 | STRING  | Purple — slow drift           | Purple — offset phase              |
 | POLY    | Warm red — active voice count | Cool blue — detune spread          |
+| PLASMA  | Hot red — M oscillator        | Hot red — C:M ratio                |
 
 ### MOD L + MOD R — Motion Layer
 
@@ -691,7 +770,7 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | ------ | ------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | CC 103 | Input Quantization | —            | 0 = Chromatic (off) · 1 = Major · 2 = Natural Minor · 3 = Harmonic Minor · 4 = Melodic Minor · 5 = Pentatonic Maj · 6 = Pentatonic Min · 7 = Blues · 8 = Dorian · 9 = Phrygian · 10 = Lydian · 11 = Mixolydian · 12 = Locrian · 13 = Whole Tone · 14 = Diminished | Quantize incoming pitch to a scale                                          |
 | CC 104 | Transpose          | −24 … +24 st | 0–48                                                                                                                                                                                                                                                              | Semitone offset applied after quantization; the CC value is the offset + 24 |
-| CC 115 | Voice Mode         | —            | 0–20 = Pair · 21–41 = Cloud · 42–62 = Chord · 63–83 = Cascade · 84–104 = String · 105–127 = Poly                                                                                                                                                                  | Switch voice mode                                                           |
+| CC 115 | Voice Mode         | —            | 0–17 = Pair · 18–35 = Cloud · 36–53 = Chord · 54–71 = Cascade · 72–89 = String · 90–107 = Poly · 108–127 = Plasma                                                                                                                                                 | Switch voice mode                                                           |
 
 #### Oscillator
 
