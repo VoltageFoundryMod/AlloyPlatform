@@ -1324,7 +1324,7 @@ struct AlloyFlux : Module
             if(_voiceMode != _ledPrevMode)
             {
                 _ledPrevMode = _voiceMode;
-                _leds.notifyModeChanged();
+                _leds.notifyModeChanged(_voiceMode);
             }
 
             LedSignals sig;

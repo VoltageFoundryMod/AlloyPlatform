@@ -688,16 +688,34 @@ Together with the voice activity on D12/D22, these give a visual sense of how th
 
 #### Mode Change Animation
 
-Triggered by MODE_SW tap.
+Triggered by MODE_SW tap. Two stages: the ripple says *something changed*, the
+count that follows says *which mode*, without the user having to remember what a
+colour means.
 
 ```txt
 1. D15 white flash      ← centre ignites first
 2. D13, D14, D16, D21   ← ripple outward, all flash white
-3. Settle               ← D14 → new mode colour
+                           (~300 ms so far)
+3. Count                ← LED1..LEDn fill in along the silkscreen chain
+                           D12 → D13 → D14 → D15 → D16 → D21 → D22,
+                           n = the mode's position in the cycle:
+                             PAIR 1  CLOUD 2  CHORD 3
+                             CASCADE 4  STRING 5  POLY 6
+                           80 ms apart, each staying lit once it fires, in
+                           the mode's own colour with a white leading edge
+                           on the newest. Every LED past n is forced dark
+                           so the count cannot be misread.
+4. Hold                 ← all n lit together, 240 ms
+5. Settle               ← 200 ms dissolve back to:
+                           D14 → new mode colour
                            D12/D22 → new mode voice colours
                            D15 → resumes heartbeat role
-Total duration: ~300ms
+Total duration: ~800 ms (PAIR) … ~1.2 s (POLY)
 ```
+
+The chain order, not the role order, is what the count walks — `LedId` pairs
+left with right and would zig-zag across the panel. `kLedPanelOrder` in
+`io/LedEngine.h` holds the mapping.
 
 ---
 

@@ -91,6 +91,26 @@ enum class LedId : uint8_t
     LED_COUNT
 };
 
+/**
+ * The seven LEDs in **silkscreen order** — LED1..LED7, which is the physical
+ * daisy chain D12 → D13 → D14 → D15 → D16 → D21 → D22, running
+ * counter-clockwise from the upper left.
+ *
+ * `LedId` is ordered by *role*, which pairs left with right and therefore
+ * jumps across the panel. Any animation that has to read as a sequence — the
+ * mode count in `_applyModeCount()` — walks this table instead, so the eye
+ * follows one continuous path and the lit LEDs can actually be counted.
+ */
+static constexpr LedId kLedPanelOrder[int(LedId::LED_COUNT)] = {
+    LedId::VOICE_L, // LED1 / D12 — upper left
+    LedId::MOD_L,   // LED2 / D13 — left
+    LedId::MODE,    // LED3 / D14 — lower left
+    LedId::CENTRE,  // LED4 / D15 — bottom centre
+    LedId::SHIFT,   // LED5 / D16 — lower right
+    LedId::MOD_R,   // LED6 / D21 — right
+    LedId::VOICE_R, // LED7 / D22 — upper right
+};
+
 /** V/Oct calibration routine phases — drives the D14/D15/D16 visual. */
 enum class LedCalPhase : uint8_t
 {
@@ -180,14 +200,37 @@ class LedEngine
         _noteFlash                  = 0.0f;
         _confirmT                   = -1.0f;
         _modeFlash                  = 0.0f;
+        _countT                     = -1.0f;
+        _countN                     = 0;
+        _countColor                 = LedPalette::kOff;
         _cal                        = LedCalPhase::OFF;
     }
 
     /** Global dimmer applied to every LED — 0.0 (dark) to 1.0 (full). */
     void setMasterBrightness(float b) { _master = ledClamp01(b); }
 
-    /** MODE tap — centre ignites, ripples out, settles on the new colour. */
-    void notifyModeChanged() { _rippleT = 0.0f; }
+    /**
+     * MODE tap — centre ignites and ripples out, then the panel *counts* the
+     * new mode: LED1..LEDn fill in along the silkscreen chain, n being the
+     * mode's position in the cycle (PAIR = 1 … POLY = 6), and hold together
+     * before fading back to the normal display.
+     *
+     * The ripple alone says "something changed"; the count says *which*, and
+     * says it without the user having to remember what cyan means. The colour
+     * is still the mode's own, so the two readings reinforce each other.
+     *
+     * @param m the mode just switched to — its ordinal is the count.
+     */
+    void notifyModeChanged(VoiceMode m)
+    {
+        _rippleT  = 0.0f;
+        _countT   = 0.0f;
+        uint8_t n = (uint8_t)((uint8_t)m + 1u);
+        if(n > (uint8_t)LedId::LED_COUNT)
+            n = (uint8_t)LedId::LED_COUNT;
+        _countN     = n;
+        _countColor = ledModeColor(m);
+    }
 
     /** Gate / MIDI note-on — bright attack flash on the centre LED. */
     void notifyNoteOn() { _noteFlash = 1.0f; }
@@ -239,6 +282,7 @@ class LedEngine
         }
 
         _applyRipple();
+        _applyModeCount();
         _applyMaster();
     }
 
@@ -260,8 +304,13 @@ class LedEngine
     // -----------------------------------------------------------------------
     // Animation timing constants (seconds / Hz)
     // -----------------------------------------------------------------------
-    static constexpr float kRippleDur   = 0.30f; ///< mode-change total time
-    static constexpr float kConfirmDur  = 0.60f; ///< three quick flashes
+    static constexpr float kRippleDur  = 0.30f; ///< mode-change ripple time
+    static constexpr float kConfirmDur = 0.60f; ///< three quick flashes
+
+    // Mode count — starts as the ripple ends, so the two read as one gesture.
+    static constexpr float kCountStep   = 0.08f; ///< interval between LEDs
+    static constexpr float kCountHold   = 0.24f; ///< all n lit and steady
+    static constexpr float kCountFade   = 0.20f; ///< dissolve back to normal
     static constexpr float kBreatheHz   = 0.14f; ///< drone / idle breathe
     static constexpr float kPeakAtkTau  = 0.004f;
     static constexpr float kPeakRelTau  = 0.22f;
@@ -313,6 +362,12 @@ class LedEngine
             _rippleT += dt;
             if(_rippleT > kRippleDur)
                 _rippleT = -1.0f;
+        }
+        if(_countT >= 0.0f)
+        {
+            _countT += dt;
+            if(_countT > _countDur())
+                _countT = -1.0f;
         }
         if(_confirmT >= 0.0f)
         {
@@ -610,6 +665,69 @@ class LedEngine
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Mode count — the panel says which mode you landed on by lighting that
+    // many LEDs, walking the silkscreen chain LED1..LED7 (kLedPanelOrder).
+    //
+    //   PAIR → LED1        CLOUD → LED1-2      CHORD   → LED1-3
+    //   CASCADE → LED1-4   STRING → LED1-5     POLY    → LED1-6
+    //
+    // The LEDs *fill* rather than chase: each one lights in turn and stays
+    // lit, so at the end of the sweep there are n LEDs burning that can be
+    // counted at a glance. The newest one carries a white leading edge that
+    // decays over one step, which is what makes the advance visible. Every
+    // LED past n is forced dark for the duration — a half-lit neighbour is
+    // the one thing that would make the count ambiguous.
+    //
+    // Runs after _applyRipple() and starts where the ripple ends, so a MODE
+    // tap plays as one gesture: ignite, ripple out, count, settle.
+    // -----------------------------------------------------------------------
+    void _applyModeCount()
+    {
+        if(_countT < 0.0f || _cal != LedCalPhase::OFF)
+            return;
+
+        const float t = _countT - kRippleDur;
+        if(t < 0.0f)
+            return; // ripple still playing
+
+        // Overlay strength: full through the fill and the hold, then eased
+        // out so the normal display comes back rather than snapping in.
+        const float fadeStart = (float)_countN * kCountStep + kCountHold;
+        float       mix       = 1.0f;
+        if(t > fadeStart)
+            mix = 1.0f - (t - fadeStart) / kCountFade;
+        mix = ledClamp01(mix);
+        if(mix <= 0.0f)
+            return;
+
+        for(int pos = 0; pos < int(LedId::LED_COUNT); ++pos)
+        {
+            LedColor   &led = _led[int(kLedPanelOrder[pos])];
+            const float lit = t - (float)pos * kCountStep;
+
+            if(pos >= (int)_countN || lit <= 0.0f)
+            {
+                // Not part of the count, or not its turn yet.
+                led = ledLerp(led, LedPalette::kOff, mix);
+                continue;
+            }
+
+            LedColor    c    = _countColor;
+            const float head = 1.0f - lit / kCountStep;
+            if(head > 0.0f)
+                c = ledLerp(c, LedPalette::kWhite, head * 0.75f);
+            led = ledLerp(led, c, mix);
+        }
+    }
+
+    /** Wall time one full count occupies, ripple included. */
+    float _countDur() const
+    {
+        return kRippleDur + (float)_countN * kCountStep + kCountHold
+               + kCountFade;
+    }
+
     void _applyMaster()
     {
         if(_master >= 0.999f)
@@ -633,6 +751,10 @@ class LedEngine
     float _modeFlash = 0.0f; // mode-accept flash    (D14)
     float _rippleT   = -1.0f;
     float _confirmT  = -1.0f;
+
+    float    _countT     = -1.0f; // mode count timer, ripple included
+    uint8_t  _countN     = 0;     // LEDs to light — mode ordinal + 1
+    LedColor _countColor = LedPalette::kOff;
 
     LedCalPhase _cal = LedCalPhase::OFF;
 };

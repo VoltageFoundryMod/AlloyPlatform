@@ -639,7 +639,7 @@ void updateControl()
             if(p.voiceMode != sLedPrevMode)
             {
                 sLedPrevMode = p.voiceMode;
-                sLedEngine.notifyModeChanged();
+                sLedEngine.notifyModeChanged(p.voiceMode);
             }
 
             LedSignals sig;

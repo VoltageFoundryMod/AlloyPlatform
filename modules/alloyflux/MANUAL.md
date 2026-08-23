@@ -470,8 +470,36 @@ Always shows the current voice mode as a steady colour.
 | STRING  | Purple              |
 | POLY    | Lime / yellow-green |
 
-When changing mode: the CENTRE LED ignites white, the flash ripples outward
-through the others, then MODE settles to the new colour. About 300 ms.
+When changing mode the panel plays two things in a row. First the CENTRE LED
+ignites white and the flash ripples outward through the others — that says
+_something changed_. Then the panel **counts the mode out**: the LEDs light one
+after another around the panel, and the number left burning is the mode's
+position in the cycle.
+
+```txt
+      LED1  ·  ·  ·  LED7          the count runs LED1 → LED2 → LED3 → …
+     LED2  ·  ·  ·  ·  LED6        anticlockwise from the upper left,
+        LED3  ·   LED5             the same order the panel numbers them
+            ·  LED4  ·
+```
+
+| Mode    | LEDs lit | Colour              |
+| ------- | -------- | ------------------- |
+| PAIR    | 1        | Soft white          |
+| CLOUD   | 2        | Cyan                |
+| CHORD   | 3        | Amber               |
+| CASCADE | 4        | Magenta             |
+| STRING  | 5        | Purple              |
+| POLY    | 6        | Lime / yellow-green |
+
+Each LED stays lit once it fires, so by the end of the sweep you can simply
+count them; the newest one carries a white leading edge so the advance is easy
+to follow, and any LED past the count is held dark so there is nothing to
+misread. The whole thing takes about 0.8 s in PAIR and 1.2 s in POLY, then the
+panel fades back to its normal display with MODE settled on the new colour.
+
+You get the reading two ways, which is the point: colour if you already know it,
+a count if you don't.
 
 ### VOICE L + VOICE R — Voice Activity
 
