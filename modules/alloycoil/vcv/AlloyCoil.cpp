@@ -140,8 +140,14 @@ struct AlloyCoil : Module
         // arrives through the module's MIDI settings, not a patch cable — but
         // the hole is on the panel, so leaving it undrawn would be the lie.
         MIDI_INPUT,
-        // Listed in panel reading order from here: top row CV 1, CV 2, then
-        // the lower row left to right starting at EXC IN.
+        // Was listed in panel reading order from here — top row CV 1, CV 2,
+        // then the lower row left to right starting at EXC IN — and these two
+        // are the exception now: CV 1 became FB GAIN and CV 2 BODY when the
+        // knobs above them swapped, and the enum did *not* follow. Rack stores
+        // a cable's endpoint as this integer, so reordering would move every
+        // saved patch's cable to the other jack and change what it modulates,
+        // with nothing to indicate it. The order is the file format; the
+        // positions live in the widget's addInput() calls below.
         FBBODY_CV_INPUT,
         FBGAIN_CV_INPUT,
         EXCITER_INPUT,
@@ -933,7 +939,7 @@ struct AlloyCoilWidget : ModuleWidget
             pot(Pot::PITCH), module, AlloyCoil::PITCH_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::FBBODY), module, AlloyCoil::FBBODY_PARAM));
-        addParam(createParamCentered<Davies1900hBlackKnob>(
+        addParam(createParamCentered<Davies1900hLargeBlackKnob>(
             pot(Pot::FBGAIN), module, AlloyCoil::FBGAIN_PARAM));
 
         // Mid row: the echo.
@@ -977,9 +983,9 @@ struct AlloyCoilWidget : ModuleWidget
         addInput(createInputCentered<PJ301MPort>(
             at(kMidiMm), module, AlloyCoil::MIDI_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv1Mm), module, AlloyCoil::FBBODY_CV_INPUT));
+            at(kCv1Mm), module, AlloyCoil::FBGAIN_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv2Mm), module, AlloyCoil::FBGAIN_CV_INPUT));
+            at(kCv2Mm), module, AlloyCoil::FBBODY_CV_INPUT));
 
         addInput(createInputCentered<PJ301MPort>(
             at(kFmInMm), module, AlloyCoil::EXCITER_INPUT));
@@ -1037,7 +1043,7 @@ struct AlloyCoilWidget : ModuleWidget
         hpfSlider->quantity = m->getParamQuantity(AlloyCoil::FBHPF_PARAM);
         menu->addChild(hpfSlider);
 
-        menu->addChild(createMenuLabel("Exciter level  (SHIFT + FB GAIN)"));
+        menu->addChild(createMenuLabel("Exciter level  (SHIFT + BODY)"));
         auto *excSlider     = new SubMenuSlider;
         excSlider->quantity = m->getParamQuantity(AlloyCoil::EXCITE_PARAM);
         menu->addChild(excSlider);

@@ -72,23 +72,24 @@ from **MIDI note 16 to 72** sets the pitch. MIDI note on/off does not stop the s
 
 Three rows of three. The row is the section.
 
-|                          | left          | centre                   | right                 |
-| ------------------------ | ------------- | ------------------------ | --------------------- |
-| **top** — the resonator  | **PITCH**     | **BODY**                 | **FB GAIN** ⇧ EXCITER |
-| **mid** — the echo       | **ECHO TIME** | **ECHO SEND**            | **ECHO FBK**          |
-| **low** — space and tone | **REV DECAY** | **REV DRY/WET** ⇧ VOLUME | **FB LPF** ⇧ FB HPF   |
+|                          | left          | centre                   | right               |
+| ------------------------ | ------------- | ------------------------ | ------------------- |
+| **top** — the resonator  | **PITCH**     | **FB GAIN**              | **BODY** ⇧ EXCITER  |
+| **mid** — the echo       | **ECHO TIME** | **ECHO SEND**            | **ECHO FBK**        |
+| **low** — space and tone | **REV DECAY** | **REV DRY/WET** ⇧ VOLUME | **FB LPF** ⇧ FB HPF |
 
 ⇧ means hold **SHIFT** and turn that knob.
 
 Read it in columns and the panel teaches itself: the **left** column is time
 (pitch is 1/time, the other two are times), the **centre** column is how much of
-that row you get, and the **right** column is feedback — what comes back round.
+that row you get, and the **right** column is what shapes the loop — the body of
+the feedback delay, the echo's repeats, the filter inside the loop.
 
 | Knob            | Range         | What it does                                                                                                             |
 | --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **PITCH**       | note 16–72    | Where the string is tuned. Summed with V/OCT.                                                                            |
-| **BODY**        | 1–100 ms      | Length of the feedback delay. Short is a tight metallic ping; long is a hollow, tube-like resonance.                     |
 | **FB GAIN**     | −30…+12 dB    | **The main control.** Below about −15 dB the string decays; around 0 dB it sustains; above that it builds and saturates. |
+| **BODY**        | 1–100 ms      | Length of the feedback delay. Short is a tight metallic ping; long is a hollow, tube-like resonance.                     |
 | ⇧ **EXCITER**   | −inf…+6 dB    | How hard the FM/EXCITER jack drives the string. 0 dB is unity — the jack's full swing at the engine's full scale.        |
 | **ECHO SEND**   | 0–1           | How much goes into the echo. Tapped after the reverb.                                                                    |
 | **ECHO TIME**   | 0.05–4 s      | Delay time.                                                                                                              |
@@ -148,8 +149,8 @@ Bottom row: **EXC IN**, **CV 3**, **CV 4**, **OUT L**, **OUT R**.
 | **V/OCT**      | −3…+7 V   | Pitch, 1 V/oct, summed with the PITCH knob           |
 | **GATE**       | −0.8…+8 V | _Unused_ — reserved for a future VCA/envelope option |
 | **MIDI IN**    | TRS       | MIDI, type A                                         |
-| **CV 1**       | ±5 V      | Body                                                 |
-| **CV 2**       | ±5 V      | Feedback gain                                        |
+| **CV 1**       | ±5 V      | Feedback gain                                        |
+| **CV 2**       | ±5 V      | Body                                                 |
 | **CV 3**       | ±5 V      | Echo send                                            |
 | **CV 4**       | ±5 V      | Reverb dry/wet                                       |
 | **FM/EXCITER** | ±8 V      | Audio into the resonator                             |

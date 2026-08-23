@@ -22,7 +22,7 @@
 //   Physical layout (platform geometry, Alloy Coil labels). Slot numbers are
 //   row-major, matching the panel silkscreen and PanelLayout's table.
 //
-//        PITCH          BODY          FB GAIN        <- top row: the resonator
+//        PITCH        FB GAIN          BODY          <- top row: the resonator
 //      (POT_1)        (POT_2)         (POT_3)           and its feedback loop
 //                                    +shift: EXCITE
 //                                      (POT_16)
@@ -39,34 +39,52 @@
 //
 //   left    PITCH / ECHO TIME / REV DECAY   — time. Pitch is 1/time, the other
 //                                             two are times outright.
-//   centre  BODY / ECHO SEND / REV DRY/WET — how much. The wet amount of the
-//                                             row below the resonator's own.
-//   right   FB GAIN / ECHO FBK / FB LPF     — feedback. All three are what
-//                                             comes back round; FB LPF is
-//                                             literally inside the loop.
+//   centre  FB GAIN / ECHO SEND / REV DRY/WET — how much. Three amounts, one
+//                                             per row: how much of the loop
+//                                             comes back, how much reaches the
+//                                             echo, how much reverb you hear.
+//   right   BODY / ECHO FBK / FB LPF        — the loop's shape. BODY is the
+//                                             feedback delay's length and
+//                                             FB LPF is the filter inside it.
 //
 // ECHO SEND and ECHO TIME started the other way round and were swapped for
 // this: it puts the two wet-amount controls in the same column, one above the
-// other, and the columns fell out of it. BODY is the one knob that does not fit
-// its column cleanly — it is a delay length sitting in the "amount" slot — and
-// it stays because PITCH has to be top-left and the resonator row has its own
-// logic to obey first.
+// other, and the columns fell out of it.
 //
-// Three shift pairs, all deliberate:
-//   FB GAIN / EXCITE  one knob for how much energy is in the loop, whether it
-//                     comes from the loop itself or from the exciter jack.
+// BODY and FB GAIN then traded places for the same reason. BODY was the knob
+// that did not fit its column — a delay length sitting in the "amount" slot —
+// and moving it right puts it with FB LPF, the other control that shapes the
+// feedback path rather than setting a level. FB GAIN takes the centre, where
+// it reads as the row's "how much" alongside ECHO SEND and REV DRY/WET, and
+// where the module's main control gets the middle of its own row.
+//
+// The right column is no longer "feedback" outright — ECHO FBK is an amount
+// and is now the odd one out there. That is a straight trade of one column
+// mismatch for another, and it was taken because the top row is the row people
+// reach for first.
+//
+// Three shift pairs:
+//   BODY / EXCITE     positional, not thematic — see Pot::EXCITE below. POT_16
+//                     is the top row's only secondary and it is pinned to
+//                     POT_3, so EXCITE stayed put when BODY and FB GAIN
+//                     swapped. It used to sit under FB GAIN, where "how much
+//                     energy is in the loop, from the loop or from outside"
+//                     made it the strongest pairing on the panel; that
+//                     argument is what the swap spent.
 //   FB LPF / FB HPF   the most natural pair in the set — one knob is the
 //                     feedback band, shift reaches its other edge.
 //   REV DRY/WET / VOL VOL sits on POT_14, which is *the same slot AlloyFlux
 //                     puts VOL on*. SHIFT+centre-bottom means volume on both
 //                     firmwares, so the muscle memory carries across.
 //
-// That second pair is positional, not thematic, and it got weaker when DECAY
-// and MIX swapped places: two "how much" controls now share a knob, where
-// DECAY/VOL at least separated time from level. The position wins anyway —
-// VOL's entire argument is that it lives where AlloyFlux's VOL lives, and
-// moving it to POT_13 to chase DECAY would trade the only cross-firmware
-// habit on the panel for a tidier-sounding pairing.
+// That last pair is positional too, and it got weaker when DECAY and MIX
+// swapped places: two "how much" controls now share a knob, where DECAY/VOL at
+// least separated time from level. The position wins anyway — VOL's entire
+// argument is that it lives where AlloyFlux's VOL lives, and moving it to
+// POT_13 to chase DECAY would trade the only cross-firmware habit on the panel
+// for a tidier-sounding pairing. EXCITE is pinned the same way, and by now
+// that is the rule here rather than an exception: a secondary belongs to a
+// knob position, and the parameters on the primaries can move without it.
 //
 // FB LPF gets the knob and VOL the shift because sweeping the feedback filter
 // darkens the ring audibly and is played, while output level is set once.
@@ -83,8 +101,8 @@ namespace Pot
 {
 // ---- top row: resonator + feedback loop ----
 constexpr PotId PITCH  = PotId::POT_1; ///< top L — pitch, MIDI note 16–72
-constexpr PotId FBBODY = PotId::POT_2; ///< top C — feedback delay 1–100 ms
-constexpr PotId FBGAIN = PotId::POT_3; ///< top R — feedback gain −30…+12 dB
+constexpr PotId FBGAIN = PotId::POT_2; ///< top C — feedback gain −30…+12 dB
+constexpr PotId FBBODY = PotId::POT_3; ///< top R — feedback delay 1–100 ms
 
 // ---- mid row: echo ----
 constexpr PotId ECHOTIME = PotId::POT_4; ///< mid L — echo time 0.05–4 s
@@ -107,17 +125,23 @@ constexpr PotId VOL = PotId::POT_14;
 /// feedback band, shift reaches its other edge.
 constexpr PotId FBHPF = PotId::POT_15;
 
-/// SHIFT + top-right, i.e. SHIFT + FB GAIN — gain on the exciter jack.
+/// SHIFT + top-right, i.e. SHIFT + BODY — gain on the exciter jack.
 ///
 /// ⚠ This breaks the platform's shift-numbering convention and does so on
 /// purpose. Slots POT_10..POT_15 pair with POT_4..POT_9 in row-major sequence,
 /// which leaves the top row (POT_1..POT_3) with no secondaries at all — an
-/// artefact of AlloyFlux having needed exactly six. FB GAIN is the only
-/// ergonomically right home for an exciter level: both answer "how hard is the
-/// loop driven". So POT_16 is claimed as POT_3's secondary rather than putting
-/// EXCITE on POT_10..POT_13, where it would have shared a knob with the echo or
-/// the reverb and meant nothing. If a module ever needs the top row's other two,
-/// the convention needs a proper extension rather than two more exceptions.
+/// artefact of AlloyFlux having needed exactly six. The exciter belongs on the
+/// resonator row and nowhere else, so POT_16 is claimed as POT_3's secondary
+/// rather than putting EXCITE on POT_10..POT_13, where it would have shared a
+/// knob with the echo or the reverb and meant nothing. If a module ever needs
+/// the top row's other two, the convention needs a proper extension rather than
+/// two more exceptions.
+///
+/// It is pinned to the *position*, exactly as VOL is on POT_14: POT_3 held FB
+/// GAIN when EXCITE landed here and now holds BODY, and EXCITE did not follow
+/// FB GAIN to POT_2. The old FB GAIN / EXCITE reading — one knob for how much
+/// energy is in the loop, whether from the loop or from the jack — was the
+/// better story, and the top-row swap is what cost it.
 constexpr PotId EXCITE = PotId::POT_16;
 
 /// Covers slots 0..15, i.e. through POT_16. POT_10..POT_13 are the shift pairs
@@ -135,7 +159,7 @@ namespace Pot
 {
 constexpr uint8_t kShiftPairCount              = 3;
 constexpr PotId   kShiftPairs[kShiftPairCount][2]
-    = {{REVMIX, VOL}, {FBLPF, FBHPF}, {FBGAIN, EXCITE}};
+    = {{REVMIX, VOL}, {FBLPF, FBHPF}, {FBBODY, EXCITE}};
 } // namespace Pot
 
 /**
@@ -147,8 +171,13 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
  *
  *   upper row:  V/OCT    GATE      MIDI IN   CV 1     CV 2
  *               CV_1     CV_2      —         CV_3     CV_4
- *               —        unused    —         FBBODY   FBGAIN
- *               "Pitch"  "Gate"    "MIDI In" "Body"   "FB Gain"
+ *               —        unused    —         FBGAIN   FBBODY
+ *               "Pitch"  "Gate"    "MIDI In" "FB Gain" "Body"
+ *
+ * The top-row pair reads in the same order as the knobs it modulates — FB GAIN
+ * then BODY — and it was swapped when they were, for exactly that reason. The
+ * jacks are not literally under their knobs (both sit to the right of MIDI IN),
+ * so the only thing keeping the pair legible is that the two rows agree.
  *
  *   lower row:  EXC IN   CV 3      CV 4      OUT L    OUT R
  *               CV_7     CV_5      CV_6      —        —
@@ -185,8 +214,8 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
 namespace Cv
 {
 constexpr CVId VOCT     = CVId::CV_1; ///< "Pitch"     — summed with PITCH knob
-constexpr CVId FBBODY   = CVId::CV_3; ///< "Body",  CV 1, top row
-constexpr CVId FBGAIN   = CVId::CV_4; ///< "FB Gain", CV 2, top row
+constexpr CVId FBGAIN   = CVId::CV_3; ///< "FB Gain", CV 1, top row
+constexpr CVId FBBODY   = CVId::CV_4; ///< "Body",  CV 2, top row
 constexpr CVId ECHOSEND = CVId::CV_5; ///< "Delay Snd", CV 3, lower row
 constexpr CVId REVMIX   = CVId::CV_6; ///< "Rev Dry/Wet", CV 4, lower row
 constexpr CVId EXCITER  = CVId::CV_7; ///< "Exc In"    — external excitation

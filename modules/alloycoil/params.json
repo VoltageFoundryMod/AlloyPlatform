@@ -93,9 +93,11 @@
         "ParamDisplay in platform/include/ParamDescriptor.h."
       ],
       "$comment": [
-        "Gain on the FM/EXCITER jack before it enters the loop. SHIFT + FB GAIN",
-        "on the panel: one knob for how much energy is in the loop, whether it",
-        "comes from the loop itself or from outside.",
+        "Gain on the FM/EXCITER jack before it enters the loop. SHIFT + BODY on",
+        "the panel — the top row's only shift-secondary, pinned to the knob",
+        "position rather than to whichever parameter sits there. It sat under",
+        "FB GAIN until BODY and FB GAIN traded places; see Pot::EXCITE in",
+        "io/PanelMap.h for what that swap cost and why it was taken anyway.",
         "",
         "CC 19 continues the module-specific 16/17/18 block. The AlloyFlux-",
         "parallel choice would have been 92, which is COLOR there and is",

@@ -58,8 +58,8 @@ struct CoilPotParam
 static constexpr uint8_t     kCoilPotParamCount             = 12;
 static constexpr CoilPotParam kCoilPotParams[kCoilPotParamCount] = {
     {Pot::PITCH, "pitch"},
-    {Pot::FBBODY, "fbbody"},
     {Pot::FBGAIN, "fbgain"},
+    {Pot::FBBODY, "fbbody"},
     {Pot::ECHOTIME, "echotime"},
     {Pot::ECHOSEND, "echosend"},
     {Pot::ECHOFB, "echofb"},
