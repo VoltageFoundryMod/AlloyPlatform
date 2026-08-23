@@ -59,8 +59,9 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     // before any setFreq() / setShape() calls.
     _generateWavetables();
 
-    // Assign table pointers to all oscillators.
-    for(int i = 0; i < 6; i++)
+    // Assign table pointers to all oscillators.  Seven of them — CLOUD's
+    // supersaw needs the seventh; POLY uses only the first six.
+    for(int i = 0; i < 7; i++)
     {
         _voices[i].setTables(
             _sineTable, _triTable, _sawTable, _squareTable, _narrowPulseTable);
@@ -72,8 +73,11 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
         _subVoices[i].setSampleRate(audioRate);
         // Fixed square shape for sub oscillators.
         _subVoices[i].setShape(0.75f);
+    }
 
-        // Poly envelopes
+    // Poly envelopes — six, one per POLY slot.
+    for(int i = 0; i < 6; i++)
+    {
         _polyEnvArr[i].setSampleRate(audioRate);
         polyEnvs[i]  = &_polyEnvArr[i];
         sPolyEnvs[i] = &_polyEnvArr[i];
@@ -102,7 +106,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     reverb = &_dattorroReverb;
 
     // Initial voice frequencies
-    for(int i = 0; i < 6; i++)
+    for(int i = 0; i < 7; i++)
     {
         _voices[i].setFreq(440.0f);
         _subVoices[i].setFreq(440.0f * 0.5f);
@@ -120,12 +124,13 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
 void SynthEngine::setSampleRate(uint32_t audioRate)
 {
     _audioRate = audioRate;
-    for(int i = 0; i < 6; i++)
+    for(int i = 0; i < 7; i++)
     {
         _voices[i].setSampleRate(audioRate);
         _subVoices[i].setSampleRate(audioRate);
-        _polyEnvArr[i].setSampleRate(audioRate);
     }
+    for(int i = 0; i < 6; i++)
+        _polyEnvArr[i].setSampleRate(audioRate);
     _arEnv.setSampleRate(audioRate);
     _adsrEnv.setSampleRate(audioRate);
     _chorus.setSampleRate(audioRate);
@@ -137,6 +142,71 @@ void SynthEngine::setSampleRate(uint32_t audioRate)
     _dattorroReverb.setSampleRate((float)audioRate);
     // Wavetables are sample-rate independent, and filter coefficients are
     // recomputed from _audioRate on every control tick.
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::_cloudDetuneCurve()  — CLOUD supersaw detune law
+//
+// Szabo's fitted 11th-order polynomial for the JP-8000's DETUNE knob. The
+// shape is the point: almost flat for the first third of travel — where the
+// useful chorusing lives, and where a linear knob gives you nothing usable —
+// then opening out steeply toward a spread of roughly ±11%, about 1.8
+// semitones, at full CW.
+//
+// Evaluated with Horner. Runs at control rate and only when RELATION moves,
+// so the order is free; the clamps matter more than the cost, because the
+// polynomial diverges hard outside 0–1.
+// ---------------------------------------------------------------------------
+float SynthEngine::_cloudDetuneCurve(float x)
+{
+    if(x < 0.0f)
+        x = 0.0f;
+    else if(x > 1.0f)
+        x = 1.0f;
+
+    float y = 10028.7312891634f;
+    y       = y * x - 50818.8652045924f;
+    y       = y * x + 111363.4808729368f;
+    y       = y * x - 138150.6761080548f;
+    y       = y * x + 106649.6679158292f;
+    y       = y * x - 53046.9642751875f;
+    y       = y * x + 17019.9518580080f;
+    y       = y * x - 3425.0836591318f;
+    y       = y * x + 404.2703938388f;
+    y       = y * x - 24.1878824391f;
+    y       = y * x + 0.6717417634f;
+    y       = y * x + 0.0030115596f;
+
+    // The fit overshoots slightly at both ends; a negative detune would
+    // mirror the stack and a runaway one would detune it into noise.
+    if(y < 0.0f)
+        y = 0.0f;
+    else if(y > 1.0f)
+        y = 1.0f;
+    return y;
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::_cloudRandomisePhases()
+//
+// Randomising the seven phases is not decoration — it is load-bearing twice
+// over. Musically it is why no two supersaw stabs sound quite alike, which is
+// half of what people recognise in the JP-8000. Structurally it is what keeps
+// seven near-identical oscillators from starting in lockstep and summing
+// coherently into a peak three times the intended level, which at low
+// RELATION they would otherwise hold indefinitely — nothing pulls them apart
+// once their phase increments match.
+//
+// Called on note attack and on entry to CLOUD. The second is what covers
+// drone, where there is no attack to hang it on.
+// ---------------------------------------------------------------------------
+void SynthEngine::_cloudRandomisePhases()
+{
+    for(int i = 0; i < 7; i++)
+    {
+        _voices[i].setPhase(_rng());
+        _subVoices[i].setPhase(_rng());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,11 +265,16 @@ void SynthEngine::control(const SynthParams  &p,
             curveEng->setGate(curGate);
             if(curGate && curveEng->level() < 0.01f)
             {
-                for(int i = 0; i < 4; i++)
-                {
-                    _voices[i].resetPhase();
-                    _subVoices[i].resetPhase();
-                }
+                // CLOUD wants the opposite of a known phase — see
+                // _cloudRandomisePhases().
+                if(p.voiceMode == VoiceMode::CLOUD)
+                    _cloudRandomisePhases();
+                else
+                    for(int i = 0; i < 4; i++)
+                    {
+                        _voices[i].resetPhase();
+                        _subVoices[i].resetPhase();
+                    }
             }
             _prevGate = curGate;
         }
@@ -237,8 +312,13 @@ void SynthEngine::control(const SynthParams  &p,
     {
         _sGlidedFreq = p.baseFreq;
     }
-    float voiceFreqs[4]
-        = {_sGlidedFreq, _sGlidedFreq, _sGlidedFreq, _sGlidedFreq};
+    float voiceFreqs[7] = {_sGlidedFreq,
+                           _sGlidedFreq,
+                           _sGlidedFreq,
+                           _sGlidedFreq,
+                           _sGlidedFreq,
+                           _sGlidedFreq,
+                           _sGlidedFreq};
 
     // ------------------------------------------------------------------
     // Voice mode — frequency assignment + pan
@@ -351,42 +431,95 @@ void SynthEngine::control(const SynthParams  &p,
         }
         case VoiceMode::CLOUD:
         {
-            if(fabsf(_sRelation - _cachedRelCloud) > 0.05f
-               || fabsf(_sGlidedFreq - _cachedBaseCloud) > 0.01f || modeChanged)
+            // ----------------------------------------------------------------
+            // Supersaw. RELATION is DETUNE, COLOR is MIX — the JP-8000's own
+            // two controls, landed on the two knobs that carry mode identity
+            // here. They are genuinely orthogonal, which is the point: COLOR
+            // in the other ensemble modes is a second detune spread, and next
+            // to RELATION it has very little to say. Here it sets *balance*,
+            // sweeping from a single clean voice to the full seven-wide stack
+            // without moving a single frequency.
+            // ----------------------------------------------------------------
+            if(modeChanged)
+                _cloudRandomisePhases(); // covers drone: no attack to hang on
+
+            // DETUNE — cached against RELATION alone. Proportional, so the
+            // stack stays equally wide wherever it is played.
+            if(fabsf(_sRelation - _cachedRelCloud) > 0.01f || modeChanged)
             {
-                const float spreadCents = (_sRelation / 24.0f) * 50.0f;
-                const float offCents[4] = {-spreadCents * 0.5f,
-                                           -spreadCents * (1.0f / 6.0f),
-                                           spreadCents * (1.0f / 6.0f),
-                                           spreadCents * 0.5f};
-                for(int i = 0; i < 4; i++)
-                    _cachedFreqsCloud[i]
-                        = _sGlidedFreq * powf(2.0f, offCents[i] / 1200.0f);
-                _cachedRelCloud  = _sRelation;
-                _cachedBaseCloud = _sGlidedFreq;
+                const float d = _cloudDetuneCurve(_sRelation / 24.0f);
+                for(int i = 0; i < 7; i++)
+                    _cloudDetuneMul[i] = 1.0f + d * kCloudOffset[i];
+                _cachedRelCloud = _sRelation;
             }
-            static constexpr float kColorOff[4]
-                = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
-            for(int i = 0; i < 4; i++)
+
+            // MIX — centre against sides, on Szabo's two fitted curves. At
+            // full CCW the centre voice carries the sound almost alone; at
+            // full CW the six sides dominate it.
+            if(fabsf(_sColor - _cachedColorCloud) > 0.002f || modeChanged)
             {
-                voiceFreqs[i] = _cachedFreqsCloud[i] + _drift.offset(i) * 1.5f
-                                + _sColor * 50.0f * kColorOff[i];
+                float mix = _sColor;
+                if(mix < 0.0f)
+                    mix = 0.0f;
+                else if(mix > 1.0f)
+                    mix = 1.0f;
+                const float centre = -0.55366f * mix + 0.99785f;
+                const float side
+                    = -0.73764f * mix * mix + 1.2841f * mix + 0.044372f;
+
+                // Normalise in *quadrature*, not by the plain sum: the seven
+                // voices are detuned and so add incoherently, and normalising
+                // by the arithmetic sum would make COLOR read as a volume cut
+                // rather than as the density control it is.
+                float sumSq = centre * centre + 6.0f * side * side;
+                if(sumSq < 1e-6f)
+                    sumSq = 1e-6f;
+                const float norm = 1.0f / sqrtf(sumSq);
+
+                for(int i = 0; i < 7; i++)
+                    _cloudLevel[i] = (i == 3 ? centre : side) * norm;
+                _cachedColorCloud = _sColor;
+            }
+
+            // Voices. MOTION is dialled well back from the old CLOUD (×1.5 →
+            // ×0.4): the detune already supplies the width, and drift on top
+            // of it only smears the beating that makes a supersaw legible.
+            // Movement is STRING's job now — that split is what finally tells
+            // the two modes apart.
+            const float smCloud = (p.subOctave == 2) ? 0.25f : 0.5f;
+            for(int i = 0; i < 7; i++)
+            {
+                voiceFreqs[i] = _sGlidedFreq * _cloudDetuneMul[i]
+                                + _drift.offset(i) * 0.4f;
                 if(voiceFreqs[i] < 20.0f)
                     voiceFreqs[i] = 20.0f;
                 _voices[i].setFreq(voiceFreqs[i]);
                 _voices[i].setShape(_sShape);
-                const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-                _subVoices[i].setFreq(voiceFreqs[i] * sm);
+
+                // Stereo: flat-to-sharp maps left-to-right, so the detune
+                // reads as width rather than as mistuning — the same law POLY
+                // uses. Constant-sum, matching the ensemble modes.
+                const float w   = kCloudPanScale * _cloudLevel[i];
+                const float p01 = (float)i * (1.0f / 6.0f);
+                _panL[i]        = (int16_t)(w * (1.0f - p01));
+                _panR[i]        = (int16_t)(w * p01);
             }
-            _activeVoices = 4;
-            _panL[0]      = 128;
-            _panL[1]      = 90;
-            _panL[2]      = 38;
-            _panL[3]      = 0;
-            _panR[0]      = 0;
-            _panR[1]      = 38;
-            _panR[2]      = 90;
-            _panR[3]      = 128;
+
+            // One sub, on the centre voice, rather than seven. The JP-8000 has
+            // none at all; seven would be seven more oscillators for a band
+            // the stack already fills. FATNESS still does something useful.
+            _subVoices[3].setFreq(_sGlidedFreq * smCloud < 20.0f
+                                      ? 20.0f
+                                      : _sGlidedFreq * smCloud);
+
+            // Track the HPF to the played note — see _cloudHpA.
+            {
+                const float fc = _sGlidedFreq;
+                const float w0 = 6.2831853f * fc / (float)_audioRate;
+                _cloudHpA      = 1.0f / (1.0f + w0);
+            }
+
+            _activeVoices = 7;
             break;
         }
         case VoiceMode::CASCADE:
@@ -579,6 +712,10 @@ void SynthEngine::control(const SynthParams  &p,
             sPolySlots[i].midiNote = kPolySlotFree;
         }
         sPolyRR = 0;
+        // CLOUD's HPF holds the last sample it saw; entering the mode with a
+        // stale one in the filter is a click.
+        _cloudHpXL = _cloudHpYL = 0.0f;
+        _cloudHpXR = _cloudHpYR = 0.0f;
     }
 
     // Sub weight
@@ -706,7 +843,8 @@ void SynthEngine::audio(int32_t  revWetL,
                         int32_t *dryForRevL,
                         int32_t *dryForRevR)
 {
-    const bool isPolyMode = (_voiceMode == VoiceMode::POLY);
+    const bool isPolyMode  = (_voiceMode == VoiceMode::POLY);
+    const bool isCloudMode = (_voiceMode == VoiceMode::CLOUD);
     const bool isFmMode
         = (_voiceMode == VoiceMode::CASCADE || _voiceMode == VoiceMode::PAIR);
 
@@ -743,6 +881,37 @@ void SynthEngine::audio(int32_t  revWetL,
             left += ((m2 * _panL[2]) + (m3 * _panL[3])) >> 8;
             right += ((m2 * _panR[2]) + (m3 * _panR[3])) >> 8;
         }
+    }
+    else if(isCloudMode)
+    {
+        // Supersaw: seven mains, and exactly one sub — the centre voice's.
+        // Skipping the other six is what keeps a seven-oscillator mode
+        // cheaper than POLY's six-plus-six.
+        for(uint8_t i = 0; i < 7; i++)
+        {
+            const int32_t s = _voices[i].next();
+            left += (s * _panL[i]) >> 8;
+            right += (s * _panR[i]) >> 8;
+        }
+        if(_sSubWf > 0.001f)
+        {
+            const int32_t sub = _subVoices[3].next();
+            const int32_t sm  = (int32_t)((float)sub * _sSubWf);
+            left += sm >> 1; // centred
+            right += sm >> 1;
+        }
+
+        // Note-tracking one-pole HPF. Applied here, before the limiter, so it
+        // takes the low pile-up out *before* anything has a chance to clip on
+        // it rather than after.
+        const float a  = _cloudHpA;
+        const float xl = (float)left, xr = (float)right;
+        _cloudHpYL = a * (_cloudHpYL + xl - _cloudHpXL);
+        _cloudHpYR = a * (_cloudHpYR + xr - _cloudHpXR);
+        _cloudHpXL = xl;
+        _cloudHpXR = xr;
+        left       = (int32_t)_cloudHpYL;
+        right      = (int32_t)_cloudHpYR;
     }
     else if(isPolyMode)
     {

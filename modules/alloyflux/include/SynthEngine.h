@@ -225,10 +225,14 @@ class SynthEngine
     static void _normaliseTable(const float *buf, int16_t *dst, int n);
 
     // -----------------------------------------------------------------------
-    // Oscillators — 4 main voices + 4 sub voices.
+    // Oscillators — 7 main voices + 7 sub voices.
+    //
+    // Seven, not six, because of CLOUD: the JP-8000 supersaw is a seven-saw
+    // stack and the count is not arbitrary — the detune offsets below are
+    // fitted to that many. POLY still uses only the first six.
     // -----------------------------------------------------------------------
-    ShapeOsc<48000u> _voices[6];
-    ShapeOsc<48000u> _subVoices[6];
+    ShapeOsc<48000u> _voices[7];
+    ShapeOsc<48000u> _subVoices[7];
 
     // -----------------------------------------------------------------------
     // Envelopes
@@ -244,7 +248,7 @@ class SynthEngine
     // -----------------------------------------------------------------------
     // Effect engines
     // -----------------------------------------------------------------------
-    DriftEngine<6u>      _drift;
+    DriftEngine<7u>      _drift;
     ChorusEngine<48000u> _chorus;
 
     SVFFilter  _svfFilter;
@@ -300,8 +304,8 @@ class SynthEngine
     /// CASCADE, where the second pair is what makes the mode stereo at all.
     /// Read only when the mode is an FM one; other modes leave it alone.
     uint8_t _fmPairs = 1u;
-    int16_t _panL[6] = {256, 0, 0, 0, 0, 0};
-    int16_t _panR[6] = {0, 256, 0, 0, 0, 0};
+    int16_t _panL[7] = {256, 0, 0, 0, 0, 0, 0};
+    int16_t _panR[7] = {0, 256, 0, 0, 0, 0, 0};
 
     // Gate edge detection (control()).
     bool _prevGate = false;
@@ -328,10 +332,15 @@ class SynthEngine
     float _cachedChordBase     = -1.0f;
     float _cachedFreqsChord[4] = {440.0f, 440.0f, 440.0f, 440.0f};
 
-    // CLOUD
-    float _cachedRelCloud      = -99.0f;
-    float _cachedBaseCloud     = -1.0f;
-    float _cachedFreqsCloud[4] = {440.0f, 440.0f, 440.0f, 440.0f};
+    // CLOUD — supersaw. Unlike the other ensemble modes nothing here needs a
+    // powf(): detune is a *proportional* offset, so the per-voice value is a
+    // plain multiplier against the root and the cache holds the multipliers
+    // rather than absolute frequencies. RELATION moving costs seven multiplies.
+    float _cachedRelCloud    = -99.0f;
+    float _cloudDetuneMul[7] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+    // Per-voice level, already normalised. Recomputed when COLOR moves.
+    float _cachedColorCloud = -99.0f;
+    float _cloudLevel[7]    = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f};
 
     // STRING
     float _cachedRelStr      = -99.0f;
@@ -345,6 +354,64 @@ class SynthEngine
     // per tick otherwise.
     float _cachedRelPoly    = -99.0f;
     float _polyDetuneMul[6] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+
+    // -----------------------------------------------------------------------
+    // CLOUD — supersaw
+    //
+    // A JP-8000-style seven-oscillator stack, after Adam Szabo's 2010
+    // reverse-engineering ("How to Emulate the Super Saw"). Three parts matter
+    // and all three are here: the *irregular* detune offsets, the non-linear
+    // curve RELATION drives them through, and the centre/side level balance
+    // COLOR sets. An evenly-spaced spread with a linear knob does not sound
+    // like this, which is why the odd-looking constants are kept exactly.
+    //
+    // SHAPE is deliberately left live rather than forced to saw. The offsets
+    // and the mix law are about how the stack is tuned and balanced, not about
+    // what waveform it is made of, so they hold up across the whole morph —
+    // a super-pulse or super-triangle is the same trick on another wave.
+    // -----------------------------------------------------------------------
+
+    /** Relative detune offsets, as a fraction of the detune amount. */
+    static constexpr float kCloudOffset[7] = {-0.11002313f,
+                                              -0.06288439f,
+                                              -0.01952356f,
+                                              0.00000000f, // centre voice
+                                              0.01991221f,
+                                              0.06216538f,
+                                              0.10745242f};
+
+    /**
+     * Pan weight scale. Sized so CLOUD's summed level matches the ensemble
+     * modes it replaces (their per-voice 128 over four voices) once the
+     * seven decorrelated voices are added in quadrature — see _cloudLevel's
+     * normalisation. Held a little under the exact match for headroom: the
+     * supersaw is peakier than its RMS suggests.
+     */
+    static constexpr float kCloudPanScale = 240.0f;
+
+    /** Detune curve: RELATION 0–1 → detune fraction. Szabo's fitted 11th-order
+     *  polynomial. Control rate only, so the order costs nothing. */
+    static float _cloudDetuneCurve(float x);
+
+    /** Re-randomise all seven supersaw phases (note attack, mode entry). */
+    void _cloudRandomisePhases();
+
+    /** Cheap LCG — phase randomisation only, never in the audio path. */
+    uint32_t        _rngState = 0x9E3779B9u;
+    inline uint32_t _rng()
+    {
+        _rngState = _rngState * 1664525u + 1013904223u;
+        return _rngState;
+    }
+
+    // One-pole HPF tracking the played note, applied to CLOUD only. The
+    // JP-8000 has one and it is what keeps a seven-saw stack from turning to
+    // mud in the low register — without it the detuned partials pile up below
+    // the fundamental. Coefficient set at control rate, state advanced in
+    // audio().
+    volatile float _cloudHpA  = 0.0f;
+    float          _cloudHpXL = 0.0f, _cloudHpYL = 0.0f;
+    float          _cloudHpXR = 0.0f, _cloudHpYR = 0.0f;
 
     // -----------------------------------------------------------------------
     // Constants

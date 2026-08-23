@@ -128,22 +128,38 @@ The foundation mode. Root and Relation play together with configurable interval 
 
 ---
 
-### CLOUD — Ensemble
+### CLOUD — Supersaw
 
-**Sound:** thick, lush, detuned. Multiple virtual voices distributed across the stereo field with animated positioning — supersaw-like density without harshness.
+**Sound:** the big one. A seven-oscillator stack in the JP-8000 tradition — huge, bright, and wide, from a barely-thickened single voice to a wall.
 
-| Control  | Effect in CLOUD                                                                          |
-| -------- | ---------------------------------------------------------------------------------------- |
-| RELATION | Ensemble spread and density — CCW = tight unison, CW = wide shimmer (±25¢ across voices) |
-| MOTION   | Brings the ensemble to life — voices drift and breathe at higher MOTION values           |
-| COLOR    | Fine Hz detune spread — adds beating and shimmer on top of the RELATION cent spread      |
-| SPACE    | Width of the stereo ensemble image                                                       |
+Seven oscillators tuned around the root, spread by an uneven detune pattern and balanced centre-against-sides. Two knobs run it, and they do genuinely different things: **RELATION detunes, COLOR balances.** Neither is a substitute for the other.
+
+RELATION's response is deliberately non-linear. The first third of its travel barely moves — that is where the subtle chorusing lives and it needs the resolution — then it opens out steeply to a spread of about 1.8 semitones at full CW.
+
+COLOR sets how loud the six outer oscillators are against the centre one. Fully CCW you hear essentially one clean voice; fully CW the outer six dominate and the stack is at its widest and most restless. It changes the character without moving a single frequency, so you can set the detune you want and then decide how much of it you want to hear.
+
+Every note attack **randomises the seven phases**, which is why no two stabs sound quite alike — a large part of what makes this sound recognisable.
+
+| Control  | Effect in CLOUD                                                                       |
+| -------- | ------------------------------------------------------------------------------------- |
+| RELATION | **DETUNE** — spread of the seven oscillators, 0 = unison to ±1.8 semitones at full CW |
+| COLOR    | **MIX** — level of the six outer oscillators against the centre one                   |
+| SHAPE    | Applies to all seven. Saw is the classic, but the whole morph works — see below       |
+| MOTION   | Slow drift on top. Deliberately restrained here; the detune supplies the width        |
+| SPACE    | Width of the stereo image — CCW collapses to mono, CW throws the stack wider          |
+| FATNESS  | One sub oscillator on the centre voice                                                |
+
+**SHAPE is not locked to saw.** The detune pattern and the mix balance are about how the stack is _tuned_, not what it is made of, so the whole SHAPE morph works: a super-sine is a gorgeous shimmering pad, a super-pulse is enormous and hollow, and sweeping SHAPE across the stack while it plays is a sound the original never made.
+
+A high-pass filter tracks the played note, which is what keeps seven detuned oscillators from turning to mud in the bass.
 
 **Tips:**
 
-- Slow CURVE (swell) + high MOTION = classic lush pad territory
-- CLOUD works well with reverb — the natural drift and reverb movement complement each other
-- CV 1 (RELATION) from an LFO slowly pulses the ensemble width for breathing pads
+- The classic: SHAPE at saw, RELATION about a third up, COLOR high, into the filter
+- COLOR is the expressive one — try it on CV or an envelope, it opens the stack up without any pitch movement
+- Keep MOTION low. The detune is already doing that job, and drift on top smears the beating that makes a supersaw legible
+- For pads, slow CURVE swell + reverb; for stabs, fast CURVE and let the phase randomisation give each hit its own character
+- Want movement instead of width? That is STRING's job now
 
 ---
 
@@ -510,7 +526,7 @@ active.
 | Mode    | VOICE L (left)                | VOICE R (right)                    |
 | ------- | ----------------------------- | ---------------------------------- |
 | PAIR    | Warm red — envelope level     | Cool blue — relation depth         |
-| CLOUD   | Cyan — left voice position    | Cyan — stereo spread               |
+| CLOUD   | Cyan — centre voice           | Cyan/blue — detune spread          |
 | CHORD   | Amber — root envelope         | Amber dimmer — interval spread     |
 | CASCADE | Magenta — carrier activity    | Magenta brighter — modulator depth |
 | STRING  | Purple — slow drift           | Purple — offset phase              |
@@ -520,8 +536,8 @@ active.
 
 The upper-middle pair. They take the colour of the current mode and show how far
 the sound is being animated: MOD L follows MOTION depth, MOD R follows the mode's
-secondary spread — detune in PAIR, stereo width in CLOUD and STRING, FM depth in
-CASCADE, chord spread in CHORD.
+secondary control — detune in PAIR, supersaw MIX in CLOUD, stereo width in
+STRING, FM depth in CASCADE, chord spread in CHORD.
 
 With MOTION at zero and nothing modulating, both sit dark.
 

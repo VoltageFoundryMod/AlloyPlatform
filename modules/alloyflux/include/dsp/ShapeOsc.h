@@ -81,6 +81,17 @@ class ShapeOsc
     /** Reset phase accumulator to zero — call on note retrigger to avoid random-phase clicks. */
     void resetPhase() { _phase = 0; }
 
+    /**
+     * Force the phase accumulator to an arbitrary position.
+     *
+     * The counterpart to resetPhase(), for the case where a *known* phase is
+     * the wrong answer: CLOUD's supersaw randomises all seven phases on note
+     * attack, which is what gives each stab its own character and — just as
+     * importantly — stops seven near-identical oscillators from summing
+     * coherently into a peak the limiter has to catch.
+     */
+    void setPhase(uint32_t phase) { _phase = phase; }
+
     // Phase-modulated sample: reads at (_phase + phaseOffset) but advances _phase normally.
     // Use for FM/PM in CASCADE mode — the carrier calls this with the modulator sample
     // scaled to Q16 phase units (phaseOffset = modSample × sFmDepth precomputed at ctrl rate).

@@ -396,7 +396,6 @@ class LedEngine
     void _renderVoiceActivity(const SynthParams &p, const LedSignals &s)
     {
         const float rel   = ledClamp01(p.relation / 24.0f);
-        const float space = ledClamp01(p.space * 0.5f);
         const float color = ledClamp01(p.color);
 
         // Stereo energy gradient — the secondary role of both LEDs.
@@ -415,9 +414,12 @@ class LedEngine
                 break;
 
             case VoiceMode::CLOUD:
-                // Both cyan, shifting in opposite directions with the spread.
-                cl = ledLerp(LedPalette::kCyan, LedPalette::kCoolBlue, space);
-                cr = ledLerp(LedPalette::kCyan, LedPalette::kGreen, space);
+                // Supersaw: left is the centre voice, steady. Right carries
+                // the detune spread, so how wide the stack is set is legible
+                // without touching the knob to find out.
+                cl = LedPalette::kCyan;
+                cr = ledLerp(LedPalette::kCyan, LedPalette::kCoolBlue, rel);
+                br *= 0.35f + 0.65f * rel;
                 break;
 
             case VoiceMode::CHORD:
@@ -476,7 +478,7 @@ class LedEngine
                 break;
             case VoiceMode::CLOUD:
                 c         = LedPalette::kCyan;
-                secondary = space; // stereo spread
+                secondary = color; // supersaw MIX — centre against sides
                 break;
             case VoiceMode::CHORD:
                 c         = LedPalette::kAmber;
