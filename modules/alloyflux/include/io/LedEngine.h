@@ -457,44 +457,35 @@ class LedEngine
     }
 
     // -----------------------------------------------------------------------
-    // D13 / D21 — the "motion" layer.  D13 is always MOTION depth; D21 is the
-    // per-mode secondary modulation amount and is deliberately dimmer.  Both
-    // follow the voice-activity gradient so the flow of sound reads across
-    // the whole panel.
+    // D13 / D21 — the "motion" layer.  D13 is always MOTION depth; D21 is
+    // always COLOR, and is deliberately dimmer.  Both follow the
+    // voice-activity gradient so the flow of sound reads across the panel.
+    //
+    // D21 used to show a different parameter in each mode — detune here,
+    // stereo width there — which meant the LED could not be read without
+    // first remembering which mode you were in. It shows COLOR everywhere
+    // now, which is only honest because COLOR finally *does* something
+    // distinct in every mode: FM depth in PAIR and CASCADE, supersaw MIX in
+    // CLOUD, chord voicing in CHORD, timbre spread in STRING and POLY.
+    //
+    // That gives the top two rows a clean pairing: VOICE_R shows what
+    // RELATION is doing, MOD_R shows what COLOR is doing.
     // -----------------------------------------------------------------------
     void _renderModulation(const SynthParams &p)
     {
-        const float rel   = ledClamp01(p.relation / 24.0f);
-        const float space = ledClamp01(p.space * 0.5f);
         const float color = ledClamp01(p.color);
 
-        LedColor c         = LedPalette::kGreen;
-        float    secondary = rel;
+        LedColor    c         = LedPalette::kGreen;
+        const float secondary = color;
 
         switch(p.voiceMode)
         {
-            case VoiceMode::PAIR:
-                secondary = rel; // detune amount
-                break;
-            case VoiceMode::CLOUD:
-                c         = LedPalette::kCyan;
-                secondary = color; // supersaw MIX — centre against sides
-                break;
-            case VoiceMode::CHORD:
-                c         = LedPalette::kAmber;
-                secondary = rel; // chord spread
-                break;
-            case VoiceMode::CASCADE:
-                c         = LedPalette::kMagenta;
-                secondary = color; // FM depth
-                break;
-            case VoiceMode::STRING:
-                c         = LedPalette::kPurple;
-                secondary = space; // stereo offset
-                break;
-            case VoiceMode::POLY:
-                secondary = rel; // detune / spread width
-                break;
+            case VoiceMode::PAIR: break;
+            case VoiceMode::CLOUD: c = LedPalette::kCyan; break;
+            case VoiceMode::CHORD: c = LedPalette::kAmber; break;
+            case VoiceMode::CASCADE: c = LedPalette::kMagenta; break;
+            case VoiceMode::STRING: c = LedPalette::kPurple; break;
+            case VoiceMode::POLY: break;
         }
 
         // Rhythmic pulse at the drift rate, gated by MOTION depth.

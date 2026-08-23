@@ -329,6 +329,7 @@ class SynthEngine
 
     // CHORD
     int   _cachedChordIdx      = -1;
+    int   _cachedVoicingChord  = -1;
     float _cachedChordBase     = -1.0f;
     float _cachedFreqsChord[4] = {440.0f, 440.0f, 440.0f, 440.0f};
 
@@ -392,6 +393,34 @@ class SynthEngine
     /** Detune curve: RELATION 0–1 → detune fraction. Szabo's fitted 11th-order
      *  polynomial. Control rate only, so the order costs nothing. */
     static float _cloudDetuneCurve(float x);
+
+    /**
+     * SHAPE for one voice of an ensemble spread — COLOR's job in STRING and
+     * POLY, where it used to add a second detune on top of RELATION's.
+     *
+     * Two knobs that both spread pitch are one knob with a vernier: at A440
+     * RELATION's ±15 cents is ±3.8 Hz against COLOR's ±25 Hz, so COLOR was
+     * simply the coarser detune and there was no reason to reach for it.
+     * Spreading *timbre* instead gives it something RELATION cannot do — the
+     * voices diverge in harmonic content rather than in pitch, which thickens
+     * the ensemble without widening it, and the beating between partials
+     * stops being identical on every voice.
+     *
+     * @param base  the SHAPE knob position
+     * @param amt   spread depth (COLOR × 0.5 → up to ±0.25 of the morph)
+     * @param off   this voice's position in the spread, −0.5 … +0.5
+     */
+    static inline float _shapeSpread(float base, float amt, float off)
+    {
+        float s = base + amt * off;
+        // Clamping rather than folding: at the ends of the SHAPE morph the
+        // spread simply becomes one-sided, which still reads as divergence.
+        if(s < 0.0f)
+            s = 0.0f;
+        else if(s > 1.0f)
+            s = 1.0f;
+        return s;
+    }
 
     /** Re-randomise all seven supersaw phases (note attack, mode entry). */
     void _cloudRandomisePhases();

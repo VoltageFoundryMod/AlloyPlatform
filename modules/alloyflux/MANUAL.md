@@ -167,12 +167,28 @@ A high-pass filter tracks the played note, which is what keeps seven detuned osc
 
 **Sound:** four-voice harmonic content from a single note. RELATION sweeps through 11 chord shapes — from unison to full octave stacks.
 
-| Control  | Effect in CHORD                                                                |
-| -------- | ------------------------------------------------------------------------------ |
-| RELATION | Selects and morphs between chord shapes (see table below)                      |
-| COLOR    | Fine Hz detune spread across all chord voices — adds ensemble beating |
-| MOTION   | Drift animates each voice of the chord independently                           |
-| SPACE    | Distributes chord voices across the stereo field                               |
+| Control  | Effect in CHORD                                                     |
+| -------- | ------------------------------------------------------------------- |
+| RELATION | Selects and morphs between chord shapes (see table below)           |
+| COLOR    | **VOICING** — how the chord is spaced: close, open, spread, or wide |
+| MOTION   | Drift animates each voice of the chord independently                |
+| SPACE    | Distributes chord voices across the stereo field                    |
+
+**COLOR sets the voicing.** RELATION says which chord; COLOR says how it is
+spaced, lifting the upper voices away from the root in octaves. Four positions
+across the knob:
+
+| COLOR   | Voicing | What moves                          |
+| ------- | ------- | ----------------------------------- |
+| 0–15%   | Close   | as written in the table above       |
+| 15–50%  | Open    | top two voices up an octave         |
+| 50–85%  | Spread  | middle voices up, top up two        |
+| 85–100% | Wide    | the chord opens across the register |
+
+It steps rather than sweeps, and moves in octaves rather than semitones, so the
+chord is in tune at every knob position — a continuous sweep would glide the
+upper voices through every microtone on the way and spend most of its travel
+out of tune.
 
 **Chord table:**
 
@@ -231,9 +247,19 @@ This is the most atmospheric mode. SPACE has its strongest effect here.
 | Control  | Effect in STRING                                                           |
 | -------- | -------------------------------------------------------------------------- |
 | RELATION | Microdetune spread across all four voices — CCW = tight, CW = wide shimmer |
-| COLOR    | Fine Hz detune spread — adds a second layer of beating on top of RELATION  |
+| COLOR    | **TIMBRE SPREAD** — fans the four voices apart across the SHAPE morph      |
 | MOTION   | Deepens chorus movement; a baseline chorus floor remains active regardless |
 | SPACE    | Width of the ensemble image — very wide at full CW                         |
+
+**COLOR spreads timbre, not pitch.** Each of the four voices sits at a slightly
+different point on the SHAPE morph — up to a quarter of the way apart at full
+CW — so the section thickens without getting any wider. Set SHAPE to saw and
+turn COLOR up and the four voices run from triangle to pulse, which is much
+closer to how a real string section fails to agree with itself than four copies
+of one waveform at slightly different pitches ever was.
+
+It is genuinely a third axis: RELATION owns pitch width, MOTION owns movement,
+COLOR owns timbre.
 
 **Tips:**
 
@@ -256,21 +282,30 @@ Every slot is equally loud wherever it sits, so the same note played twice does 
 
 When the gate falls the voice is released but keeps sounding through its tail, and its slot is only reclaimed once it has faded — so a new note takes a genuinely free voice first, an already-fading one next, and only steals a voice that is still held when all six are busy. MIDI notes draw from the same six voices, so CV and MIDI can be played together.
 
-| Control  | Effect in POLY                                                        |
-| -------- | --------------------------------------------------------------------- |
+| Control  | Effect in POLY                                                          |
+| -------- | ----------------------------------------------------------------------- |
 | RELATION | Detune spread across the voice slots — 0 = dead in tune, full CW = ±15¢ |
-| COLOR    | Fine Hz detune spread per voice slot — up to ±25 Hz at full CW         |
-| MOTION   | Per-voice drift — each voice drifts independently                     |
-| CURVE    | Envelope shape applies per-voice — each note has its own AR           |
-| SPACE    | Width of the voice spread — CCW collapses to mono, CW throws it wider  |
-| SHAPE    | Waveform morph, applied to every voice                                |
+| COLOR    | **TIMBRE SPREAD** — fans the slots apart across the SHAPE morph         |
+| MOTION   | Per-voice drift, scaled by how many voices are held — see below         |
+| CURVE    | Envelope shape applies per-voice — each note has its own AR             |
+| SPACE    | Width of the voice spread — CCW collapses to mono, CW throws it wider   |
+| SHAPE    | Waveform morph — the centre of the spread COLOR fans out from           |
 
 RELATION spreads the slots flat-to-sharp in the same order the stereo positions
 run left-to-right, so the detune reads as width rather than as mistuning. It
 works in cents rather than Hz, so a chord stays equally detuned whether you play
-it low or high on the keyboard — where COLOR, being a fixed Hz offset, beats at
-the same rate everywhere and gets proportionally stronger as you play lower.
-Together they are the same pairing CLOUD and STRING use.
+it low or high on the keyboard.
+
+**COLOR spreads timbre**, exactly as in STRING: each slot sits at a slightly
+different point on the SHAPE morph, so a held chord has six voices that differ
+in character rather than six copies of one waveform. This is the right axis for
+it in POLY specifically — the slots hold different notes, so the fixed Hz offset
+COLOR used to apply was a shimmer up top and a sour interval down low.
+
+**MOTION scales with the chord.** Drift on a single held note is just tuning
+instability; it only reads as life when there is something for it to beat
+against. So a lone note stays steady enough to play a line on, and the drift
+opens up as more voices are held, reaching full depth on a six-note chord.
 
 **Tips:**
 
@@ -318,6 +353,13 @@ When CV 2 is patched, SHAPE becomes an attenuverter for that CV.
 
 **SHIFT function:** Hold SHIFT + turn SHAPE → adjusts **FATNESS** (sub oscillator level — adds a square wave one or two octaves (set by configurator) below each voice for Juno-style body).
 
+FATNESS is **level-matched across the modes.** They run different numbers of
+voices — two in PAIR, four in the ensemble modes, six in POLY, and CLOUD's
+supersaw takes a single sub on its centre voice — so the same knob position
+would otherwise mean two sub oscillators in one mode and six in another, and
+the modes with the most voices would go muddy first. Each mode scales its sub
+so the knob means the same amount of weight wherever you are.
+
 ---
 
 ### MOTION
@@ -336,12 +378,21 @@ When CV 3 is patched, MOTION becomes an attenuverter for that CV.
 
 ### COLOR
 
-Tonal color and FM depth. Behaviour changes per mode:
+The second mode control, and RELATION's counterpart: where RELATION sets how the
+voices are **tuned**, COLOR sets what they are **made of**. What that means
+changes per mode, but it is never a second detune — that is RELATION's job, and
+one spread control is enough.
 
-- **PAIR / CASCADE:** FM depth — the RELATION voice modulates ROOT via phase modulation. Low values add harmonic warmth; full CW produces bell-like or metallic harmonics.
-- **CLOUD / CHORD / STRING / POLY:** Fine Hz detune spread across all voices. Adds a second layer of beating and shimmer on top of the RELATION cent spread. At full CW, outer voices are up to ±25 Hz from nominal.
+| Mode         | COLOR does                                                                           |
+| ------------ | ------------------------------------------------------------------------------------ |
+| PAIR         | **FM depth** — the RELATION voice phase-modulates ROOT. Warmth to bell to metal      |
+| CLOUD        | **MIX** — the six outer supersaw oscillators against the centre one                  |
+| CHORD        | **VOICING** — close, open, spread or wide. RELATION picks the chord, COLOR spaces it |
+| CASCADE      | **FM depth** — as PAIR, but the modulator is never heard directly                    |
+| STRING, POLY | **TIMBRE SPREAD** — fans the voices apart across the SHAPE morph                     |
 
-At COLOR = 0 the effect is completely absent in all modes.
+At COLOR = 0 every mode sits at its neutral position: no FM, centre voice only,
+close voicing, every voice on the same waveform.
 
 ---
 
@@ -535,9 +586,13 @@ active.
 ### MOD L + MOD R — Motion Layer
 
 The upper-middle pair. They take the colour of the current mode and show how far
-the sound is being animated: MOD L follows MOTION depth, MOD R follows the mode's
-secondary control — detune in PAIR, supersaw MIX in CLOUD, stereo width in
-STRING, FM depth in CASCADE, chord spread in CHORD.
+the sound is being animated: **MOD L follows MOTION, MOD R follows COLOR.**
+
+That pairs with the row above it — VOICE R shows what RELATION is doing, MOD R
+shows what COLOR is doing — so the two knobs that define a mode each have a
+light. What COLOR means still changes per mode (FM depth in PAIR and CASCADE,
+MIX in CLOUD, voicing in CHORD, timbre spread in STRING and POLY), but the LED
+reads the same way everywhere: brighter means more of it.
 
 With MOTION at zero and nothing modulating, both sit dark.
 

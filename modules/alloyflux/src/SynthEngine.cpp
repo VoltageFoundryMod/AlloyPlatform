@@ -380,43 +380,64 @@ void SynthEngine::control(const SynthParams  &p,
                 {0, 3, 6, 9},    //  9  Diminished
                 {0, 12, 24, 36}, // 10  Octaves
             };
+            // COLOR — voicing, in octaves. RELATION says *which* chord; this
+            // says how it is spaced, lifting the upper voices away from the
+            // root to open a close triad out across the register.
+            //
+            // Quantised to four positions rather than swept continuously, and
+            // in octaves rather than semitones, because both alternatives put
+            // the chord out of tune for most of the knob's travel — a smooth
+            // sweep would glide the upper voices through every microtone on
+            // the way. Discrete octave steps are in tune at every position,
+            // which is the whole point of being in CHORD.
+            //
+            // This replaces a fourth flavour of detune beating, which is what
+            // COLOR did here and what RELATION already does better.
+            static const int8_t kVoicing[4][4] = {
+                {0, 0, 0, 0},    // 0  close  — as voiced in the table
+                {0, 0, 12, 12},  // 1  open
+                {0, 12, 12, 24}, // 2  spread
+                {0, 12, 24, 24}, // 3  wide
+            };
             const int chordIdx = (_sRelation / 24.0f * 10.0f + 0.5f < 10.5f)
                                      ? (int)(_sRelation / 24.0f * 10.0f + 0.5f)
                                      : 10;
-            if(chordIdx != _cachedChordIdx
+            int       voicingIdx = (int)(_sColor * 3.0f + 0.5f);
+            if(voicingIdx < 0)
+                voicingIdx = 0;
+            else if(voicingIdx > 3)
+                voicingIdx = 3;
+
+            if(chordIdx != _cachedChordIdx || voicingIdx != _cachedVoicingChord
                || fabsf(_sGlidedFreq - _cachedChordBase) > 0.01f || modeChanged)
             {
                 for(int i = 0; i < 4; i++)
                     _cachedFreqsChord[i]
                         = _sGlidedFreq
-                          * powf(2.0f, kChordTable[chordIdx][i] / 12.0f);
-                _cachedChordIdx  = chordIdx;
-                _cachedChordBase = _sGlidedFreq;
+                          * powf(2.0f,
+                                 (float)(kChordTable[chordIdx][i]
+                                         + kVoicing[voicingIdx][i])
+                                     / 12.0f);
+                _cachedChordIdx     = chordIdx;
+                _cachedVoicingChord = voicingIdx;
+                _cachedChordBase    = _sGlidedFreq;
             }
+            // Octaves + wide voicing reaches five octaves above the root, and
+            // the wavetables are band-limited for a 440 Hz fundamental — far
+            // enough up they alias instead of getting brighter. Ceiling the
+            // voice rather than letting the top of the chord turn to grit.
+            const float chordMaxF = (float)_audioRate * 0.22f;
             for(int i = 0; i < 4; i++)
             {
                 voiceFreqs[i] = _cachedFreqsChord[i] + _drift.offset(i);
                 if(voiceFreqs[i] < 20.0f)
                     voiceFreqs[i] = 20.0f;
+                else if(voiceFreqs[i] > chordMaxF)
+                    voiceFreqs[i] = chordMaxF;
                 _voices[i].setFreq(voiceFreqs[i]);
                 _voices[i].setShape(_sShape);
                 const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
                 _subVoices[i].setFreq(voiceFreqs[i] * sm);
-            }
-            if(_sColor > 0.001f)
-            {
-                static constexpr float kColorOff[4]
-                    = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
-                const float colorHz = _sColor * 50.0f;
-                for(int i = 0; i < 4; i++)
-                {
-                    float f = voiceFreqs[i] + colorHz * kColorOff[i];
-                    if(f < 20.0f)
-                        f = 20.0f;
-                    _voices[i].setFreq(f);
-                    const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
-                    _subVoices[i].setFreq(f * sm);
-                }
             }
             _activeVoices = 4;
             _panL[0]      = 128;
@@ -602,16 +623,21 @@ void SynthEngine::control(const SynthParams  &p,
                 _cachedRelStr  = _sRelation;
                 _cachedBaseStr = _sGlidedFreq;
             }
+            // COLOR — timbre spread across the four voices, not a second
+            // detune. See _shapeSpread(). RELATION owns pitch width here and
+            // MOTION owns the movement; this is the third axis, and the one
+            // that lets a string section be lush without being wider.
             static constexpr float kColorOff[4]
                 = {-0.5f, -1.0f / 6.0f, 1.0f / 6.0f, 0.5f};
+            const float shapeSpread = _sColor * 0.5f;
             for(int i = 0; i < 4; i++)
             {
-                voiceFreqs[i] = _cachedFreqsStr[i] + _drift.offset(i) * 3.0f
-                                + _sColor * 50.0f * kColorOff[i];
+                voiceFreqs[i] = _cachedFreqsStr[i] + _drift.offset(i) * 3.0f;
                 if(voiceFreqs[i] < 20.0f)
                     voiceFreqs[i] = 20.0f;
                 _voices[i].setFreq(voiceFreqs[i]);
-                _voices[i].setShape(_sShape);
+                _voices[i].setShape(
+                    _shapeSpread(_sShape, shapeSpread, kColorOff[i]));
                 const float sm = (p.subOctave == 2) ? 0.25f : 0.5f;
                 _subVoices[i].setFreq(voiceFreqs[i] * sm);
             }
@@ -631,8 +657,26 @@ void SynthEngine::control(const SynthParams  &p,
             const float            subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
             static constexpr float kColorOff[6]
                 = {-0.5f, -0.3f, -0.1f, 0.1f, 0.3f, 0.5f};
-            const float polyColorHz = _sColor * 50.0f;
+            // COLOR — timbre spread per slot, matching STRING. It was a fixed
+            // Hz offset, which in POLY is the worst place for one: the slots
+            // hold different notes, so the same offset is a shimmer up top and
+            // a sour interval down low.
+            const float shapeSpread = _sColor * 0.5f;
             _activeVoices           = 6;
+
+            // MOTION scales with how much is being held. A single note stays
+            // steady enough to play a line on; a full chord breathes. Drift on
+            // a lone voice is just tuning instability — it only reads as life
+            // when there is something for it to beat against.
+            uint8_t polyHeld = 0;
+            for(int i = 0; i < 6; i++)
+                if(polySlots[i].midiNote != kPolySlotFree)
+                    polyHeld++;
+            const float polyDrift
+                = 0.35f
+                  + 0.65f
+                        * (polyHeld > 1 ? (float)(polyHeld - 1) * (1.0f / 5.0f)
+                                        : 0.0f);
 
             // RELATION — detune spread across the slots, ±15 cents at full CW,
             // matching STRING's range. In *cents*, not Hz: poly notes span the
@@ -685,12 +729,12 @@ void SynthEngine::control(const SynthParams  &p,
             for(int i = 0; i < 6; i++)
             {
                 float f = polySlots[i].freq * _polyDetuneMul[i]
-                          + _drift.offset(i) * 0.3f
-                          + polyColorHz * kColorOff[i];
+                          + _drift.offset(i) * polyDrift;
                 if(f < 20.0f)
                     f = 20.0f;
                 _voices[i].setFreq(f);
-                _voices[i].setShape(_sShape);
+                _voices[i].setShape(
+                    _shapeSpread(_sShape, shapeSpread, kColorOff[i]));
                 _polyEnvArr[i].setCurve(_sCurve, p.curveTime);
                 _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f
                                                             : f * subMult);
@@ -718,8 +762,35 @@ void SynthEngine::control(const SynthParams  &p,
         _cloudHpXR = _cloudHpYR = 0.0f;
     }
 
-    // Sub weight
-    _sSubWf = _sFatness * 0.5f;
+    // ------------------------------------------------------------------
+    // Sub weight — per mode, so FATNESS means the same amount of sub
+    // wherever the knob is turned.
+    //
+    // It used to be one global figure, which quietly made the knob mean
+    // different things: PAIR puts two sub oscillators in the mix, the
+    // ensemble modes four, POLY six. Same knob position, three times the
+    // sub energy, and the four-voice modes muddied first.
+    //
+    // The scales below normalise against PAIR, which is the default and so
+    // the voicing everyone learns first. Modes whose voices sit at
+    // *different* pitches add incoherently and are scaled by √(2/n);
+    // STRING's four sit at near-unison and do add coherently, so it takes
+    // the full 2/n. CLOUD is scaled up, not down — the supersaw runs a
+    // single sub on its centre voice where PAIR has two.
+    // ------------------------------------------------------------------
+    {
+        static const float kSubScale[6] = {
+            1.00f, // PAIR    — 2 subs, an interval apart
+            1.35f, // CLOUD   — 1 sub, on the centre voice only
+            0.70f, // CHORD   — 4 subs on chord tones, incoherent
+            1.00f, // CASCADE — 2 audible subs; the modulators' are muted
+            0.50f, // STRING  — 4 subs at near-unison, coherent
+            0.60f, // POLY    — 6 subs, each on its own note
+        };
+        const int mi = (int)p.voiceMode;
+        _sSubWf
+            = _sFatness * 0.5f * ((mi >= 0 && mi < 6) ? kSubScale[mi] : 1.0f);
+    }
 
     // Chorus depth — STRING keeps a 0.3 minimum
     chorusDepth = (p.voiceMode == VoiceMode::STRING)
