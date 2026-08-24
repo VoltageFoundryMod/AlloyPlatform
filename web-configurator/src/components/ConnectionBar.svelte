@@ -3,9 +3,48 @@
    * ConnectionBar — shows MIDI + Serial connection status and port selectors.
    */
   import { onMount } from "svelte";
-  import { activeModule } from "../lib/activeModule";
+  import {
+    activeModule,
+    nextModule,
+    MODULE_LIST,
+    type ModuleInfo,
+  } from "../lib/activeModule";
   import { midi } from "../lib/midi";
   import { serial } from "../lib/serial";
+
+  interface Props {
+    /**
+     * Show another module's interface. The same call the discovery probe makes
+     * when a module identifies itself, so a preview lands in exactly the state
+     * a real connection would. App owns it because switching has to clear the
+     * CC-keyed values belonging to the outgoing module — the same CC means
+     * something different on the other one.
+     */
+    onPreviewModule: (info: ModuleInfo) => void;
+  }
+  let { onPreviewModule }: Props = $props();
+
+  // The badge is only a control while nothing has answered. Once a module
+  // identifies itself the name is a reading rather than a guess, and letting a
+  // click contradict the hardware would make it a worse badge than it is a
+  // switch. A module answering mid-preview overrides it the same way — the
+  // discovery handler in App calls the same switch.
+  const canPreview = $derived(!$midi.moduleAnswered && MODULE_LIST.length > 1);
+  const previewTarget = $derived(nextModule($activeModule));
+
+  const sysexSig = $derived(
+    $activeModule.sysexDev.map((b) => b.toString(16).toUpperCase()).join(" "),
+  );
+
+  const badgeTitle = $derived(
+    `Module: ${$activeModule.name}\nSysEx signature: ${sysexSig}\n\n` +
+      ($midi.moduleAnswered
+        ? "Confirmed — this module answered the discovery probe."
+        : "Last module seen. Nothing has answered on this port, so these controls are a guess.") +
+      (canPreview
+        ? `\n\nClick to preview the ${previewTarget.name} interface.`
+        : ""),
+  );
 
   // On page load: scan MIDI (uses cached permission — no prompt if already granted)
   // and silently reconnect any previously-granted serial port.
@@ -43,22 +82,34 @@
   <!-- Which module the controls belong to. Detected from the SysEx signature
        in the module's patch dump, so this follows whatever is actually on the
        port; with nothing connected it is the last module seen. Worth a glance
-       before wondering why a knob does nothing. -->
-  <div class="conn-title">Alloy Controller</div>
-  <span
-    class="module-badge"
-    class:detected={$midi.moduleAnswered}
-    title="Module: {$activeModule.name}
-SysEx signature: {$activeModule.sysexDev
-      .map((b) => b.toString(16).toUpperCase())
-      .join(' ')}
+       before wondering why a knob does nothing.
 
-{$midi.moduleAnswered
-      ? 'Confirmed — this module answered the discovery probe.'
-      : 'Last module seen. Nothing has answered on this port, so these controls are a guess.'}"
-  >
-    {$activeModule.name}
-  </span>
+       With nothing on the port it is also the way to change that guess: both
+       modules' parameter tables and panel layouts are in the bundle, so the
+       page can show either one without hardware. That makes the badge a
+       preview switch for anyone reading the docs, choosing between modules, or
+       working on the panel itself. -->
+  <div class="conn-title">Alloy Controller</div>
+  {#if canPreview}
+    <button
+      type="button"
+      class="module-badge swap"
+      title={badgeTitle}
+      aria-label="Module: {$activeModule.name}. Preview the {previewTarget.name} interface."
+      onclick={() => onPreviewModule(previewTarget)}
+    >
+      {$activeModule.name}
+      <span class="swap-glyph" aria-hidden="true">⇄</span>
+    </button>
+  {:else}
+    <span
+      class="module-badge"
+      class:detected={$midi.moduleAnswered}
+      title={badgeTitle}
+    >
+      {$activeModule.name}
+    </span>
+  {/if}
   <!-- MIDI -->
   <div class="conn-section">
     <span class="conn-label">MIDI</span>
@@ -189,6 +240,10 @@ Asking again every 5 s — it will pick up on its own once something answers."
     color: var(--copper-bright);
     white-space: nowrap;
     cursor: help;
+    /* Set explicitly because the swap variant is a <button>, which does not
+       inherit the page font. */
+    font-family: inherit;
+    line-height: 1.5;
   }
   /* Muted until a module has actually identified itself: with nothing on the
      port the name is only the last one seen, and it should not look like a
@@ -197,6 +252,30 @@ Asking again every 5 s — it will pick up on its own once something answers."
     border-color: var(--hairline-strong);
     background: var(--bg-raised);
     color: var(--text-faint);
+  }
+  /* Only the swap variant is interactive, so only it advertises it. It is
+     always in the muted state — it exists precisely when nothing has answered
+     — so hover lights it copper, which reads as "this is live" against a
+     resting badge that deliberately does not. */
+  .module-badge.swap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+  }
+  .module-badge.swap:hover,
+  .module-badge.swap:focus-visible {
+    border-color: var(--copper-deep);
+    background: rgba(192, 137, 74, 0.14);
+    color: var(--copper-bright);
+  }
+  .module-badge.swap:focus-visible {
+    outline: 2px solid var(--copper);
+    outline-offset: 2px;
+  }
+  .swap-glyph {
+    font-size: 0.85em;
+    opacity: 0.7;
   }
   .conn-label {
     font-size: 0.75rem;

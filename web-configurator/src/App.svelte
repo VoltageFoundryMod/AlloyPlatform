@@ -685,8 +685,10 @@
 {/snippet}
 
 <div class="app-shell">
-  <!-- Top connection bar -->
-  <ConnectionBar />
+  <!-- Top connection bar. Its module badge is a preview switch while nothing
+       has answered on the port, and switching is the same operation the
+       discovery probe performs — hence the same function. -->
+  <ConnectionBar onPreviewModule={switchModule} />
 
   {#if unknownDev}
     <div class="module-warning">

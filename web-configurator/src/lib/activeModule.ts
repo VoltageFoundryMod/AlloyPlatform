@@ -42,6 +42,23 @@ export const MODULES: Readonly<Record<string, ModuleInfo>> = {
   },
 } as const;
 
+/** Every module this build knows about, in the order the badge offers them. */
+export const MODULE_LIST: readonly ModuleInfo[] = Object.values(MODULES);
+
+/**
+ * The next module after `info`, wrapping around.
+ *
+ * Drives the header badge's preview swap. With nothing answering on the port
+ * the badge is not reporting a fact — it is showing the last module seen — so
+ * it doubles as a way to look at another module's panel without owning the
+ * hardware. Cycling rather than a menu keeps the badge a badge: it is a pill
+ * two words wide, and one click is already the whole choice at two modules.
+ */
+export function nextModule(info: ModuleInfo): ModuleInfo {
+  const i = MODULE_LIST.findIndex((m) => m.id === info.id);
+  return MODULE_LIST[(i + 1) % MODULE_LIST.length];
+}
+
 /**
  * Wildcard signature byte. `7D 7F 7F <cmd>` addresses every Alloy module at
  * once; the firmware honours it for REQUEST_DUMP only, since a broadcast that

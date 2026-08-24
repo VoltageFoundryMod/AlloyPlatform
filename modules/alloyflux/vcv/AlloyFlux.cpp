@@ -1499,7 +1499,7 @@ struct AlloyFluxWidget : ModuleWidget
         // --- Panel knobs (9), row-major ---
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::ROOT), module, AlloyFlux::ROOT_PARAM));
-        addParam(createParamCentered<Davies1900hBlackKnob>(
+        addParam(createParamCentered<Davies1900hLargeBlackKnob>(
             pot(Pot::COLOR), module, AlloyFlux::COLOR_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::RELATION), module, AlloyFlux::RELATION_PARAM));
