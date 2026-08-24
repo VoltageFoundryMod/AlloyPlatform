@@ -77,31 +77,57 @@ Ten jacks in two rows of five:
 Each modulation input is silkscreened with the knob it modulates. The routing
 is fixed:
 
-| Label    | Type   | Function                                        |
-| -------- | ------ | ----------------------------------------------- |
-| V/OCT    | Input  | Pitch — 1V/oct                                  |
-| GATE     | Input  | Note trigger / envelope                         |
-| MIDI     | Input  | TRS MIDI (Type A/B accepted)                    |
-| RELATION | Input  | Modulates RELATION                              |
-| COLOR    | Input  | Modulates COLOR                                 |
-| FM IN    | Input  | Pitch FM — 0.2 oct/V, i.e. ±1 octave over ±5 V  |
-| SHAPE    | Input  | Modulates SHAPE                                 |
-| MOTION   | Input  | Modulates MOTION                                |
-| L OUT    | Output | Left / mono (passive mono sum when R unplugged) |
-| R OUT    | Output | Right stereo                                    |
+| Label    | Type   | Function                                           |
+| -------- | ------ | -------------------------------------------------- |
+| V/OCT    | Input  | Pitch — 1V/oct                                     |
+| GATE     | Input  | Note trigger / envelope                            |
+| MIDI     | Input  | TRS MIDI (Type A/B accepted)                       |
+| RELATION | Input  | Modulates RELATION                                 |
+| COLOR    | Input  | Modulates COLOR                                    |
+| FM IN    | Input  | Oscillator FM — vibrato below 20 Hz, true FM above |
+| SHAPE    | Input  | Modulates SHAPE                                    |
+| MOTION   | Input  | Modulates MOTION                                   |
+| L OUT    | Output | Left / mono (passive mono sum when R unplugged)    |
+| R OUT    | Output | Right stereo                                       |
 
-**SPACE has no CV jack.** It gave one up so COLOR could have its own: COLOR
-reaches further into the sound in every voice mode than stereo width does, and
-a 14 HP panel only has room for four modulation inputs. SPACE is still a knob,
-still a CC and still saved in every preset — there is simply no socket for it.
+**SPACE has no CV jack.** COLOR reaches further into the sound in every voice
+mode than stereo width does, and a 14 HP panel has room for only four
+modulation inputs, so COLOR takes the socket. SPACE is still a knob, still a CC
+and still saved in every preset.
 
-**FM IN modulates pitch, not COLOR.** It used to sum into COLOR, which is the
-*internal* FM depth, because that was the only route in. Now that COLOR has a
-jack of its own, FM IN does what it is named for. It applies after the pitch
+**FM IN modulates the oscillators, not COLOR.** It applies after the pitch
 source is chosen and after the scale quantizer, so it works on a held MIDI note
-and is not quantized away. Note that it is currently sampled at the control
-rate (128 Hz), so it tracks LFOs and envelopes; true audio-rate FM through this
-jack is a later firmware milestone.
+and is not quantized away.
+
+**One jack, two behaviours, split at 20 Hz.** The jack is sampled every audio
+frame and separated by frequency, so you never have to choose a mode:
+
+- **Below 20 Hz — pitch.** Exponential, 0.2 V/oct: a ±5 V LFO gives ±1 octave,
+  and the modulation is a _multiplier_ on the fundamental, so a chord slides
+  without coming out of tune with itself. This is vibrato, sirens and envelope
+  sweeps.
+- **Above 20 Hz — FM.** Linear phase modulation of every voice, per sample,
+  reaching an index of about 6 at full depth. This is the timbral one: patch
+  another oscillator in and you get sidebands, not a warble. Because it is
+  linear, every voice deviates by the same number of hertz rather than the same
+  ratio — which is what makes chords go clangorous under it, and is the sound
+  worth reaching for.
+
+A steady DC offset therefore reads as pure pitch shift with nothing added, and
+an audio-rate cable is safe to leave patched: the split keeps fast content out
+of the pitch path, where it would otherwise fold back in as inharmonic noise.
+
+**Depth is SHIFT + ROOT (FM AMOUNT)**, scaling both halves together. It
+defaults to full, so the jack is live as soon as you patch it.
+
+Note that vibrato faster than a couple of hertz is very slightly shallower than
+the 0.2 V/oct figure suggests — about 6% down at 5 Hz, less below that — because
+it passes through the filter that splits the jack.
+
+**Modes have their own internal FM as well.** COLOR is the FM index _between
+the module's own oscillators_ in PAIR and CASCADE, and PLASMA cross-modulates a
+pair regardless of what is patched. FM IN is on top of all of it, and stacking
+external FM onto CASCADE or PLASMA is where the module gets genuinely violent.
 
 ### Buttons
 
@@ -322,8 +348,8 @@ it low or high on the keyboard.
 **COLOR spreads timbre**, exactly as in STRING: each slot sits at a slightly
 different point on the SHAPE morph, so a held chord has six voices that differ
 in character rather than six copies of one waveform. This is the right axis for
-it in POLY specifically — the slots hold different notes, so the fixed Hz offset
-COLOR used to apply was a shimmer up top and a sour interval down low.
+it in POLY specifically: the slots hold different notes, so a fixed Hz offset
+would be a shimmer up top and a sour interval down low.
 
 **MOTION scales with the chord.** Drift on a single held note is just tuning
 instability; it only reads as life when there is something for it to beat
@@ -415,6 +441,8 @@ half.
 
 Primary pitch. Sets the pitch centre for the entire module. Apply V/OCT for melodic tracking.
 _Associated CV: V/OCT jack_
+
+**SHIFT function:** Hold SHIFT + turn ROOT → adjusts **FM AMOUNT** (depth of the FM IN jack). One knob for both halves of that jack: it scales the slow pitch modulation and the audio-rate FM together. At full CW a ±5 V LFO gives ±1 octave of vibrato and a patched oscillator reaches an FM index of about 6. At full CCW the jack is muted.
 
 ---
 
@@ -510,7 +538,7 @@ Stereo width and placement. Controls how far apart voices sit in the stereo fiel
 SPACE has its strongest effect in STRING mode, but every voice mode gives it something to work on — each one places its voices across the field, so SPACE can collapse any of them to mono or throw them wider.
 
 _Associated CV: none_
-SPACE is knob-only — it gave its jack up to COLOR. Still reachable over CC and saved in every preset.
+SPACE is knob-only — the fourth modulation socket goes to COLOR. Still reachable over CC and saved in every preset.
 
 **SHIFT function:** Hold SHIFT + turn SPACE → adjusts **VOL** (master output level).
 
@@ -570,6 +598,7 @@ Hold **SHIFT** and turn a knob to access its secondary parameter. The SHIFT LED 
 
 | Knob   | Primary                        | SHIFT + Knob                        |
 | ------ | ------------------------------ | ----------------------------------- |
+| ROOT   | Root pitch                     | **FM AMOUNT** — FM IN jack depth    |
 | SHAPE  | Waveform morph (sine → hollow) | **FATNESS** — sub oscillator level  |
 | MOTION | Drift + chorus depth           | **DRIFTSPEED** — drift glide rate   |
 | CURVE  | Envelope shape (pluck → swell) | **CURVETIME** — envelope time scale |
@@ -577,7 +606,7 @@ Hold **SHIFT** and turn a knob to access its secondary parameter. The SHIFT LED 
 | DELAY  | Delay wet mix                  | **DELAYTIME** — delay time (ms)     |
 | REVERB | Reverb wet send                | **REVERBSIZE** — virtual plate size |
 
-ROOT, RELATION, and COLOR have no shift function — full knob travel is needed for precision.
+RELATION and COLOR have no shift function — full knob travel is needed for precision. ROOT shares its knob because FM IN is on the pitch path in every voice mode, and FM AMOUNT is a depth you set rather than a control you play.
 
 ---
 
@@ -787,14 +816,15 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 
 #### Oscillator
 
-| CC    | Parameter  | Value range  | CC range                        | Description                                                                   |
-| ----- | ---------- | ------------ | ------------------------------- | ----------------------------------------------------------------------------- |
-| CC 16 | Root       | −48 … +48 st | 0–127                           | Root pitch relative to A4; stored internally as 27.5–7040 Hz                  |
-| CC 78 | Shape      | 0–1          | 0–127                           | Waveform morph, sine → hollow pulse                                           |
-| CC 84 | Fatness    | 0–1          | 0–127                           | Sub oscillator level                                                          |
-| CC 90 | Sub Octave | —            | 0–63 = −1 Oct · 64–127 = −2 Oct | Sub oscillator octave below root                                              |
-| CC 92 | Color      | 0–1          | 0–127                           | Tonal colour — FM depth in PAIR/CASCADE, fine Hz spread in the ensemble modes |
-| CC 94 | Relation   | 0–24 st      | 0–127                           | Interval of the RELATION voice above ROOT                                     |
+| CC     | Parameter  | Value range  | CC range                        | Description                                                                                                                                                                           |
+| ------ | ---------- | ------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CC 16  | Root       | −48 … +48 st | 0–127                           | Root pitch relative to A4; stored internally as 27.5–7040 Hz                                                                                                                          |
+| CC 78  | Shape      | 0–1          | 0–127                           | Waveform morph, sine → hollow pulse                                                                                                                                                   |
+| CC 84  | Fatness    | 0–1          | 0–127                           | Sub oscillator level                                                                                                                                                                  |
+| CC 90  | Sub Octave | —            | 0–63 = −1 Oct · 64–127 = −2 Oct | Sub oscillator octave below root                                                                                                                                                      |
+| CC 92  | Color      | 0–1          | 0–127                           | Tonal colour — FM depth in PAIR/CASCADE, fine Hz spread in the ensemble modes                                                                                                         |
+| CC 94  | Relation   | 0–24 st      | 0–127                           | Interval of the RELATION voice above ROOT                                                                                                                                             |
+| CC 105 | FM Amount  | 0–1          | 0–127                           | Depth of the FM IN jack — scales both its slow pitch half and its audio-rate phase-modulation half. Not the same control as COLOR, which is the internal FM index in PAIR and CASCADE |
 
 #### Animation
 

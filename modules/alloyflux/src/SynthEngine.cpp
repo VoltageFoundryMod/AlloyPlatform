@@ -55,6 +55,8 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     _audioRate   = audioRate;
     _controlRate = controlRate;
 
+    _updateFmInSplit();
+
     // Generate wavetables first — oscillators must be pointing at valid data
     // before any setFreq() / setShape() calls.
     _generateWavetables();
@@ -142,6 +144,36 @@ void SynthEngine::setSampleRate(uint32_t audioRate)
     _dattorroReverb.setSampleRate((float)audioRate);
     // Wavetables are sample-rate independent, and filter coefficients are
     // recomputed from _audioRate on every control tick.
+    _updateFmInSplit();
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::_updateFmInSplit()  — FM IN crossover coefficient
+//
+// One-pole coefficient for kFmInSplitHz, used twice in cascade. Recomputed on
+// every rate change rather than derived per sample: the whole point of the
+// split is that it costs two multiply-adds in the audio path.
+//
+// The exact form (1 − e^(−ω/fs)) rather than the ω/fs approximation. At 20 Hz
+// against 48 kHz the two agree to five figures, but Rack will happily run this
+// module at 8 kHz, where the approximation starts to place the corner audibly
+// high — and a corner that drifts with the host's sample rate would move the
+// boundary between vibrato and FM under the player.
+// ---------------------------------------------------------------------------
+void SynthEngine::_updateFmInSplit()
+{
+    _fmInLpA
+        = 1.0f - expf(-2.0f * 3.14159265f * kFmInSplitHz / (float)_audioRate);
+
+    // Box-average length: one control period, in samples. Floor of 1 covers a
+    // host running its control rate at or above its audio rate, where the
+    // average degenerates to a plain sample and the poles carry it alone.
+    _fmInAccLen = (_controlRate > 0u) ? (_audioRate / _controlRate) : 1u;
+    if(_fmInAccLen < 1u)
+        _fmInAccLen = 1u;
+    _fmInAccRecip = 1.0f / (float)_fmInAccLen;
+    _fmInAcc      = 0.0f;
+    _fmInAccN     = 0u;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +346,17 @@ void SynthEngine::control(const SynthParams  &p,
     }
 
     // ------------------------------------------------------------------
-    // FM IN — external pitch FM, exponential, kFmInOctPerVolt per volt.
+    // FM IN, slow half — exponential pitch FM, kFmInOctPerVolt per volt.
+    //
+    // The fast half never reaches this function: setFmInSample() has already
+    // split the jack and published the audio-rate residual straight to audio().
+    // What arrives here is the sub-kFmInSplitHz component, low-passed at audio
+    // rate *before* being decimated to the control rate — which is what makes
+    // an audio-rate cable safe to leave patched. See the block above
+    // kFmInOctPerVolt for the whole picture.
+    //
+    // p.fmIn is the fallback for a host with no audio loop; a platform that
+    // feeds the jack per sample latches _fmInFed and wins.
     //
     // Applied here rather than in fillSynthParams() for two reasons, both of
     // which would silently swallow the modulation upstream: a held MIDI note
@@ -332,9 +374,20 @@ void SynthEngine::control(const SynthParams  &p,
     // would make the next tick glide away from a pitch the player never asked
     // for — FM would leak into the portamento and smear it.
     //
-    // Guarded on the unpatched value: exp2f is ~90 µs on the RP2350, and an
-    // unpatched jack should not pay for it every control tick.
-    _fmInMul     = (p.fmIn != 0.0f) ? exp2f(p.fmIn * kFmInOctPerVolt) : 1.0f;
+    // ⚠ Not smoothed with the other knobs: FM AMOUNT is a depth, and running it
+    // through _sXxx one-pole smoothing would put a 128 Hz staircase on the PM
+    // scale that the per-sample path would then hear as its own modulation.
+    _sFmAmount = (p.fmAmount < 0.0f) ? 0.0f
+                 : (p.fmAmount > 1.0f) ? 1.0f
+                                       : p.fmAmount;
+    _fmInPmScale = kFmInPmScale * _sFmAmount;
+
+    const float fmSlowV = _fmInFed ? _fmInSlowV : p.fmIn;
+    const float fmOct   = fmSlowV * kFmInOctPerVolt * _sFmAmount;
+    // Guarded on the unmodulated value: exp2f is ~90 µs on the RP2350, and
+    // neither an unpatched jack nor FM AMOUNT at zero should pay for it every
+    // control tick.
+    _fmInMul     = (fmOct != 0.0f) ? exp2f(fmOct) : 1.0f;
     _sGlidedFreq = _sGlideBase * _fmInMul;
     if(_sGlidedFreq < 20.0f)
         _sGlidedFreq = 20.0f;
@@ -1037,6 +1090,33 @@ void SynthEngine::audio(int32_t  revWetL,
         = (_voiceMode == VoiceMode::CASCADE || _voiceMode == VoiceMode::PAIR);
 
     // ------------------------------------------------------------------
+    // FM IN, fast half (M77) — the audio-rate residual of the jack, already in
+    // Q16 phase units and already scaled by FM AMOUNT. Read once: it is written
+    // from setFmInSample() and every voice in this frame must see the same
+    // instant, or the modes that render more than one operator would smear
+    // across it.
+    //
+    // Added as *phase*, not as frequency, and that is the whole reason this is
+    // affordable — one add per voice against the exp2f per sample true
+    // exponential FM would cost (~90 µs on the RP2350, four times the entire
+    // frame budget). Phase modulation is also the better-behaved half of the
+    // bargain: a DC offset on the jack becomes a constant phase shift, which is
+    // inaudible, where linear frequency FM would detune on it.
+    //
+    // ⚠ Every voice gets the *same* Q16 offset, which is the same deviation in
+    // Hz on each — not the same ratio. That is what linear FM is, and it is why
+    // the fast half moves a chord out of tune while the slow half does not.
+    // Both behaviours are wanted; the crossover is what keeps them apart.
+    //
+    // Sub-oscillators deliberately do NOT take it. At half the frequency the
+    // same absolute deviation is twice the modulation index, so a sub that
+    // followed would be the first thing to turn to mud under heavy FM. Leaving
+    // it out gives the mode a solid floor to scream over, which is what a sub
+    // is there for.
+    // ------------------------------------------------------------------
+    const int32_t fmPm = _fmInPm;
+
+    // ------------------------------------------------------------------
     // Oscillator mix — sum sActiveVoices into L/R via pan weights.
     // FM modes: voice[1] PM-modulates voice[0].
     // POLY mode: per-voice envelopes applied inside the loop.
@@ -1044,10 +1124,13 @@ void SynthEngine::audio(int32_t  revWetL,
     int32_t left = 0, right = 0;
     if(isFmMode)
     {
-        const int16_t modSample = _voices[1].next();
+        // The modulator takes FM IN too — modulating only the carrier would
+        // make the jack a detune of the pair rather than FM of the voice, and
+        // the M:C ratio is what holds CASCADE harmonic.
+        const int16_t modSample = _voices[1].nextPM(fmPm);
         const int32_t sub1      = _subVoices[1].next();
         const int32_t pmOffset  = (int32_t)((float)modSample * _sFmDepth);
-        const int32_t carrier   = _voices[0].nextPM(pmOffset);
+        const int32_t carrier   = _voices[0].nextPM(pmOffset + fmPm);
         const int32_t sub0      = _subVoices[0].next();
         const int32_t m0 = (int32_t)((float)carrier + (float)sub0 * _sSubWf);
         const int32_t m1 = (int32_t)((float)modSample + (float)sub1 * _sSubWf);
@@ -1057,10 +1140,10 @@ void SynthEngine::audio(int32_t  revWetL,
         {
             // CASCADE's second pair — voices 2/3, detuned against 0/1 and
             // panned opposite. Only the carrier is summed, exactly as above.
-            const int16_t modSampleB = _voices[3].next();
+            const int16_t modSampleB = _voices[3].nextPM(fmPm);
             const int32_t sub3       = _subVoices[3].next();
             const int32_t pmOffsetB  = (int32_t)((float)modSampleB * _sFmDepth);
-            const int32_t carrierB   = _voices[2].nextPM(pmOffsetB);
+            const int32_t carrierB   = _voices[2].nextPM(pmOffsetB + fmPm);
             const int32_t sub2       = _subVoices[2].next();
             const int32_t m2
                 = (int32_t)((float)carrierB + (float)sub2 * _sSubWf);
@@ -1089,8 +1172,10 @@ void SynthEngine::audio(int32_t  revWetL,
             const int32_t offC = (int32_t)((float)_plasmaPrevM[cell] * cross
                                            + (float)_plasmaAvgC[cell] * fb);
 
-            const int16_t m = _voices[vM].nextPM(offM);
-            const int16_t c = _voices[vC].nextPM(offC);
+            // FM IN adds into the same phase offset the cross-mod already
+            // uses. Both operators, so the ratio survives — see fmPm above.
+            const int16_t m = _voices[vM].nextPM(offM + fmPm);
+            const int16_t c = _voices[vC].nextPM(offC + fmPm);
 
             _plasmaAvgM[cell]
                 = (int16_t)(((int32_t)m + _plasmaPrevM[cell]) >> 1);
@@ -1131,7 +1216,7 @@ void SynthEngine::audio(int32_t  revWetL,
         // cheaper than POLY's six-plus-six.
         for(uint8_t i = 0; i < 7; i++)
         {
-            const int32_t s = _voices[i].next();
+            const int32_t s = _voices[i].nextPM(fmPm);
             left += (s * _panL[i]) >> 8;
             right += (s * _panR[i]) >> 8;
         }
@@ -1166,7 +1251,7 @@ void SynthEngine::audio(int32_t  revWetL,
         {
             const float env
                 = _polyEnvArr[i].next(); // direct call, no virtual dispatch
-            const int32_t s = _voices[i].next(); // always advance phase
+            const int32_t s = _voices[i].nextPM(fmPm); // always advance phase
             if(env < 0.001f)
                 continue; // skip expensive work only
             int32_t m;
@@ -1190,7 +1275,7 @@ void SynthEngine::audio(int32_t  revWetL,
         {
             for(uint8_t i = 0; i < _activeVoices; i++)
             {
-                const int32_t s   = _voices[i].next();
+                const int32_t s   = _voices[i].nextPM(fmPm);
                 const int32_t sub = _subVoices[i].next();
                 const int32_t m   = (int32_t)((float)s + (float)sub * _sSubWf);
                 left += (m * _panL[i]) >> 8;
@@ -1201,7 +1286,7 @@ void SynthEngine::audio(int32_t  revWetL,
         {
             for(uint8_t i = 0; i < _activeVoices; i++)
             {
-                const int32_t s = _voices[i].next();
+                const int32_t s = _voices[i].nextPM(fmPm);
                 left += (s * _panL[i]) >> 8;
                 right += (s * _panR[i]) >> 8;
             }

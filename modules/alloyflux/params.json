@@ -177,6 +177,20 @@
       "step": 0.01
     },
     {
+      "cc": 105,
+      "name": "fmamt",
+      "label": "FM Amount",
+      "doc": "Depth of the FM IN jack — scales both its slow pitch half and its audio-rate phase-modulation half. Not the same control as COLOR, which is the internal FM index in PAIR and CASCADE",
+      "category": "Oscillator",
+      "kind": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "default": 1.0,
+      "scale": "linear",
+      "target": "gFmAmount",
+      "step": 0.01
+    },
+    {
       "cc": 94,
       "name": "rel",
       "label": "Relation",

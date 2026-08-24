@@ -41,7 +41,18 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
     // wholesale by a held MIDI note on both platforms and rounded to a
     // semitone by the VCV scale quantizer, either of which would erase the
     // modulation before it reached an oscillator. See kFmInOctPerVolt.
+    //
+    // ⚠ Since M77 this is the *fallback* path only. Both platforms feed the
+    // jack to SynthEngine::setFmInSample() every audio frame, and control()
+    // prefers that; this read still matters for a host that renders control
+    // ticks without an audio loop. Whichever wins, it is one jack read at one
+    // depth — the two never sum.
     p.fmIn = io.isPatched(Cv::FM) ? io.readCV(Cv::FM) : 0.0f;
+
+    // FM AMOUNT: depth for both halves of FM IN. SHIFT+ROOT on hardware, a
+    // context-menu slider in VCV. 0–1 direct — the two laws it scales
+    // (kFmInOctPerVolt, kFmInMaxRad) already carry their own ranges.
+    p.fmAmount = io.readPot(Pot::FMAMOUNT);
 
     // -----------------------------------------------------------------------
     // Harmony / voice 2

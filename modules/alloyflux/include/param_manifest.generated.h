@@ -32,6 +32,7 @@ static const ParamDescriptor kParamManifest[] = {
     {  92, "color"         , "Color"                   , "Oscillator"  ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gColor, 1.0f, ParamDisplay::Direct },
     {  94, "rel"           , "Relation"                , "Oscillator"  ,                   0.0f,                      24.0f,       0.0f, ParamScale::Linear, "st"  , &gRelation, 1.0f, ParamDisplay::Direct },
     {  95, "delaymix"      , "Mix"                     , "Delay"       ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gDelayMix, 1.0f, ParamDisplay::Direct },
+    { 105, "fmamt"         , "FM Amount"               , "Oscillator"  ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, &gFmAmount, 1.0f, ParamDisplay::Direct },
     { 112, "revmodspeed"   , "Mod Speed"               , "Reverb"      ,                   0.1f,                       4.0f,       1.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevModSpeed), 1.0f, ParamDisplay::Direct },
     { 113, "revmoddepth"   , "Mod Depth"               , "Reverb"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevModDepth), 1.0f, ParamDisplay::Direct },
     { 117, "revsize"       , "Size"                    , "Reverb"      ,                   0.0f,                       1.0f,       0.5f, ParamScale::Linear, nullptr, const_cast<float *>(&gRevSize), 1.0f, ParamDisplay::Direct },

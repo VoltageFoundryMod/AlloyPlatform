@@ -19,6 +19,25 @@
 extern float gBaseFreq; // Hz, voice 1 root pitch (20–8000)
 extern float
     gColor; // 0–1: FM depth in PAIR/CASCADE; Hz fine spread in ensemble modes
+extern float
+    gFmAmount; // 0–1: FM IN jack depth, both halves (SHIFT+ROOT). Not gColor —
+               // that is the *internal* FM index and only in two modes.
+
+// FM IN jack voltage, sampled at audio rate on Core 1 (M77).
+//
+// The one signal on the module that is not a control-rate value, and the reason
+// FM IN sits on GP27 — a direct ADC pin, deliberately off the analogue mux that
+// carries every other jack. renderAudio() hands it to
+// SynthEngine::setFmInSample() once per frame.
+//
+// ⚠ Nothing writes this yet. The ADC conversion belongs to whatever drives
+// GP27 free-running (DMA into a one-word landing pad is the cheap shape — a
+// blocking adc_read() is ~2 µs against a 20.8 µs frame budget, 10% of the
+// audio core for one jack). Until that lands it stays 0.0 and FM IN is
+// silent on hardware, exactly as every other CV jack is: HardwarePicoIO's
+// readCV() still returns 0 for everything but GATE. The engine side is
+// complete and needs no change when the ADC arrives — only this global.
+extern volatile float gFmInVolts;
 
 // Voice mode and RELATION
 extern VoiceMode gVoiceMode; // synthesis personality (default: PAIR)

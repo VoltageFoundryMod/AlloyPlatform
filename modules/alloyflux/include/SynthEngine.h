@@ -32,31 +32,78 @@ static constexpr float   kSignalToFloat   = 1.0f / (float)kSignalFullScale;
 static constexpr float   kFloatToSignal   = (float)kSignalFullScale;
 
 // ---------------------------------------------------------------------------
-// FM IN depth — octaves of pitch deviation per volt on the FM IN jack, scaling
-// SynthParams::fmIn (the jack's voltage, 0 when unpatched).
+// FM IN — one jack, two bands (M77).
 //
-// 0.2 oct/V puts the jack's full ±5 V swing at ±1 octave. Deliberately *not*
-// 1.0: at V/Oct scaling the jack would be a second pitch input rather than a
-// modulation one, and there is no attenuverter on the panel to tame it. One
-// octave either side is wide enough for vibrato, sirens and clangorous
-// index-1 FM, and stays musical with a raw LFO plugged straight in.
+// The jack has to serve two jobs that want opposite treatment. Vibrato, sirens
+// and envelope sweeps want *exponential* modulation of the fundamental, at
+// control rate, because every voice mode spaces its voices from the fundamental
+// by ratio and only a multiplier moves a chord without detuning it. Timbral FM
+// wants *linear* deviation at audio rate, because that is what puts sidebands
+// either side of the carrier instead of warbling the pitch.
 //
-// Exponential, not linear: the pitch is already carried as Hz and every voice
-// mode derives its intervals from it by ratio, so scaling the fundamental is
-// the only form of FM that leaves a chord in tune with itself.
+// Rather than make that a mode the player has to choose, the jack is split by
+// frequency and both halves run at once:
+//
+//        FM IN (volts, sampled every audio frame via setFmInSample)
+//                            │
+//              ┌─────────────┴─────────────┐
+//        2-pole LP @ kFmInSplitHz      x − LP  (residual)
+//              │                            │
+//        exp2f(V · oct/V) at control rate   Q16 phase offset, per sample
+//              │                            │
+//        _sGlidedFreq — every mode          nextPM() on every main voice
+//        inherits it by ratio               — same Hz deviation on each
+//
+// Below the split the behaviour is exactly what it always was; above it the
+// jack is a true linear FM input. A DC offset therefore reads as pure pitch
+// shift with no PM, which is the right answer for an offset.
+//
+// The low-pass is not only a splitter: it is the **anti-alias filter the pitch
+// path never had**. control() decimates 48 kHz to 128 Hz, so before M77 any
+// content above ~64 Hz folded straight into the pitch as inharmonic garbage.
+// Two poles at kFmInSplitHz put ~-20 dB at the 64 Hz fold point and ~-40 dB an
+// octave and a half up, which is what makes an audio-rate cable safe to patch.
+//
+// Both depths are scaled by SynthParams::fmAmount — the FM AMOUNT knob,
+// SHIFT+ROOT on hardware. At 1.0 the pitch path is exactly the pre-M77 law.
 //
 // Applied in control(), after glide — NOT in fillSynthParams() where the jack
 // is read. Upstream it would be erased twice over: a held MIDI note overwrites
 // baseFreq wholesale on both platforms, and the VCV scale quantizer rounds it
 // to the nearest semitone.
-//
-// ⚠ This is **control-rate** FM — the jack is sampled once per control tick
-// (128 Hz on hardware), so the modulator is band-limited to ~64 Hz and anything
-// faster aliases into the pitch. FM IN is on GP27, a direct ADC pin off the
-// analogue mux precisely so it *can* be sampled at audio rate; spending that is
-// milestone 77 and needs a path through audio(), not control().
 // ---------------------------------------------------------------------------
+
+/// Octaves of pitch deviation per volt on the slow half of FM IN, at FM AMOUNT
+/// = 1.0. 0.2 oct/V puts a ±5 V LFO at ±1 octave and the jack's own ±8 V range
+/// at ±1.6. Deliberately *not* 1.0: at V/Oct scaling this would be a second
+/// pitch input rather than a modulation one.
 static constexpr float kFmInOctPerVolt = 0.2f;
+
+/// Crossover between the two halves, Hz. Has to clear the fastest thing anyone
+/// would call vibrato (~10 Hz) and still sit far enough under the 64 Hz fold
+/// point for two poles to do real work. A fast envelope's attack transient does
+/// cross it and arrives as a short burst of PM — which is a percussive FM ping,
+/// not a defect.
+static constexpr float kFmInSplitHz = 20.0f;
+
+/// Peak phase deviation of the audio-rate half, radians, at FM AMOUNT = 1.0 and
+/// the jack driven to its full ±8 V. Six radians is roughly index 6 — past the
+/// point where the spectrum is more sideband than carrier, so the knob reaches
+/// genuinely violent before it runs out.
+static constexpr float kFmInMaxRad = 6.0f;
+
+/// Full-scale swing of the FM IN input stage, volts. Mirrors CvRange::kFmMaxV
+/// in platform/include/io/HardwareIO.h — this header is engine-level and does
+/// not include the platform's IO map, so the number is restated rather than
+/// reached for. The two must not drift; the jack's hotter ±8 V range is what
+/// lets it take a modular-level audio signal without clipping the front end.
+static constexpr float kFmInFullScaleV = 8.0f;
+
+/// Volts on the jack -> Q16 phase-accumulator units, at FM AMOUNT = 1.0.
+/// Same derivation as kFmMaxScale (the internal FM index) but denominated in
+/// volts instead of in the ±32512 signal convention.
+static constexpr float kFmInPmScale = kFmInMaxRad * (2048.0f * 65536.0f)
+                                      / (2.0f * 3.14159265f * kFmInFullScaleV);
 
 // ---------------------------------------------------------------------------
 // SynthParams — snapshot of all goal parameters for one control cycle.
@@ -86,7 +133,16 @@ struct SynthParams
     ChorusMode   chorusMode    = ChorusMode::I_II;
     float        space         = 1.0f;
     float        color         = 0.0f;
-    float        fmIn          = 0.0f; // FM IN jack, volts; see kFmInOctPerVolt
+    // FM IN jack, volts. Only a fallback path reads this — a platform that
+    // calls setFmInSample() every audio frame (both of them do) supplies the
+    // jack at audio rate instead and control() ignores this field. Kept so a
+    // host that renders control ticks without an audio loop — a test harness,
+    // a headless parameter sweep — still gets the slow half of the jack.
+    float        fmIn          = 0.0f;
+    // FM AMOUNT, 0–1: scales *both* halves of FM IN. 1.0 is full depth on each
+    // — kFmInOctPerVolt on the pitch path, kFmInMaxRad on the PM path.
+    // SHIFT+ROOT on hardware; context-menu slider in VCV.
+    float        fmAmount      = 1.0f;
     EnvelopeType envelopeType  = EnvelopeType::AR;
     float        adsrAttack    = 0.05f;
     float        adsrDecay     = 0.10f;
@@ -196,6 +252,66 @@ class SynthEngine
                int32_t *dryForRevR);
 
     /**
+     * (M77) Audio-rate FM IN feed — call once per audio frame, before audio().
+     *
+     * `volts` is the raw jack voltage. This is the *only* thing on the module
+     * sampled at audio rate rather than at 128 Hz, and it is why FM IN sits on
+     * GP27, a direct ADC pin deliberately kept off the analogue mux.
+     *
+     * Splits the signal into the two bands described at kFmInSplitHz: the slow
+     * half is published for control() to turn into a pitch multiplier, the fast
+     * half becomes the Q16 phase offset audio() adds to every main voice.
+     *
+     * Inline and float-light on purpose — two multiply-adds and one conversion,
+     * inside the same time-critical section as renderAudio().
+     *
+     * Cross-core, on hardware: this runs on Core 1 and control() reads
+     * _fmInSlowV from Core 0. Both published values are volatile for that
+     * reason, and each is a single word — a torn read is not possible and a
+     * one-tick-stale one is inaudible on a 20 Hz band.
+     *
+     * A platform that never calls this loses nothing but the audio-rate half;
+     * control() falls back to SynthParams::fmIn and behaves exactly as it did
+     * before M77.
+     */
+    inline void setFmInSample(float volts)
+    {
+        _fmInFed = true;
+        const float a = _fmInLpA;
+        _fmInLp1 += (volts - _fmInLp1) * a;
+        _fmInLp2 += (_fmInLp1 - _fmInLp2) * a;
+
+        // Decimate by *averaging*, not by sampling. The two poles above are a
+        // 12 dB/octave slope, and just past the control rate's 64 Hz Nyquist
+        // that is not yet enough — measured on the host harness, a full-scale
+        // 110 Hz modulator still folded ~77 cents of warble into the pitch.
+        //
+        // A box average over exactly one control period is the missing piece:
+        // its nulls land on multiples of the control rate, it adds another
+        // ~16 dB where the poles are weakest, and — the reason it is worth an
+        // accumulator — it is flat to within 0.01% across the vibrato band, so
+        // unlike a third pole it costs the slow half nothing.
+        //
+        // Published on this side's own count rather than on the control tick,
+        // so the two clocks need not agree and no accumulator is shared across
+        // cores. Drifting phase between them is meaningless on a 20 Hz band.
+        _fmInAcc += _fmInLp2;
+        if(++_fmInAccN >= _fmInAccLen)
+        {
+            _fmInSlowV = _fmInAcc * _fmInAccRecip;
+            _fmInAcc   = 0.0f;
+            _fmInAccN  = 0;
+        }
+
+        // Residual, not a separate high-pass: x − LP costs nothing and is
+        // exactly complementary, so the two halves always sum back to the jack.
+        // Taken from the un-averaged LP — the averaging exists to protect the
+        // decimated path, and subtracting it here would put the box filter's
+        // own comb into the audio-rate half.
+        _fmInPm = (int32_t)((volts - _fmInLp2) * _fmInPmScale);
+    }
+
+    /**
      * (M37c) Runtime sample-rate change — re-initialises all rate-dependent
      * engines without clearing note/sequence state.
      */
@@ -251,6 +367,10 @@ class SynthEngine
 
     void        _generateWavetables();
     static void _normaliseTable(const float *buf, int16_t *dst, int n);
+
+    /// Recompute the FM IN crossover coefficient for the current _audioRate.
+    /// Called from init() and setSampleRate() — nowhere else needs it.
+    void _updateFmInSplit();
 
     // -----------------------------------------------------------------------
     // Oscillators — 7 main voices + 7 sub voices.
@@ -316,11 +436,44 @@ class SynthEngine
     // applied. Equal to _sGlideBase whenever the jack is unpatched.
     float _sGlidedFreq = 440.0f;
 
-    // FM IN pitch multiplier for this control tick — exp2f(fmIn * oct/V), or
-    // exactly 1.0 when the jack is unpatched. Held as a member so POLY can
-    // reach it: it takes its pitch from the allocator and so never passes
-    // through _sGlidedFreq, where every other mode picks the modulation up.
+    // FM IN pitch multiplier for this control tick — exp2f(slow volts * oct/V
+    // * amount), or exactly 1.0 when the jack is unpatched. Held as a member so
+    // POLY can reach it: it takes its pitch from the allocator and so never
+    // passes through _sGlidedFreq, where every other mode picks the modulation
+    // up.
     float _fmInMul = 1.0f;
+
+    // -----------------------------------------------------------------------
+    // FM IN two-band split (M77) — see the block above kFmInOctPerVolt.
+    //
+    // The filter state belongs to setFmInSample() and is touched by nothing
+    // else; only the two published values cross to Core 0 / to audio().
+    // -----------------------------------------------------------------------
+    float _fmInLpA = 0.0f; // one-pole coeff for kFmInSplitHz at _audioRate
+    float _fmInLp1 = 0.0f; // cascade stage 1
+    float _fmInLp2 = 0.0f; // cascade stage 2 — the slow half, volts
+
+    // Anti-alias box average over one control period — see setFmInSample().
+    float    _fmInAcc      = 0.0f;
+    uint32_t _fmInAccN     = 0;
+    uint32_t _fmInAccLen   = 1;    // _audioRate / _controlRate, floor 1
+    float    _fmInAccRecip = 1.0f; // 1 / _fmInAccLen
+
+    /// Slow half, published for control(). Volts.
+    volatile float _fmInSlowV = 0.0f;
+    /// Fast half, published for audio(). Q16 phase-accumulator units, already
+    /// scaled by FM AMOUNT.
+    volatile int32_t _fmInPm = 0;
+    /// Volts -> Q16 for the line above: kFmInPmScale × FM AMOUNT. Written at
+    /// control rate, read per sample.
+    volatile float _fmInPmScale = 0.0f;
+    /// Latched by the first setFmInSample(). Once a platform feeds the jack at
+    /// audio rate it does so every frame, so this never needs clearing — it
+    /// only decides which source control() believes, and a platform does not
+    /// change its mind mid-run.
+    volatile bool _fmInFed = false;
+    /// Smoothed FM AMOUNT, 0–1.
+    float _sFmAmount = 1.0f;
 
     // Filter smoothing.
     float _sFilterCutoff = 983.2f;

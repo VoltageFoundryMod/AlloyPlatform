@@ -23,7 +23,9 @@
 /**
  * Knobs. Slots 1–9 are the physical knobs, **numbered row-major to match the
  * panel silkscreen**: POT 1–3 across the top, 4–6 the middle, 7–9 the bottom.
- * Slots 10–15 are their SHIFT-secondaries.
+ * Slots 10–15 are their SHIFT-secondaries, and slot 16 is FM AMOUNT — the
+ * first secondary on the top row, appended out of row-major order; see
+ * Pot::FMAMOUNT.
  *
  * The row-major ordering is not cosmetic. `platform/vcv/PanelLayout.h` indexes
  * its coordinate table by these very slots, so `PanelLayout::pot(Pot::ROOT)`
@@ -63,7 +65,23 @@ constexpr PotId DELAYTIME  = PotId::POT_13; ///< SHIFT+DELAY  — delay time
 constexpr PotId VOL        = PotId::POT_14; ///< SHIFT+SPACE  — master volume
 constexpr PotId REVERBSIZE = PotId::POT_15; ///< SHIFT+REVERB — plate size
 
-constexpr uint8_t kCount = 15;
+/// SHIFT+ROOT — FM IN depth, 0–1, scaling both halves of the jack (M77).
+///
+/// Breaks the row-major run above: POT_10..POT_15 pair with POT_4..POT_9 in
+/// sequence, and the top row had no secondaries at all until this one. Appended
+/// rather than inserted at POT_10 because slot order is the flash format for
+/// the platform's takeover state and renumbering would move all six.
+///
+/// ROOT rather than COLOR, though COLOR is the *internal* FM index and the
+/// pairing is tempting: COLOR only means FM depth in PAIR and CASCADE, and in
+/// the other five modes it is voicing, mix or spread. FM IN is on the pitch
+/// path in all seven, so ROOT is the pairing that reads the same everywhere.
+///
+/// ⚠ POT_16 is the last slot the platform has (PotId::POT_COUNT). Another
+/// secondary on this module needs the HAL's enum widened first.
+constexpr PotId FMAMOUNT = PotId::POT_16;
+
+constexpr uint8_t kCount = 16;
 } // namespace Pot
 
 /**
@@ -108,11 +126,14 @@ constexpr uint8_t kCount = 15;
  *     was given a jack of its own — COLOR reaches further into the sound in
  *     every voice mode than stereo width does, so it earns the panel space.
  *     SPACE is still a knob, a CC and a preset field; only the jack is gone.
- *   * **FM IN is pitch FM**, not a second COLOR input. It used to sum into
- *     COLOR because COLOR is the internal FM depth and there was no other
- *     route in; now that COLOR has CV_4, the jack does what it is named for
- *     and modulates the oscillator pitch (`SynthParams::fmIn`). See
- *     `io/IOBridge.h` and `kFmInOctPerVolt` in `SynthEngine.h`.
+ *   * **FM IN is oscillator FM**, not a second COLOR input. It used to sum
+ *     into COLOR because COLOR is the internal FM depth and there was no other
+ *     route in; now that COLOR has CV_4, the jack does what it is named for.
+ *     Since M77 it is split by frequency and does both halves of the job:
+ *     below ~20 Hz it is exponential pitch modulation at control rate, above
+ *     it is linear phase modulation of every voice, per sample. Depth for both
+ *     is Pot::FMAMOUNT (SHIFT+ROOT). See `io/IOBridge.h` and the FM IN block
+ *     above `kFmInOctPerVolt` in `SynthEngine.h`.
  *
  * ⚠ The two parenthesised designators are the one place the board and the
  * panel disagree, and it is not a silkscreen fix. Electrically J9 *is* FM IN —

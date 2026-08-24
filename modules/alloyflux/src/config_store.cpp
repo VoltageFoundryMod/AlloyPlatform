@@ -14,6 +14,7 @@ void packAlloyConfig(AlloyConfig &cfg)
     memset(&cfg, 0, sizeof(cfg));
     cfg.baseFreq    = gBaseFreq;
     cfg.color       = gColor;
+    cfg.fmAmount    = gFmAmount;
     cfg.relation    = gRelation;
     cfg.voiceMode   = (uint8_t)gVoiceMode;
     cfg.shape       = gShape;
@@ -71,6 +72,7 @@ void applyAlloyConfig(const AlloyConfig &cfg)
 {
     gBaseFreq    = cfg.baseFreq;
     gColor       = cfg.color;
+    gFmAmount    = cfg.fmAmount;
     gRelation    = cfg.relation;
     gVoiceMode   = (VoiceMode)cfg.voiceMode;
     gShape       = cfg.shape;
@@ -133,6 +135,9 @@ void applyAlloyDefaults()
     AlloyConfig d        = {};
     d.baseFreq           = 440.0f;
     d.color              = 0.0f;
+    // Full depth — at 1.0 the slow half of FM IN is exactly the pre-M77 law,
+    // so a preset that used the jack for vibrato recalls unchanged.
+    d.fmAmount           = 1.0f;
     d.relation           = 0.0f;
     d.voiceMode          = (uint8_t)VoiceMode::PAIR;
     d.shape              = 0.0f;

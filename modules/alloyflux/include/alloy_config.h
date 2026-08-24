@@ -40,7 +40,7 @@ static constexpr uint16_t kAlloyFluxEngineId = 0x4146;
 /// Layout version of the AlloyConfig payload.  Continues the old
 /// kConfigVersion sequence (which reached 6) rather than restarting, so no
 /// stale slot from a pre-M63d build can ever match by coincidence.
-static constexpr uint16_t kAlloyFluxEngineVersion = 8;
+static constexpr uint16_t kAlloyFluxEngineVersion = 9;
 
 // Canonical default filter cutoff: nearest 7-bit-MIDI-representable value to 1 kHz
 // on the log 20–16000 Hz scale.  CC 74 → 20 × (16000/20)^(74/127) ≈ 983.2 Hz.
@@ -54,7 +54,8 @@ struct AlloyConfig
 {
     // Pitch / voice
     float   baseFreq;
-    float   color; // COLOR knob 0–1
+    float   color;    // COLOR knob 0–1 — the *internal* FM index
+    float   fmAmount; // FM IN jack depth 0–1, SHIFT+ROOT (M77)
     float   relation;
     uint8_t voiceMode; // cast of VoiceMode enum
     // Timbre

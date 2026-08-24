@@ -78,6 +78,16 @@ export const PARAM_MAP: CCParam[] = [
     step: 0.01,
   },
   {
+    cc: 105,
+    name: "fmamt",
+    label: "FM Amount",
+    category: "Oscillator",
+    min: 0.0,
+    max: 1.0,
+    default: 1.0,
+    step: 0.01,
+  },
+  {
     cc: 94,
     name: "rel",
     label: "Relation",

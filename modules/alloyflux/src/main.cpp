@@ -93,6 +93,10 @@ static constexpr uint8_t kPinI2sData = 18u;
 float gBaseFreq = 440.0f;
 float gColor
     = 0.0f; // COLOR knob: FM depth (PAIR/CASCADE) or Hz fine spread (ensemble)
+// Full depth by default: at 1.0 the slow half of FM IN is exactly the pre-M77
+// law, so a patch that used the jack for vibrato sounds the same as it did.
+float          gFmAmount  = 1.0f;
+volatile float gFmInVolts = 0.0f; // written by the GP27 ADC — see params.h
 float   gShape   = 0.0f;
 float   gFatness = 0.4f; // default: sub audible but not boomy
 uint8_t gSubOctave
@@ -504,6 +508,10 @@ void updateControl()
         p.chorusMode   = gChorusMode;
         p.space        = gSpace;
         p.color        = gColor;
+        // p.fmIn — set by fillSynthParams(); ignored while renderAudio() feeds
+        // the jack at audio rate, which it always does. p.fmAmount arrives from
+        // Pot::FMAMOUNT through fillSynthParams() too, so MIDI/serial writes to
+        // gFmAmount reach the engine on the same path the knob does.
         p.envelopeType = gEnvelopeType;
         p.adsrAttack   = gAdsrAttack;
         p.adsrDecay    = gAdsrDecay;
@@ -746,6 +754,17 @@ renderAudio(float *pOutL, float *pOutR)
         return;
     }
 #endif
+
+    // M77 — FM IN, at audio rate. Must run before audio(): it is what splits
+    // the jack into the pitch half control() reads and the phase-modulation
+    // half the oscillators are about to be advanced with.
+    //
+    // Unconditional, even though gFmInVolts is still hard 0 until the GP27 ADC
+    // driver lands. Feeding zeroes costs two multiply-adds and latches the
+    // engine onto the audio-rate path, so the fallback in control() stays for
+    // hosts that have no audio loop rather than becoming a mode this firmware
+    // silently sits in.
+    gSynthEngine.setFmInSample(gFmInVolts);
 
     // Sampled once: Core 0 can change either between statements, and the wet
     // return must be mixed on the same terms it was fetched under.

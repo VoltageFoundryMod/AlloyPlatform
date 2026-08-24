@@ -39,7 +39,7 @@
 // One ADC channel each; the SHIFT edge detaches both sides so neither
 // parameter inherits the position the other left the knob in.  The ADC driver
 // reuses this table to map both ids onto a single mux channel.
-static constexpr uint8_t kShiftPairCount                 = 6;
+static constexpr uint8_t kShiftPairCount                 = 7;
 static constexpr PotId   kShiftPairs[kShiftPairCount][2] = {
     {Pot::SHAPE, Pot::FATNESS},
     {Pot::MOTION, Pot::DRIFTSPEED},
@@ -47,6 +47,12 @@ static constexpr PotId   kShiftPairs[kShiftPairCount][2] = {
     {Pot::SPACE, Pot::VOL},
     {Pot::DELAY, Pot::DELAYTIME},
     {Pot::REVERB, Pot::REVERBSIZE},
+    // M77. The primary here is the one pot updatePots() skips — see the
+    // ROOT note in that loop. Detaching it on the SHIFT edge is harmless
+    // (nothing reads its takeover state) and keeping the pair complete is
+    // what the ADC driver needs: this table is also how it learns that both
+    // ids sit on one channel.
+    {Pot::ROOT, Pot::FMAMOUNT},
 };
 
 // ---------------------------------------------------------------------------
@@ -180,7 +186,8 @@ class HardwarePicoIO : public IHardwareIO
             case Pot::DELAYTIME:
                 // gDelayTime is in ms over [10, DELAY_MAX_MS]; normalise to 0–1
                 return (gDelayTime - 10.0f) / ((float)DELAY_MAX_MS - 10.0f);
-            case Pot::REVERBSIZE: return gRevSize; // already 0–1
+            case Pot::REVERBSIZE: return gRevSize;  // already 0–1
+            case Pot::FMAMOUNT: return gFmAmount;   // already 0–1
             default: return 0.5f;
         }
     }
@@ -218,6 +225,7 @@ class HardwarePicoIO : public IHardwareIO
                 gDelayTime = 10.0f + v * ((float)DELAY_MAX_MS - 10.0f);
                 break;
             case Pot::REVERBSIZE: gRevSize = v; break;
+            case Pot::FMAMOUNT: gFmAmount = v; break;
             default: break;
         }
     }

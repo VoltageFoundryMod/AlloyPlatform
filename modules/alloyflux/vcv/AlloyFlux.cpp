@@ -90,6 +90,11 @@ struct AlloyFlux : Module
         REV_FROZEN_PARAM,   // 0=off, 1=frozen
         VEL_SENS_PARAM,     // 0=off (fixed 1.0), 1=on (follows MIDI vel)
         GATE_LENGTH_PARAM,  // [0, 2000] ms; 0 = follow the gate (POLY only)
+        // ---- M77: FM IN depth (SHIFT+ROOT on hardware) ----
+        // Appended, not slotted in beside the other SHIFT-secondaries: this
+        // enum indexes saved patches the same way InputId does, so inserting
+        // would shift every param after it in every patch already on disk.
+        FM_AMOUNT_PARAM, // [0, 1], default 1.0 (CC 105)
         PARAMS_LEN
     };
 
@@ -253,6 +258,9 @@ struct AlloyFlux : Module
         configParam(DRIFTSPEED_PARAM, 0.0f, 1.0f, 0.394f, "Drift speed");
         configParam(VOL_PARAM, 0.0f, 1.0f, 1.0f, "Volume");
         configParam(CURVETIME_PARAM, 0.25f, 4.0f, 1.0f, "Curve time", "\u00d7");
+        // Defaults to full depth so a patch that used FM IN for vibrato before
+        // M77 opens sounding the same.
+        configParam(FM_AMOUNT_PARAM, 0.0f, 1.0f, 1.0f, "FM amount");
 
         // CV inputs
         configInput(VOCT_INPUT, "V/Oct");
@@ -263,7 +271,8 @@ struct AlloyFlux : Module
         configInput(SHP_CV_INPUT, "Shape CV");
         configInput(MTN_CV_INPUT, "Motion CV");
         configInput(COLOR_CV_INPUT, "Color CV");
-        configInput(FM_IN_INPUT, "FM In (pitch, 0.2 oct/V)");
+        configInput(FM_IN_INPUT,
+                    "FM In — pitch below 20 Hz (0.2 oct/V), linear FM above");
 
         // Outputs
         configOutput(L_OUTPUT, "Left");
@@ -287,6 +296,7 @@ struct AlloyFlux : Module
         _io.assignPot(
             Pot::DELAYTIME, DELAY_TIME_PARAM, 10.0f, (float)DELAY_MAX_MS);
         _io.assignPot(Pot::REVERBSIZE, REV_SIZE_PARAM, 0.0f, 1.0f);
+        _io.assignPot(Pot::FMAMOUNT, FM_AMOUNT_PARAM, 0.0f, 1.0f);
 
         // IO mappings — CV jacks
         _io.assignCV(Cv::VOCT, VOCT_INPUT);
@@ -503,6 +513,7 @@ struct AlloyFlux : Module
             {84, cc7(0.f, 1.f, params[FATNESS_PARAM].getValue())},
             {89, cc7(0.f, 1.f, params[DRIFTSPEED_PARAM].getValue())},
             {92, cc7(0.f, 1.f, params[COLOR_PARAM].getValue())},
+            {105, cc7(0.f, 1.f, params[FM_AMOUNT_PARAM].getValue())},
             {94, cc7(0.f, 1.f, params[RELATION_PARAM].getValue())},
             {71, cc7(0.f, 1.f, params[CURVE_PARAM].getValue())},
             {88, cc7(0.25f, 4.f, params[CURVETIME_PARAM].getValue())},
@@ -651,6 +662,7 @@ struct AlloyFlux : Module
         cc7(84, 0.f, 1.f, params[FATNESS_PARAM].getValue());
         cc7(89, 0.f, 1.f, params[DRIFTSPEED_PARAM].getValue());
         cc7(92, 0.f, 1.f, params[COLOR_PARAM].getValue());
+        cc7(105, 0.f, 1.f, params[FM_AMOUNT_PARAM].getValue());
         cc7(94, 0.f, 1.f, params[RELATION_PARAM].getValue());
         cc7(71, 0.f, 1.f, params[CURVE_PARAM].getValue());
         cc7(88, 0.25f, 4.0f, params[CURVETIME_PARAM].getValue());
@@ -785,6 +797,7 @@ struct AlloyFlux : Module
             case 84: params[FATNESS_PARAM].setValue(norm); break;
             case 89: params[DRIFTSPEED_PARAM].setValue(norm); break;
             case 92: params[COLOR_PARAM].setValue(norm); break;
+            case 105: params[FM_AMOUNT_PARAM].setValue(norm); break;
             case 94: params[RELATION_PARAM].setValue(norm); break;
             case 71: params[CURVE_PARAM].setValue(norm); break;
             case 88:
@@ -1324,6 +1337,20 @@ struct AlloyFlux : Module
         gGatePatched = _params.gatePatched;
         gGateHigh    = _params.gateHigh;
 
+        // M77 — FM IN at audio rate.
+        //
+        // fillSynthParams() already runs every sample here, so _params.fmIn is
+        // a per-sample voltage and always was; before M77 the only thing that
+        // read it was control(), at 128 Hz, which threw the other 343 samples
+        // away and folded everything above 64 Hz into the pitch. Handing it to
+        // the engine here is what turns the jack into a real FM input — and
+        // the low-pass inside setFmInSample() is what stops the discarded band
+        // aliasing on the way to control().
+        //
+        // Before the control tick below, so a tick reads a split that includes
+        // this frame rather than trailing it by one.
+        _engine.setFmInSample(_params.fmIn);
+
         if(++_controlCounter >= _controlDiv)
         {
             _controlCounter = 0;
@@ -1711,6 +1738,13 @@ struct AlloyFluxWidget : ModuleWidget
         ctSlider->text     = "Curve time";
         ctSlider->quantity = m->getParamQuantity(AlloyFlux::CURVETIME_PARAM);
         menu->addChild(ctSlider);
+
+        auto *fmAmtSlider = new SubMenuSlider;
+        fmAmtSlider->text = "FM amount";
+        fmAmtSlider->quantity
+            = m->getParamQuantity(AlloyFlux::FM_AMOUNT_PARAM);
+        menu->addChild(fmAmtSlider);
+
         menu->addChild(rack::createMenuLabel("Additional Controls"));
         // --- Envelope submenu ---
         bool isAdsr = m->params[AlloyFlux::ENV_TYPE_PARAM].getValue() >= 0.5f;
