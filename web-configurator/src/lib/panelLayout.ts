@@ -149,6 +149,23 @@ const ALLOYFLUX: PanelLayout = {
           sub: "unison",
           icons: ["uni1", "uni2", "uni3"],
         },
+        // On its own line deliberately, not by wrapping: the five knobs above
+        // fill this section's width to within a few pixels, so a sixth spills
+        // to a second row whatever size it is. Placed there, it at least
+        // centres under them.
+        //
+        // Small, and separated from COLOR, because it is the one control here
+        // that is not about the internal voice: it scales the external FM IN
+        // jack. params.json says as much — "Not the same control as COLOR,
+        // which is the internal FM index" — and the two sitting side by side
+        // at the same weight is exactly the confusion that warns about.
+        {
+          name: "fmamt",
+          size: "sm",
+          label: "FM In",
+          sub: "depth",
+          breakBefore: true,
+        },
       ],
     },
     {
@@ -426,6 +443,17 @@ const LAYOUTS: Readonly<Record<string, PanelLayout>> = {
 
 /** A section resolved against a parameter map, ready to render. */
 export interface ResolvedSection {
+  /**
+   * Stable identity for the render loop, *not* the title.
+   *
+   * The title is not unique and cannot be made so: the catch-all below names
+   * its sections after the category a parameter declares, which is usually the
+   * name of an authored section too. Keying the `{#each}` on the title turned
+   * an unplaced parameter — the exact case the catch-all exists to absorb —
+   * into a duplicate-key error that unmounted the whole app, so a forgotten
+   * placement showed up as a blank page rather than as a trailing group.
+   */
+  key: string;
   title: string;
   span: number;
   /**
@@ -480,7 +508,7 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
       SIZE_PX.sm,
     );
 
-  const sections: ResolvedSection[] = (layout?.sections ?? []).flatMap((s) => {
+  const sections: ResolvedSection[] = (layout?.sections ?? []).flatMap((s, i) => {
     const items = s.controls.flatMap((control) => {
       const param = byName.get(control.name);
       if (!param) return [];
@@ -492,6 +520,7 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
     return items.length || s.visual
       ? [
           {
+            key: `${i}:${s.title}`,
             title: s.title,
             span: s.span,
             dialBox: dialBoxFor(items),
@@ -524,6 +553,7 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
       control: { name: param.name } as PanelControl,
     }));
     sections.push({
+      key: `auto:${category}`,
       title: category,
       span: Math.min(12, Math.max(3, Math.ceil(ps.length / 2) * 2)),
       dialBox: dialBoxFor(items),

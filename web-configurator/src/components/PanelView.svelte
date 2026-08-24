@@ -199,7 +199,7 @@
         style:transform={`scale(${scale})`}
       >
         <div class="grid">
-          {#each sections as section (section.title)}
+          {#each sections as section (section.key)}
             <PanelSection
               title={section.title}
               span={section.span}
