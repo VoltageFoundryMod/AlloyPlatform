@@ -22,8 +22,8 @@ Want to integrate the module to your DAW or MIDI controller? The built-in USB MI
 | Width       | 14HP                                                                    |
 | Power       | ~100mA +12V, ~5mA −12V                                                  |
 | Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY / PLASMA                 |
-| Knobs       | 9 — ROOT, COLOR, RELATION / SHAPE, CURVE, MOTION / DELAY, SPACE, REVERB |
-| Jacks       | 10 — V/OCT, GATE, MIDI, CV 1, CV 2 / FM IN, CV 3, CV 4, L OUT, R OUT    |
+| Knobs       | 9 — ROOT, RELATION, COLOR / SHAPE, CURVE, MOTION / DELAY, SPACE, REVERB |
+| Jacks       | 10 — V/OCT, GATE, MIDI, RELATION, COLOR / FM IN, SHAPE, MOTION, L OUT, R OUT |
 | Buttons     | 2 — MODE + SHIFT                                                        |
 | LEDs        | 7× RGB (voice activity, motion layer, mode, shift/drone, heartbeat)     |
 | Audio       | Stereo 16-bit, 48000 Hz, PCM5102A I2S DAC                               |
@@ -58,7 +58,7 @@ Nine knobs in three rows. The panel numbers them POT 1–9, left to right and to
 to bottom:
 
 ```txt
-  ROOT      COLOR     RELATION      ← pitch and harmonic relationship
+  ROOT      RELATION  COLOR         ← pitch and harmonic relationship
   SHAPE     CURVE     MOTION        ← timbre, envelope, animation
   DELAY     SPACE     REVERB        ← space and effects
 ```
@@ -70,25 +70,38 @@ RELATION is physically the largest knob — it is the module's signature control
 Ten jacks in two rows of five:
 
 ```txt
-  V/OCT   GATE   MIDI    CV 1    CV 2
-  FM IN   CV 3   CV 4    L OUT   R OUT
+  V/OCT   GATE    MIDI     RELATION   COLOR
+  FM IN   SHAPE   MOTION   L OUT      R OUT
 ```
 
-The four modulation inputs are labelled **CV 1–CV 4** on the panel rather than
-being named after their destination. What each one modulates is fixed:
+Each modulation input is silkscreened with the knob it modulates. The routing
+is fixed:
 
-| Label | Type   | Function                                        |
-| ----- | ------ | ----------------------------------------------- |
-| V/OCT | Input  | Pitch — 1V/oct                                  |
-| GATE  | Input  | Note trigger / envelope                         |
-| MIDI  | Input  | TRS MIDI (Type A/B accepted)                    |
-| CV 1  | Input  | Modulates RELATION                              |
-| CV 2  | Input  | Modulates SHAPE                                 |
-| FM IN | Input  | FM modulation — audio rate capable              |
-| CV 3  | Input  | Modulates MOTION                                |
-| CV 4  | Input  | Modulates SPACE                                 |
-| L OUT | Output | Left / mono (passive mono sum when R unplugged) |
-| R OUT | Output | Right stereo                                    |
+| Label    | Type   | Function                                        |
+| -------- | ------ | ----------------------------------------------- |
+| V/OCT    | Input  | Pitch — 1V/oct                                  |
+| GATE     | Input  | Note trigger / envelope                         |
+| MIDI     | Input  | TRS MIDI (Type A/B accepted)                    |
+| RELATION | Input  | Modulates RELATION                              |
+| COLOR    | Input  | Modulates COLOR                                 |
+| FM IN    | Input  | Pitch FM — 0.2 oct/V, i.e. ±1 octave over ±5 V  |
+| SHAPE    | Input  | Modulates SHAPE                                 |
+| MOTION   | Input  | Modulates MOTION                                |
+| L OUT    | Output | Left / mono (passive mono sum when R unplugged) |
+| R OUT    | Output | Right stereo                                    |
+
+**SPACE has no CV jack.** It gave one up so COLOR could have its own: COLOR
+reaches further into the sound in every voice mode than stereo width does, and
+a 14 HP panel only has room for four modulation inputs. SPACE is still a knob,
+still a CC and still saved in every preset — there is simply no socket for it.
+
+**FM IN modulates pitch, not COLOR.** It used to sum into COLOR, which is the
+*internal* FM depth, because that was the only route in. Now that COLOR has a
+jack of its own, FM IN does what it is named for. It applies after the pitch
+source is chosen and after the scale quantizer, so it works on a held MIDI note
+and is not quantized away. Note that it is currently sampled at the control
+rate (128 Hz), so it tracks LFOs and envelopes; true audio-rate FM through this
+jack is a later firmware milestone.
 
 ### Buttons
 
@@ -215,7 +228,7 @@ the Octaves chord.
 
 **Tips:**
 
-- CV 1 (RELATION) from a sample-and-hold creates instant random chord changes
+- The RELATION jack from a sample-and-hold creates instant random chord changes
 - Morphing RELATION slowly during a long swell envelope = chord evolution
 - Hold one chord and walk COLOR up through all six voicings — same harmony,
   six different registers, and every one of them in tune
@@ -384,7 +397,7 @@ own — the wilder the sound gets, the wider it gets.
   is over before it becomes tiring
 - Use the filter. PLASMA generates a lot of high-frequency content and a low
   pass with some resonance is what turns noise back into a tone
-- CV 1 into RELATION with slow COLOR movement is a whole patch on its own
+- The RELATION jack with slow COLOR movement is a whole patch on its own
 - The MODE LED shows hot red in PLASMA, and the heartbeat never goes fully
   dark — a coupled pair is always doing something
 
@@ -409,8 +422,8 @@ _Associated CV: V/OCT jack_
 
 The defining control of Alloy Flux. Its behaviour changes per mode — always governs the relationship between ROOT and everything else. Controls interval, ensemble spread, chord shape, FM ratio, or polyphonic detune depending on the active mode.
 
-_Associated CV: CV 1 jack_
-When CV 1 is patched, RELATION knob becomes an **attenuverter** for that CV (centre = no effect, CW = full depth, CCW = inverted depth).
+_Associated CV: RELATION jack (upper row)_
+When it is patched, the RELATION knob becomes an **attenuverter** for that CV (centre = no effect, CW = full depth, CCW = inverted depth).
 
 ---
 
@@ -423,8 +436,8 @@ Fully CCW ───────────────────────�
   Sine    Triangle     Saw     Pulse    Hollow Pulse
 ```
 
-_Associated CV: CV 2 jack_
-When CV 2 is patched, SHAPE becomes an attenuverter for that CV.
+_Associated CV: SHAPE jack (lower row)_
+When it is patched, SHAPE becomes an attenuverter for that CV.
 
 **SHIFT function:** Hold SHIFT + turn SHAPE → adjusts **FATNESS** (sub oscillator level — adds a square wave one or two octaves (set by configurator) below each voice for Juno-style body).
 
@@ -444,8 +457,8 @@ Controls all internal animation depth simultaneously — drift, chorus modulatio
 - At zero: module is stable and static
 - At full: module breathes and moves — string machine territory
 
-_Associated CV: CV 3 jack_
-When CV 3 is patched, MOTION becomes an attenuverter for that CV.
+_Associated CV: MOTION jack (lower row)_
+When it is patched, MOTION becomes an attenuverter for that CV.
 
 **SHIFT function:** Hold SHIFT + turn MOTION → adjusts **DRIFTSPEED** (how quickly each voice steps toward a new random pitch target).
 
@@ -496,8 +509,8 @@ Stereo width and placement. Controls how far apart voices sit in the stereo fiel
 
 SPACE has its strongest effect in STRING mode, but every voice mode gives it something to work on — each one places its voices across the field, so SPACE can collapse any of them to mono or throw them wider.
 
-_Associated CV: CV 4 jack_
-When CV 4 is patched, SPACE becomes an attenuverter for that CV.
+_Associated CV: none_
+SPACE is knob-only — it gave its jack up to COLOR. Still reachable over CC and saved in every preset.
 
 **SHIFT function:** Hold SHIFT + turn SPACE → adjusts **VOL** (master output level).
 

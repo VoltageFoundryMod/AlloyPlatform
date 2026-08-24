@@ -32,6 +32,33 @@ static constexpr float   kSignalToFloat   = 1.0f / (float)kSignalFullScale;
 static constexpr float   kFloatToSignal   = (float)kSignalFullScale;
 
 // ---------------------------------------------------------------------------
+// FM IN depth — octaves of pitch deviation per volt on the FM IN jack, scaling
+// SynthParams::fmIn (the jack's voltage, 0 when unpatched).
+//
+// 0.2 oct/V puts the jack's full ±5 V swing at ±1 octave. Deliberately *not*
+// 1.0: at V/Oct scaling the jack would be a second pitch input rather than a
+// modulation one, and there is no attenuverter on the panel to tame it. One
+// octave either side is wide enough for vibrato, sirens and clangorous
+// index-1 FM, and stays musical with a raw LFO plugged straight in.
+//
+// Exponential, not linear: the pitch is already carried as Hz and every voice
+// mode derives its intervals from it by ratio, so scaling the fundamental is
+// the only form of FM that leaves a chord in tune with itself.
+//
+// Applied in control(), after glide — NOT in fillSynthParams() where the jack
+// is read. Upstream it would be erased twice over: a held MIDI note overwrites
+// baseFreq wholesale on both platforms, and the VCV scale quantizer rounds it
+// to the nearest semitone.
+//
+// ⚠ This is **control-rate** FM — the jack is sampled once per control tick
+// (128 Hz on hardware), so the modulator is band-limited to ~64 Hz and anything
+// faster aliases into the pitch. FM IN is on GP27, a direct ADC pin off the
+// analogue mux precisely so it *can* be sampled at audio rate; spending that is
+// milestone 77 and needs a path through audio(), not control().
+// ---------------------------------------------------------------------------
+static constexpr float kFmInOctPerVolt = 0.2f;
+
+// ---------------------------------------------------------------------------
 // SynthParams — snapshot of all goal parameters for one control cycle.
 //
 // The hardware shim in main.cpp populates this struct from the gXxx globals
@@ -59,6 +86,7 @@ struct SynthParams
     ChorusMode   chorusMode    = ChorusMode::I_II;
     float        space         = 1.0f;
     float        color         = 0.0f;
+    float        fmIn          = 0.0f; // FM IN jack, volts; see kFmInOctPerVolt
     EnvelopeType envelopeType  = EnvelopeType::AR;
     float        adsrAttack    = 0.05f;
     float        adsrDecay     = 0.10f;
@@ -279,8 +307,20 @@ class SynthEngine
     volatile float _sFmDepth
         = 0.0f; // FM phase scale (volatile: control writes, ISR reads)
 
-    // Portamento smoother.
+    // Portamento smoother state — the played pitch, glided, with no modulation
+    // on it. Kept separate from _sGlidedFreq so FM IN cannot leak back into the
+    // filter and drag the portamento off the note.
+    float _sGlideBase = 440.0f;
+
+    // The pitch every voice mode actually builds from: _sGlideBase with FM IN
+    // applied. Equal to _sGlideBase whenever the jack is unpatched.
     float _sGlidedFreq = 440.0f;
+
+    // FM IN pitch multiplier for this control tick — exp2f(fmIn * oct/V), or
+    // exactly 1.0 when the jack is unpatched. Held as a member so POLY can
+    // reach it: it takes its pitch from the allocator and so never passes
+    // through _sGlidedFreq, where every other mode picks the modulation up.
+    float _fmInMul = 1.0f;
 
     // Filter smoothing.
     float _sFilterCutoff = 983.2f;

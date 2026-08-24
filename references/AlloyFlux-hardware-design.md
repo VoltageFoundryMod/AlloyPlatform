@@ -93,7 +93,7 @@ The RELATION knob is the signature control of the module. It is the most express
 | Framework   | Arduino + the Alloy Platform's own I2S driver; custom DSP engines (ShapeOsc, ChorusEngine, CurveEngine, …) |
 | Build tool  | PlatformIO                                                                                                 |
 | Knobs       | 9 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE, DELAY, REVERB)                                         |
-| Jacks       | 10 (V/OCT, GATE, MIDI, REL CV, SHAPE CV, MOTION CV, FM IN, SPACE CV, L OUT, R OUT)                         |
+| Jacks       | 10 (V/OCT, GATE, MIDI, RELATION CV, COLOR CV, FM IN, SHAPE CV, MOTION CV, L OUT, R OUT)                    |
 | Buttons     | 2 (MODE + SHIFT)                                                                                           |
 | LEDs        | 7× APA102/SK9822 Dotstar RGB                                                                               |
 | Power draw  | ~100mA +12V, ~5mA −12V (estimate)                                                                          |
@@ -232,7 +232,7 @@ Chorus L        Chorus R         ◄── [FILTER: post-chorus if fxorder filte
    │   (Core 1 offload)    │    (1-frame latency, inaudible)
    └───────┬───────────────┘
            │  ← delay post-reverb position if fxorder=post
-SPACE engine (stereo width)     ◄── SPACE CV (mux)
+SPACE engine (stereo width)     ◄── knob only (no CV jack)
    │               │
    ▼               ▼
 TL072 gain      TL072 gain
@@ -257,25 +257,61 @@ L OUT jack      R OUT jack
 
 ## Jack Assignment
 
+Ten jacks in two rows of five. **The authority for this section is
+`hardware/MainPCB/` — `MainPCB.kicad_pcb` for where a jack sits and
+`Inputs.kicad_sch` for what it connects to.** The `Ref` column is the board
+designator and the `Pin/Path` column is read off U9's pads; both were verified
+against those files rather than transcribed, because this section has drifted
+from the board twice before.
+
+Panel positions below are millimetres from the panel origin, which is
+`(pcb_x − 190.370, pcb_y − 39.234)` — the same offset `platform/vcv/PanelLayout.h`
+records. Row 1 is y 93.7, row 2 is y 107.7.
+
 ### Input Row 1 — Primary Inputs
 
-| Jack | Label  | Function                                          | Pin/Path                                   |
-| ---- | ------ | ------------------------------------------------- | ------------------------------------------ |
-| 1    | V/OCT  | Pitch — 1V/oct, 0–6V range                        | GP26 direct                                |
-| 2    | GATE   | Note trigger / envelope / articulation            | unassigned — see [Gate Input](#gate-input) |
-| 3    | MIDI   | TRS MIDI in — Type A/B dual circuit               | GP9 UART1                                  |
-| 4    | REL CV | RELATION modulation — interval/detune/chord morph | Mux CH8                                    |
-| 5    | SHP CV | SHAPE CV — waveform morph modulation              | Mux CH9                                    |
+| Pos | Ref  | Label    | x (mm) | Function                                     | Pin/Path    |
+| --- | ---- | -------- | ------ | -------------------------------------------- | ----------- |
+| 1   | J3   | V/OCT    | 9.443  | Pitch — 1V/oct, 0–6V range                   | GP26 direct |
+| 2   | J4   | GATE     | 22.217 | Note trigger / envelope / articulation       | Mux CH0     |
+| 3   | J2   | MIDI     | 35.390 | TRS MIDI in — Type A/B dual circuit          | GP9 UART1   |
+| 4   | J21  | RELATION | 48.663 | RELATION modulation — interval / chord morph | Mux CH1     |
+| 5   | J6   | COLOR    | 61.437 | COLOR modulation — timbre / FM depth         | Mux CH2     |
 
 ### Input Row 2
 
-| Jack | Label  | Function                                       | Pin/Path    |
-| ---- | ------ | ---------------------------------------------- | ----------- |
-| 6    | FM IN  | FM input — audio-rate capable, bipolar ±5V     | GP27 direct |
-| 7    | MTN CV | MOTION CV — animation depth modulation         | Mux CH10    |
-| 8    | SPC CV | SPACE CV — stereo width modulation             | Mux CH11    |
-| 9    | L OUT  | Left audio — passive mono sum when R unplugged |             |
-| 10   | R OUT  | Right audio — stereo                           |             |
+| Pos | Ref  | Label    | x (mm) | Function                                       | Pin/Path    |
+| --- | ---- | -------- | ------ | ---------------------------------------------- | ----------- |
+| 1   | J9   | FM IN    | 9.343  | Pitch FM — 0.2 oct/V, bipolar ±8 V             | GP27 direct |
+| 2   | J7   | SHAPE    | 22.117 | SHAPE modulation — waveform morph              | Mux CH3     |
+| 3   | J8   | MOTION   | 35.340 | MOTION modulation — animation depth            | Mux CH4     |
+| 4   | J10  | L OUT    | 48.563 | Left audio — passive mono sum when R unplugged |             |
+| 5   | J11  | R OUT    | 61.337 | Right audio — stereo                           |             |
+
+> **The designator sequence is not the panel order**, and two entries in
+> particular have caught people out:
+>
+> - **The row-1 position-4 jack is J21, not J5. There is no J5 on this board.**
+>   Both `io/PanelMap.h` and `platform/vcv/PanelLayout.h` called it J5 for a
+>   while; nothing depended on the name, but it sent two readers to a footprint
+>   that does not exist.
+> - **J9 is FM IN and it sits at the LEFT end of row 2**, where the panel art
+>   puts it. An earlier board revision had J7 there with J9 one position to its
+>   right, which mattered because J9 is the only jack on a direct ADC pin — the
+>   two are not interchangeable, since FM IN is ±8 V with a 100 pF cap while
+>   the mux channels are ±5 V. **That is fixed: the board and the art now
+>   agree.** The warning blocks that said otherwise have been removed from
+>   `PanelMap.h` and `PanelLayout.h`.
+
+> ⚠️ **The schematic net names are one panel revision behind.** `Inputs.kicad_sch`
+> still calls the four modulation nets `REL_CV`, `SHAPE_CV`, `MOTION_CV` and
+> `SPACE_CV`, from the layout in which SPACE had a jack. By position they now
+> carry RELATION, **COLOR**, **SHAPE** and **MOTION** respectively — so
+> `SHAPE_CV` is the COLOR jack, `MOTION_CV` is the SHAPE jack and `SPACE_CV` is
+> the MOTION jack. Nothing is mis-wired and no firmware change is needed: the
+> mux channel order is positional and `Cv::` maps CV_3..CV_6 onto CH1..CH4 in
+> panel order regardless of what the nets are called. Rename them at the next
+> schematic revision; until then, read this table and not the net label.
 
 **Passive mono sum:** 10kΩ resistor from each output rail meets at the L jack NC (normally-closed) switching contact. When R OUT is unpatched, both channels sum passively to L OUT. Requires no firmware involvement.
 
@@ -333,18 +369,26 @@ FM IN is read in `renderAudio()` at audio rate. Must not go through the mux.
 ### Gate Input
 
 ```txt
-Eurorack gate (0–5V) ──→ 10kΩ series ──→ BAT48 clamp ──→ GP?? (unassigned)
+Eurorack gate (0–5V) ──→ 10kΩ series ──→ BAT48 clamp ──→ U9 I0 (mux CH0) ──→ GP28
 ```
 
-> ⚠️ **Open: the gate pin is not assigned.** This stage was written against
-> GP12, but GP12 is the MODE button backlight — see the pin table above and
-> `PIN_LED_MODE_BTN` in
+**Resolved: the gate does not need a GPIO of its own.** This stage was once
+written against GP12 — which is the MODE button backlight, not a free pin — and
+the jack table carried an "unassigned" placeholder for the same reason. The
+board settled it differently: J4 goes through the same conditioning as the other
+slow CVs and lands on **U9 pin 9 (I0), read as mux channel 0 through GP28**, so
+no dedicated pin is spent. `Inputs.kicad_sch` names the net `GATEIN`.
+
+Being on the mux means the gate is sampled at the control rate (128 Hz), not by
+edge interrupt, so the shortest reliably-detected trigger is one control tick.
+That is the design, not a limitation to route around: `readCV(Cv::GATE)`
+compares against a threshold and every other consumer reads the debounced flag.
+
+> ⚠️ **Firmware has not caught up.** `HardwarePicoIO::readCV()` still returns the
+> MIDI/button gate rather than reading CH0, because the ADC mux driver does not
+> exist yet (`POT_ADC_PRESENT == 0`) — the same seam that leaves every knob and
+> every CV jack unread on hardware. See `readPotRaw()` in
 > [`io/HardwarePicoIO.h`](../modules/alloyflux/include/io/HardwarePicoIO.h).
-> The jack table's entry for GATE points here for the same reason. GP0, GP1,
-> GP19, GP20 and GP21 are the free pins. Nothing is broken today because the
-> physical gate jack is not wired yet (milestone 19) and `readCV(Cv::GATE)`
-> currently reflects the MIDI/button gate instead; the pin has to be picked
-> before the PCB is cut.
 
 ### Op-Amp Input Stage — Component Values
 
@@ -367,9 +411,9 @@ Per-jack voltage ranges:
 | V/Oct     | −8/+7 V       |
 | GATE      | −0.8/+8 V     |
 | REL CV    | −5/+5 V       |
+| COLOR CV  | −5/+5 V       |
 | SHAPE CV  | −5/+5 V       |
 | MOTION CV | −5/+5 V       |
-| SPACE CV  | −5/+5 V       |
 | FM IN     | −8/+8 V       |
 
 The pots act as attenuators when a CV is patched, so the modulation inputs are
@@ -412,7 +456,7 @@ Complete:
 - 3.3V compatible — GP3–GP6 drive select lines directly
 - Analog-transparent and bidirectional
 - Switching + settling time < 1ms — fine for control-rate reads
-- All 16 channels utilized
+- 15 of 16 channels used; I15 (pad 16) is unconnected on the board
 
 ### Mux Channel Map
 
@@ -420,20 +464,20 @@ Complete:
 | ---- | --- | -------------- | ------- | -------------------------------------------------- |
 | CH0  | 9   | Gate jack      | Slow CV | Gate Input                                         |
 | CH1  | 8   | REL CV jack    | Slow CV | RELATION modulation input                          |
-| CH2  | 7   | SHAPE CV jack  | Slow CV | SHAPE modulation input                             |
-| CH3  | 6   | MOTION CV jack | Slow CV | MOTION modulation input                            |
-| CH4  | 5   | SPACE CV jack  | Slow CV | SPACE modulation input                             |
+| CH2  | 7   | COLOR CV jack  | Slow CV | COLOR modulation input                             |
+| CH3  | 6   | SHAPE CV jack  | Slow CV | SHAPE modulation input                             |
+| CH4  | 5   | MOTION CV jack | Slow CV | MOTION modulation input                            |
 | CH5  | 4   | ROOT knob      | Pot     | Coarse pitch offset                                |
 | CH6  | 3   | RELATION knob  | Pot     | Signature control — interval/detune/chord/FM depth |
 | CH7  | 2   | SHAPE knob     | Pot     | Waveform morph position                            |
 | CH8  | 23  | MOTION knob    | Pot     | Animation depth                                    |
 | CH9  | 22  | SPACE knob     | Pot     | Stereo width / placement                           |
-| CH10 | 21  | FM knob        | Pot     | FM depth / attenuverter when FM IN patched         |
+| CH10 | 21  | COLOR knob     | Pot     | FM depth / timbre spread — top-right knob          |
 | CH11 | 20  | CURVE knob     | Pot     | Envelope / articulation shaping                    |
-| CH12 | 19  | Assignable CV  | CV      | Dynamically assignable CV                          |
+| CH12 | 19  | Assignable CV  | CV      | J14 — an internal header, **not** a panel jack     |
 | CH13 | 18  | DELAY knob     | Pot     | Delay control                                      |
 | CH14 | 17  | REVERB knob    | Pot     | Reverb control                                     |
-| CH15 | 16  | Spare          | Digital | Future knob or CV                                  |
+| CH15 | 16  | Spare          | —       | Unconnected on the board — future knob or CV       |
 
 **Select lines:** GP3 (S0), GP4 (S1), GP5 (S2), GP6 (S3)
 **Signal pin:** GP28 (ADC2)
@@ -456,12 +500,14 @@ Cable detected (probe signal stationary — cable present):
 
 | Jack     | Knob     | No cable              | Cable present              |
 | -------- | -------- | --------------------- | -------------------------- |
-| REL CV   | RELATION | Interval/detune set   | REL CV depth + polarity    |
-| SHAPE CV | SHAPE    | Fixed waveform shape  | Shape CV depth + polarity  |
-| MTN CV   | MOTION   | Fixed animation depth | Motion CV depth + polarity |
-| SPC CV   | SPACE    | Fixed stereo width    | Space CV depth + polarity  |
+| RELATION | RELATION | Interval/detune set   | REL CV depth + polarity    |
+| COLOR    | COLOR    | Fixed timbre spread   | Color CV depth + polarity  |
+| SHAPE    | SHAPE    | Fixed waveform shape  | Shape CV depth + polarity  |
+| MOTION   | MOTION   | Fixed animation depth | Motion CV depth + polarity |
 
-FM IN / FM knob always functions as attenuverter — FM amount is always relative to the external signal (or internal normalization when unpatched), regardless of cable state.
+SPACE has no jack — the panel has four generic modulation inputs and COLOR earns one of them ahead of stereo width. The knob, its CC and its preset field are unaffected.
+
+FM IN is the fifth input and is not one of the four: it is the only jack on a direct ADC pin (GP27, off the analogue mux), conditioned for ±8 V with a 100 pF cap so it can eventually be sampled at audio rate. It modulates **pitch**, exponentially, at a fixed 0.2 oct/V — ±1 octave over the jack's ±5 V nominal swing — with no attenuverter, since neither knob in the top row is free to be one. See `kFmInOctPerVolt` in `SynthEngine.h`.
 
 ### Normalization Probe — CV Jack Detection
 

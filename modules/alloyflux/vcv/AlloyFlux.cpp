@@ -93,7 +93,22 @@ struct AlloyFlux : Module
         PARAMS_LEN
     };
 
-    // CV input jacks (7)
+    // CV input jacks (8)
+    //
+    // ⚠ This enum is the **patch file's cable format** — a Rack patch stores a
+    // cable's endpoint by index, so reordering or removing an entry silently
+    // moves every saved cable to a different jack. It therefore does NOT
+    // follow the panel when jacks are rearranged, and two entries no longer
+    // read the way the panel does:
+    //
+    //   * `COLOR_CV_INPUT` is the former SPC_CV_INPUT slot. SPACE lost its
+    //     jack to COLOR, and reusing the index rather than appending a new one
+    //     keeps the enum eight long and leaves no dead port behind. The one
+    //     cost is that a patch saved before the change now feeds COLOR from
+    //     what used to be a SPACE cable.
+    //   * `SHP_CV_INPUT` and `MTN_CV_INPUT` kept their indices *and* their
+    //     parameters; only the panel positions they are drawn at moved, which
+    //     costs saved patches nothing.
     enum InputId
     {
         VOCT_INPUT,
@@ -102,7 +117,7 @@ struct AlloyFlux : Module
         REL_CV_INPUT,
         SHP_CV_INPUT,
         MTN_CV_INPUT,
-        SPC_CV_INPUT,
+        COLOR_CV_INPUT, // was SPC_CV_INPUT — index reused, see above
         FM_IN_INPUT,
         INPUTS_LEN
     };
@@ -247,8 +262,8 @@ struct AlloyFlux : Module
         configInput(REL_CV_INPUT, "Relation CV");
         configInput(SHP_CV_INPUT, "Shape CV");
         configInput(MTN_CV_INPUT, "Motion CV");
-        configInput(SPC_CV_INPUT, "Space CV");
-        configInput(FM_IN_INPUT, "FM / Color CV");
+        configInput(COLOR_CV_INPUT, "Color CV");
+        configInput(FM_IN_INPUT, "FM In (pitch, 0.2 oct/V)");
 
         // Outputs
         configOutput(L_OUTPUT, "Left");
@@ -279,7 +294,7 @@ struct AlloyFlux : Module
         _io.assignCV(Cv::RELATION, REL_CV_INPUT);
         _io.assignCV(Cv::SHAPE, SHP_CV_INPUT);
         _io.assignCV(Cv::MOTION, MTN_CV_INPUT);
-        _io.assignCV(Cv::SPACE, SPC_CV_INPUT);
+        _io.assignCV(Cv::COLOR, COLOR_CV_INPUT);
         _io.assignCV(Cv::FM, FM_IN_INPUT);
 
         // IO mappings — LEDs (RGB triplets; base index = red channel).
@@ -1499,10 +1514,12 @@ struct AlloyFluxWidget : ModuleWidget
         // --- Panel knobs (9), row-major ---
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::ROOT), module, AlloyFlux::ROOT_PARAM));
+        // Top-centre is the panel's large knob (Pot::POT_2) and RELATION is on
+        // it — the control that decides what every voice mode does.
         addParam(createParamCentered<Davies1900hLargeBlackKnob>(
-            pot(Pot::COLOR), module, AlloyFlux::COLOR_PARAM));
-        addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::RELATION), module, AlloyFlux::RELATION_PARAM));
+        addParam(createParamCentered<Davies1900hBlackKnob>(
+            pot(Pot::COLOR), module, AlloyFlux::COLOR_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
             pot(Pot::SHAPE), module, AlloyFlux::SHAPE_PARAM));
         addParam(createParamCentered<Davies1900hBlackKnob>(
@@ -1522,8 +1539,14 @@ struct AlloyFluxWidget : ModuleWidget
         addParam(createParamCentered<VCVButton>(
             button(Btn::SHIFT), module, AlloyFlux::SHIFT_PARAM));
 
-        // --- Jacks. The panel labels the four modulation inputs CV 1..CV 4;
-        //     what they modulate is this module's choice. ---
+        // --- Jacks. kCv1Mm..kCv4Mm are the platform's four generic modulation
+        //     positions, in panel order; which parameter sits at each is this
+        //     module's choice and is silkscreened rather than numbered:
+        //
+        //       upper:  V/OCT  GATE   MIDI   RELATION  COLOR
+        //       lower:  FM IN  SHAPE  MOTION OUT L     OUT R
+        //
+        //     The InputId order deliberately does not match — see the enum. ---
         addInput(createInputCentered<PJ301MPort>(
             at(kVOctMm), module, AlloyFlux::VOCT_INPUT));
         addInput(createInputCentered<PJ301MPort>(
@@ -1533,13 +1556,13 @@ struct AlloyFluxWidget : ModuleWidget
         addInput(createInputCentered<PJ301MPort>(
             at(kCv1Mm), module, AlloyFlux::REL_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv2Mm), module, AlloyFlux::SHP_CV_INPUT));
-        addInput(createInputCentered<PJ301MPort>(
-            at(kCv3Mm), module, AlloyFlux::MTN_CV_INPUT));
+            at(kCv2Mm), module, AlloyFlux::COLOR_CV_INPUT));
         addInput(createInputCentered<PJ301MPort>(
             at(kFmInMm), module, AlloyFlux::FM_IN_INPUT));
         addInput(createInputCentered<PJ301MPort>(
-            at(kCv4Mm), module, AlloyFlux::SPC_CV_INPUT));
+            at(kCv3Mm), module, AlloyFlux::SHP_CV_INPUT));
+        addInput(createInputCentered<PJ301MPort>(
+            at(kCv4Mm), module, AlloyFlux::MTN_CV_INPUT));
 
         // --- Outputs ---
         addOutput(createOutputCentered<PJ301MPort>(

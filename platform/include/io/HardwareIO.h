@@ -93,7 +93,9 @@ constexpr float kVOctMaxV = 7.0f;
 constexpr float kGateMinV = -0.8f;
 constexpr float kGateMaxV = 8.0f;
 
-/// The four generic modulation jacks the panel calls CV 1..CV 4, ±5 V.
+/// The four generic modulation jacks, ±5 V. Alloy Coil's panel numbers them
+/// CV 1..CV 4; AlloyFlux's silkscreens each with the knob it modulates. Same
+/// four sockets, same slots CV_3..CV_6 — only the printing differs.
 constexpr float kModMaxV = 5.0f;
 
 /// FM / exciter, ±8 V — hotter than the others so it can take a raw audio

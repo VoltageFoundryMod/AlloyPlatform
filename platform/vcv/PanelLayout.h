@@ -60,7 +60,7 @@ static constexpr float kHeightMm = 128.5f;
 static constexpr int   kPotCount            = 9;
 static constexpr float kPotMm[kPotCount][2] = {
     {13.786f, 21.268f}, // POT_1  top    left    — board POT1
-    {35.386f, 25.768f}, // POT_2  top    centre  — board POT3 (sits lower: the panel arcs)
+    {35.386f, 25.768f}, // POT_2  top    centre  — board POT3, sits lower
     {56.986f, 21.268f}, // POT_3  top    right   — board POT2
     {13.786f, 40.368f}, // POT_4  middle left    — board POT4
     {35.386f, 44.068f}, // POT_5  middle centre  — board POT5
@@ -112,42 +112,50 @@ static constexpr float kLedMm[kLedCount][2] = {
 // Ten jacks in two rows of five, left to right on the panel:
 //
 //   upper (y 93.714):  V/OCT   GATE    MIDI IN   CV 1    CV 2
-//                      J3      J4      J2        J5      J6
+//                      J3      J4      J2        J21     J6
 //   lower (y 107.732): FM IN   CV 3    CV 4      OUT L   OUT R
-//                      (J7)    (J9)    J8        J10     J11
+//                      J9      J7      J8        J10     J11
 //
-// The panel labels the four modulation jacks CV 1..CV 4 rather than naming
-// them, for the same reason the pots are numbered: what they modulate is the
-// module's business. They map onto the HAL as CV 1..CV 4 -> CV_3..CV_6 in
+// CV 1..CV 4 above are *positions*, not necessarily what is printed on the
+// panel — this table is shared by every module on the PCB and what a jack
+// modulates is the module's business. Alloy Coil does number them CV 1..CV 4;
+// AlloyFlux silkscreens each with the knob it drives (RELATION, COLOR / SHAPE,
+// MOTION). Either way they map onto the HAL as CV 1..CV 4 -> CV_3..CV_6 in
 // order — CV_1 and CV_2 are taken by V/Oct and Gate, which are not free for a
 // module to reassign.
 //
-// FM IN is at the LEFT end of the lower row. Both panel arts say so
-// (AlloyFlux "FM In", Alloy Coil "Exc In", both at x 9.3) and the guide layer
-// agrees, so that is the design.
+// Nothing here assumes a module uses all four: AlloyFlux's SPACE has no jack,
+// so `kCv4Mm` carries MOTION there and its lower row reads one position left
+// of Alloy Coil's. Each module's widget table decides; see `io/PanelMap.h`.
 //
-// ⚠⚠ THE BOARD HAS NOT CAUGHT UP, AND THIS ONE IS NOT A SILKSCREEN FIX.
+// FM IN is at the LEFT end of the lower row. Both panel arts say so (AlloyFlux
+// "FM In", Alloy Coil "Exc In", both at x 9.3), the guide layer agrees, and so
+// does the board: J9 sits at 9.343 and J7 at 22.117.
 //
-// `MainPCB.kicad_pcb` still has J7 (a mux channel) at 9.343 and J9 (FM IN) at
-// 22.116. **J9 is the only jack on a direct ADC pin — GP27, deliberately off
-// the analogue mux so the exciter can be sampled at audio rate.** Swapping the
-// two therefore has to move that net *and* its conditioning stage, which is not
-// the same as the modulation inputs': FM IN is ±8 V with a 100 pF cap, the
-// generic CV jacks are ±5 V through the mux.
+// That last clause used to be the opposite, and this comment used to carry a
+// long warning about it — an earlier revision had J7 at the left end with J9
+// one position right, which mattered because **J9 is the only jack on a direct
+// ADC pin (GP27, deliberately off the analogue mux so it can be sampled at
+// audio rate)**. The two are not interchangeable: FM IN is ±8 V with a 100 pF
+// cap, the generic CV jacks are ±5 V through the mux, so correcting it meant
+// moving a net *and* its conditioning stage. It has been corrected. Re-derive
+// it from `MainPCB.kicad_pcb` rather than trusting this comment if the board
+// moves again — `references/AlloyFlux-hardware-design.md` carries the full
+// jack table with designators and mux channels.
 //
-// Fabricating the board as it stands would put the exciter on a control-rate
-// channel permanently, and no firmware can undo that. Until the board moves,
-// Rack and the panel art agree with each other and not with the PCB.
-static constexpr float kVOctMm[2] = {9.443f, 93.714f};  // J3  V/Oct
-static constexpr float kGateMm[2] = {22.217f, 93.714f}; // J4  Gate
-static constexpr float kMidiMm[2] = {35.390f, 93.714f}; // J2  TRS MIDI IN
-static constexpr float kCv1Mm[2]  = {48.663f, 93.714f}; // J5  CV 1 -> CV_3
-static constexpr float kCv2Mm[2]  = {61.437f, 93.714f}; // J6  CV 2 -> CV_4
-static constexpr float kFmInMm[2] = {9.343f, 107.732f}; // FM IN -> CV_7 (needs GP27)
-static constexpr float kCv3Mm[2]  = {22.116f, 107.732f};// CV 3  -> CV_5
-static constexpr float kCv4Mm[2]  = {35.340f, 107.732f};// J8  CV 4 -> CV_6
-static constexpr float kOutLMm[2] = {48.563f, 107.732f};// J10 Out L
-static constexpr float kOutRMm[2] = {61.337f, 107.732f};// J11 Out R
+// ⚠ The designators are NOT in panel order, and there is no J5: the row-1
+// position-4 jack is **J21**. These two lines said "J5" for a while and sent
+// readers looking for a footprint that does not exist.
+static constexpr float kVOctMm[2] = {9.443f, 93.714f};   // J3  V/Oct  -> CV_1
+static constexpr float kGateMm[2] = {22.217f, 93.714f};  // J4  Gate   -> CV_2
+static constexpr float kMidiMm[2] = {35.390f, 93.714f};  // J2  TRS MIDI IN
+static constexpr float kCv1Mm[2]  = {48.663f, 93.714f};  // J21 CV 1   -> CV_3
+static constexpr float kCv2Mm[2]  = {61.437f, 93.714f};  // J6  CV 2   -> CV_4
+static constexpr float kFmInMm[2] = {9.343f, 107.732f};  // J9  FM IN  -> CV_7
+static constexpr float kCv3Mm[2]  = {22.116f, 107.732f}; // J7  CV 3  -> CV_5
+static constexpr float kCv4Mm[2]  = {35.340f, 107.732f}; // J8  CV 4  -> CV_6
+static constexpr float kOutLMm[2] = {48.563f, 107.732f}; // J10 Out L
+static constexpr float kOutRMm[2] = {61.337f, 107.732f}; // J11 Out R
 
 /// mm pair -> Rack pixel Vec. Named `at` so call sites read as positions.
 inline rack::math::Vec at(const float mm[2])

@@ -194,9 +194,11 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
  * than on the two coefficients that can run away. Both dropped controls are
  * still reachable by MIDI CC (87 and 92).
  *
- * ⚠ EXC IN's position is a board problem, not a firmware one: the exciter needs
- * the direct GP27 ADC to be read at audio rate, and on the current PCB that pin
- * is J9 in the *middle* of this row. See platform/vcv/PanelLayout.h.
+ * EXC IN sits at the left end of this row on the board as well as on the art:
+ * J9, the direct GP27 ADC the exciter needs to be read at audio rate, is at
+ * 9.343 mm. This used to be a board problem — an earlier PCB had J9 in the
+ * *middle* of the row — and it has been corrected. See
+ * platform/vcv/PanelLayout.h and references/AlloyFlux-hardware-design.md.
  *
  * EXCITER is CV_7, AlloyFlux's FM jack. The engine sums it into both resonator
  * channels ahead of the string, so anything patched there drives the string

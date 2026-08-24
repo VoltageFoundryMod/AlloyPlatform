@@ -306,12 +306,39 @@ void SynthEngine::control(const SynthParams  &p,
     {
         const float alpha
             = 1.0f - expf(-1.0f / (p.glideTime * (float)_controlRate));
-        _sGlidedFreq += (p.baseFreq - _sGlidedFreq) * alpha;
+        _sGlideBase += (p.baseFreq - _sGlideBase) * alpha;
     }
     else
     {
-        _sGlidedFreq = p.baseFreq;
+        _sGlideBase = p.baseFreq;
     }
+
+    // ------------------------------------------------------------------
+    // FM IN — external pitch FM, exponential, kFmInOctPerVolt per volt.
+    //
+    // Applied here rather than in fillSynthParams() for two reasons, both of
+    // which would silently swallow the modulation upstream: a held MIDI note
+    // overwrites p.baseFreq wholesale (main.cpp / AlloyFlux.cpp), and the VCV
+    // scale quantizer rounds it to the nearest semitone. Downstream of both,
+    // FM survives being played from the keyboard and is not quantized away.
+    //
+    // A multiplier, not an offset — every voice mode spaces its voices from
+    // _sGlidedFreq by ratio, so scaling the fundamental moves a chord without
+    // detuning it. POLY is the exception and applies _fmInMul to its own slot
+    // frequencies below; the other modes inherit it here.
+    //
+    // ⚠ Written to _sGlidedFreq, *never* back into _sGlideBase. _sGlideBase is
+    // the portamento filter's own state, and feeding a modulated value into it
+    // would make the next tick glide away from a pitch the player never asked
+    // for — FM would leak into the portamento and smear it.
+    //
+    // Guarded on the unpatched value: exp2f is ~90 µs on the RP2350, and an
+    // unpatched jack should not pay for it every control tick.
+    _fmInMul     = (p.fmIn != 0.0f) ? exp2f(p.fmIn * kFmInOctPerVolt) : 1.0f;
+    _sGlidedFreq = _sGlideBase * _fmInMul;
+    if(_sGlidedFreq < 20.0f)
+        _sGlidedFreq = 20.0f;
+
     float voiceFreqs[7] = {_sGlidedFreq,
                            _sGlidedFreq,
                            _sGlidedFreq,
@@ -735,7 +762,10 @@ void SynthEngine::control(const SynthParams  &p,
                 = {0.1233f, 0.5068f, 0.8511f, 1.1294f, 1.3203f, 1.4088f};
             for(int i = 0; i < 6; i++)
             {
-                float f = polySlots[i].freq * _polyDetuneMul[i]
+                // _fmInMul, not _sGlidedFreq: POLY takes its pitch per slot
+                // from the allocator and never passes through the glide stage
+                // that carries FM IN for every other mode.
+                float f = polySlots[i].freq * _polyDetuneMul[i] * _fmInMul
                           + _drift.offset(i) * polyDrift;
                 if(f < 20.0f)
                     f = 20.0f;

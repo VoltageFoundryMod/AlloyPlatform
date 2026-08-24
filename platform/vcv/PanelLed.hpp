@@ -43,8 +43,8 @@ struct AlloyPanelLight : TBase
 
     AlloyPanelLight()
     {
-        this->box.size = rack::mm2px(rack::math::Vec(AlloyPanelLed::kWidthMm,
-                                                     AlloyPanelLed::kHeightMm));
+        this->box.size = rack::mm2px(
+            rack::math::Vec(AlloyPanelLed::kWidthMm, AlloyPanelLed::kHeightMm));
         // The stock grey disc and its border belong to a moulded LED, not to a
         // hole. Both are replaced by drawBackground() below.
         this->bgColor     = rack::color::BLACK_TRANSPARENT;

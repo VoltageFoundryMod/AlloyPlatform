@@ -36,6 +36,13 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
         voct += io.readCV(Cv::VOCT);
     p.baseFreq = 440.0f * exp2f(voct);
 
+    // FM IN jack: sampled here in volts, *applied* in SynthEngine::control().
+    // Deliberately not folded into `voct` above — p.baseFreq is overwritten
+    // wholesale by a held MIDI note on both platforms and rounded to a
+    // semitone by the VCV scale quantizer, either of which would erase the
+    // modulation before it reached an oscillator. See kFmInOctPerVolt.
+    p.fmIn = io.isPatched(Cv::FM) ? io.readCV(Cv::FM) : 0.0f;
+
     // -----------------------------------------------------------------------
     // Harmony / voice 2
     // RELATION pot: 0–1 → 0–24 semitones.
@@ -56,8 +63,8 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
 
     // COLOR pot: 0–1 direct (FM depth / Hz spread).
     p.color = io.readPot(Pot::COLOR);
-    if(io.isPatched(Cv::FM))
-        p.color = clampf(p.color + io.readCV(Cv::FM) * 0.5f, 0.0f, 1.0f);
+    if(io.isPatched(Cv::COLOR))
+        p.color = clampf(p.color + io.readCV(Cv::COLOR) * 0.5f, 0.0f, 1.0f);
 
     // -----------------------------------------------------------------------
     // Animation
@@ -81,9 +88,10 @@ inline void fillSynthParams(IHardwareIO &io, SynthParams &p)
     // -----------------------------------------------------------------------
     // Spatial / output
     // SPACE pot: 0–1 → 0–2 (stereo width; >1 = hyper-wide).
+    // Knob only — SPACE gave up its jack so COLOR could have one. Still
+    // reachable over CC and still saved in a preset; there is simply no
+    // socket for it on a ten-jack panel.
     p.space = io.readPot(Pot::SPACE) * 2.0f;
-    if(io.isPatched(Cv::SPACE))
-        p.space = clampf(p.space + io.readCV(Cv::SPACE) * 1.0f, 0.0f, 2.0f);
 
     // VOL (SHIFT+SPACE on hardware; context menu in VCV).
     p.volume = io.readPot(Pot::VOL);
