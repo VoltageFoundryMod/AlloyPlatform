@@ -233,6 +233,10 @@ The reference documents are:
   - [ ] 67. Have an envelope generator that can be triggered by MIDI or CV, allowing for more complex shaping of the sound over time. It could be mapped to some controls like VCA, feedback gain, body, pitch.
   - [ ] 68. Any benefits the new libraries implemented for Alloy Coil can bring to AlloyFlux?
   - [ ] 69. Add help section to the Controller listing MIDI CCs and functions and more.
+  - [x] 70. **CLOUD becomes a supersaw.** Seven oscillators on the JP-8000 model (Szabo 2010): irregular detune offsets, the fitted non-linear DETUNE curve on RELATION, centre-against-sides MIX on COLOR, phase randomisation on note attack and mode entry, and a note-tracking HPF. SHAPE stays live across all seven, so super-sine and super-pulse come free. Resolves the CLOUD/STRING overlap by splitting them along mechanism — CLOUD is width, STRING is movement.
+  - [x] 71. **COLOR earns its own axis in every mode.** It was a second detune spread in four of six modes, and next to RELATION it had nothing to say. Now: voicing in CHORD (six octave positions), timbre spread across the SHAPE morph in STRING and POLY, MIX in CLOUD, FM depth in PAIR/CASCADE. Also per-mode sub weighting so FATNESS means the same thing everywhere, POLY drift scaled by held-voice count, and MOD_R unified to always show COLOR.
+  - [x] 72. **PLASMA — seventh and final voice mode.** Two operators cross-modulating each other with per-operator self-feedback, through a C²·M ring mod. Architecture owed to Geodesics' Dark Energy (Collard/Boulé), independently implemented — see `LICENSING.md`. RELATION is a continuous C:M ratio, COLOR the cross-mod depth, MOTION the self-feedback. Seven modes is the ceiling: the panel counts the mode out on seven LEDs.
+  - [x] 73. **Mode-change LED count.** Tapping MODE plays the existing centre-out ripple, then fills LED1..LEDn along the silkscreen chain, n being the mode's position in the cycle. Colour tells you the mode if you know it; the count tells you if you don't.
 
 ---
 
