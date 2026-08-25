@@ -35,8 +35,8 @@ export const PARAM_MAP: CCParam[] = [
       { label: "Chord", ccMin: 36, ccMax: 53 },
       { label: "Cascade", ccMin: 54, ccMax: 71 },
       { label: "String", ccMin: 72, ccMax: 89 },
-      { label: "Poly", ccMin: 90, ccMax: 107 },
-      { label: "Plasma", ccMin: 108, ccMax: 127 },
+      { label: "Plasma", ccMin: 90, ccMax: 107 },
+      { label: "Poly", ccMin: 108, ccMax: 127 },
     ],
   },
   {
@@ -101,7 +101,7 @@ export const PARAM_MAP: CCParam[] = [
   {
     cc: 90,
     name: "suboct",
-    label: "Fatness Sub Octave",
+    label: "Sub Octave",
     category: "Oscillator",
     min: 0,
     max: 127,

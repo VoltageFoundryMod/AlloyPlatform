@@ -247,8 +247,8 @@ static void cmd_mode(const char *args, Print &out)
         {"chord", VoiceMode::CHORD, true},
         {"cascade", VoiceMode::CASCADE, false},
         {"string", VoiceMode::STRING, false},
-        {"poly", VoiceMode::POLY, true},
         {"plasma", VoiceMode::PLASMA, true},
+        {"poly", VoiceMode::POLY, true},
     };
     for(uint8_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++)
     {

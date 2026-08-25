@@ -1371,8 +1371,8 @@ void SynthEngine::control(const SynthParams  &p,
             0.70f, // CHORD   — 4 subs on chord tones, incoherent
             1.00f, // CASCADE — 2 audible subs; the modulators' are muted
             0.50f, // STRING  — 4 subs at near-unison, coherent
-            0.60f, // POLY    — 6 subs, each on its own note
             1.35f, // PLASMA  — 1 sub, and the ring mod above it is thin
+            0.60f, // POLY    — 6 subs, each on its own note
         };
         const int mi = (int)p.voiceMode;
         _sSubWf

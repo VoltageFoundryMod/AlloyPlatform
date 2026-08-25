@@ -147,8 +147,11 @@ bool moduleHook_controlChange(uint8_t cc, uint8_t value)
 
 void moduleHook_programChange(uint8_t program)
 {
-    // Programs 1–6 map to VoiceMode PAIR/CLOUD/CHORD/CASCADE/STRING/POLY.
-    if(program >= 1 && program <= 6)
+    // Programs 1–7 map to VoiceMode in cycle order:
+    // PAIR/CLOUD/CHORD/CASCADE/STRING/PLASMA/POLY. It stopped at 6 while POLY
+    // was the sixth mode and PLASMA had no program of its own; now that POLY
+    // has moved to the end, 7 is what reaches it.
+    if(program >= 1 && program <= 7)
         gVoiceMode = static_cast<VoiceMode>(program - 1);
 }
 

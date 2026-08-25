@@ -10,7 +10,7 @@ static SynthEngine eng;
 static PolySlot    slots[6];
 
 static const char *kNames[7]
-    = {"PAIR", "CLOUD", "CHORD", "CASCADE", "STRING", "POLY", "PLASMA"};
+    = {"PAIR", "CLOUD", "CHORD", "CASCADE", "STRING", "PLASMA", "POLY"};
 
 static void allNotesOff()
 {

@@ -420,7 +420,9 @@
   });
 
   // ── Relation slider — mode-contextual display ──────────────────────────────
-  // CC 115 bands: 0-31=PAIR, 32-63=CLOUD, 64-95=CHORD, 96-127=POLY
+  // CC 115 bands, seven modes ~18 wide — track params.json's `mode` options:
+  // 0-17 PAIR · 18-35 CLOUD · 36-53 CHORD · 54-71 CASCADE · 72-89 STRING ·
+  // 90-107 PLASMA · 108-127 POLY
   const CHORD_NAMES = [
     "Unison",
     "Power",
@@ -463,16 +465,27 @@
     "+Oct",
   ];
 
-  type RelMode = "pair" | "cloud" | "chord" | "cascade" | "string" | "poly";
+  type RelMode =
+    | "pair"
+    | "cloud"
+    | "chord"
+    | "cascade"
+    | "string"
+    | "plasma"
+    | "poly";
   let relMode = $derived.by((): RelMode => {
     const m = selectValues[115] ?? 0;
-    if (m < 21) return "pair";
-    if (m < 42) return "cloud";
-    if (m < 63) return "chord";
-    if (m < 84) return "cascade";
-    if (m < 105) return "string";
+    if (m < 18) return "pair";
+    if (m < 36) return "cloud";
+    if (m < 54) return "chord";
+    if (m < 72) return "cascade";
+    if (m < 90) return "string";
+    if (m < 108) return "plasma";
     return "poly";
   });
+
+  // PLASMA's C:M ratio law, mirrored from SynthEngine::control().
+  const plasmaRatio = (rel: number) => 0.5 * Math.pow(2, (rel / 24) * 4);
 
   let relHint = $derived(
     (() => {
@@ -493,6 +506,10 @@
       if (relMode === "string") {
         const cents = Math.round((rel / 24) * 30);
         return `±${(cents / 2).toFixed(0)} ¢ / voice`;
+      }
+      if (relMode === "plasma") {
+        // C:M, continuous ÷2 … ×8 — matches SynthEngine's PLASMA branch.
+        return `C:M ×${plasmaRatio(rel).toFixed(2)}`;
       }
       if (relMode === "poly") return "sub oct";
       // PAIR — show interval name
@@ -525,6 +542,7 @@
         const cents = Math.round((rel / 24) * 30);
         return `${cents} ¢`;
       }
+      if (relMode === "plasma") return `×${plasmaRatio(rel).toFixed(2)}`;
       if (relMode === "poly") return undefined;
       // PAIR: semitones (integer)
       const st = Math.min(24, Math.max(0, Math.round(rel)));

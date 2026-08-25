@@ -111,8 +111,8 @@ static const ParamOption kOpts_mode[] = {
     { "Chord"                 ,  36,  53,   2 },
     { "Cascade"               ,  54,  71,   3 },
     { "String"                ,  72,  89,   4 },
-    { "Poly"                  ,  90, 107,   5 },
-    { "Plasma"                , 108, 127,   6 },
+    { "Plasma"                ,  90, 107,   5 },
+    { "Poly"                  , 108, 127,   6 },
 };
 
 static const EnumParamDescriptor kEnumManifest[] = {

@@ -181,8 +181,8 @@ inline LedColor ledModeColor(VoiceMode m)
         case VoiceMode::CHORD: return LedPalette::kAmber;
         case VoiceMode::CASCADE: return LedPalette::kMagenta;
         case VoiceMode::STRING: return LedPalette::kPurple;
-        case VoiceMode::POLY: return LedPalette::kLime;
         case VoiceMode::PLASMA: return LedPalette::kPlasmaRed;
+        case VoiceMode::POLY: return LedPalette::kLime;
         default: return LedPalette::kSoftWhite;
     }
 }
@@ -216,7 +216,7 @@ class LedEngine
     /**
      * MODE tap — centre ignites and ripples out, then the panel *counts* the
      * new mode: LED1..LEDn fill in along the silkscreen chain, n being the
-     * mode's position in the cycle (PAIR = 1 … POLY = 6), and hold together
+     * mode's position in the cycle (PAIR = 1 … POLY = 7), and hold together
      * before fading back to the normal display.
      *
      * The ripple alone says "something changed"; the count says *which*, and
@@ -445,6 +445,14 @@ class LedEngine
                 br *= 0.55f + 0.45f * ledWave01(_breathePhase + 0.5f);
                 break;
 
+            case VoiceMode::PLASMA:
+                // Left is M, right is C — and the right brightens with the
+                // ratio, so how far the pair has been pushed apart is the
+                // thing the panel shows.
+                cl = cr = LedPalette::kPlasmaRed;
+                br *= 0.30f + 0.70f * rel;
+                break;
+
             case VoiceMode::POLY:
             {
                 // Left brightness tracks the active voice count (M38),
@@ -454,14 +462,6 @@ class LedEngine
                 br *= 0.30f + 0.70f * rel;
                 break;
             }
-
-            case VoiceMode::PLASMA:
-                // Left is M, right is C — and the right brightens with the
-                // ratio, so how far the pair has been pushed apart is the
-                // thing the panel shows.
-                cl = cr = LedPalette::kPlasmaRed;
-                br *= 0.30f + 0.70f * rel;
-                break;
         }
 
         _led[int(LedId::VOICE_L)] = ledScale(cl, ledClamp01(bl * gL));
@@ -497,8 +497,8 @@ class LedEngine
             case VoiceMode::CHORD: c = LedPalette::kAmber; break;
             case VoiceMode::CASCADE: c = LedPalette::kMagenta; break;
             case VoiceMode::STRING: c = LedPalette::kPurple; break;
-            case VoiceMode::POLY: break;
             case VoiceMode::PLASMA: c = LedPalette::kPlasmaRed; break;
+            case VoiceMode::POLY: break;
         }
 
         // Rhythmic pulse at the drift rate, gated by MOTION depth.
@@ -685,7 +685,8 @@ class LedEngine
     // many LEDs, walking the silkscreen chain LED1..LED7 (kLedPanelOrder).
     //
     //   PAIR → LED1        CLOUD → LED1-2      CHORD   → LED1-3
-    //   CASCADE → LED1-4   STRING → LED1-5     POLY    → LED1-6
+    //   CASCADE → LED1-4   STRING → LED1-5     PLASMA  → LED1-6
+    //   POLY → LED1-7
     //
     // The LEDs *fill* rather than chase: each one lights in turn and stays
     // lit, so at the end of the sweep there are n LEDs burning that can be

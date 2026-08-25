@@ -21,7 +21,7 @@ Want to integrate the module to your DAW or MIDI controller? The built-in USB MI
 | Format      | Eurorack                                                                |
 | Width       | 14HP                                                                    |
 | Power       | ~100mA +12V, ~5mA −12V                                                  |
-| Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY / PLASMA                 |
+| Voice Modes | PAIR / CLOUD / CHORD / CASCADE / STRING / PLASMA / POLY                 |
 | Knobs       | 9 — ROOT, RELATION, COLOR / SHAPE, CURVE, MOTION / DELAY, SPACE, REVERB |
 | Jacks       | 10 — V/OCT, GATE, MIDI, RELATION, COLOR / FM IN, SHAPE, MOTION, L OUT, R OUT |
 | Buttons     | 2 — MODE + SHIFT                                                        |
@@ -133,7 +133,7 @@ external FM onto CASCADE or PLASMA is where the module gets genuinely violent.
 
 | Button       | Action               | Result                                                                |
 | ------------ | -------------------- | --------------------------------------------------------------------- |
-| MODE         | Tap                  | Cycle: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PLASMA → PAIR |
+| MODE         | Tap                  | Cycle: PAIR → CLOUD → CHORD → CASCADE → STRING → PLASMA → POLY → PAIR |
 | SHIFT        | Hold + knob          | Access secondary function for that knob                               |
 | SHIFT + MODE | Hold SHIFT, tap MODE | Toggle drone mode (sustained without gate)                            |
 | MODE         | Hold during power-on | Enter V/Oct two-point calibration                                     |
@@ -143,6 +143,8 @@ external FM onto CASCADE or PLASMA is where the module gets genuinely violent.
 ## Voice Modes
 
 Tap **MODE** to cycle through seven voice characters. The MODE LED — lower left, beside the MODE button — shows the current mode colour.
+
+The first six are ensembles, and they all **drone**: leave the module alone in PAIR through PLASMA and it keeps sounding, so the cycle walks through six ways of voicing a sustained sound. **POLY comes last** because it is the one that does not — it says nothing until a note is played.
 
 ---
 
@@ -343,57 +345,6 @@ COLOR owns timbre.
 
 ---
 
-### POLY — True Polyphony
-
-**Sound:** six-voice polyphonic — each MIDI note is independent, with its own envelope, drift and velocity.
-
-Notes are allocated round-robin across six slots; a seventh note steals the oldest. Each slot sits at its own fixed position in the stereo field, running left to right across the six, so a held chord opens out across the image instead of stacking in the centre. Note velocity sets each voice's level.
-
-Every slot is equally loud wherever it sits, so the same note played twice does not jump in volume as round-robin moves it along the field.
-
-**POLY plays from CV as well as MIDI.** Every gate on the **GATE** jack claims the next voice and plays whatever pitch is on **V/OCT** at that moment, so a run of gates stacks up voices that ring together rather than one voice retriggering. Feed it a sequencer and the chord builds itself.
-
-When the gate falls the voice is released but keeps sounding through its tail, and its slot is only reclaimed once it has faded — so a new note takes a genuinely free voice first, an already-fading one next, and only steals a voice that is still held when all six are busy. MIDI notes draw from the same six voices, so CV and MIDI can be played together.
-
-| Control  | Effect in POLY                                                          |
-| -------- | ----------------------------------------------------------------------- |
-| RELATION | Detune spread across the voice slots — 0 = dead in tune, full CW = ±15¢ |
-| COLOR    | **TIMBRE SPREAD** — fans the slots apart across the SHAPE morph         |
-| MOTION   | Per-voice drift, scaled by how many voices are held — see below         |
-| CURVE    | Envelope shape applies per-voice — each note has its own AR             |
-| SPACE    | Width of the voice spread — CCW collapses to mono, CW throws it wider   |
-| SHAPE    | Waveform morph — the centre of the spread COLOR fans out from           |
-
-RELATION spreads the slots flat-to-sharp in the same order the stereo positions
-run left-to-right, so the detune reads as width rather than as mistuning. It
-works in cents rather than Hz, so a chord stays equally detuned whether you play
-it low or high on the keyboard.
-
-**COLOR spreads timbre**, exactly as in STRING: each slot sits at a slightly
-different point on the SHAPE morph, so a held chord has six voices that differ
-in character rather than six copies of one waveform. This is the right axis for
-it in POLY specifically: the slots hold different notes, so a fixed Hz offset
-would be a shimmer up top and a sour interval down low.
-
-**MOTION scales with the chord.** Drift on a single held note is just tuning
-instability; it only reads as life when there is something for it to beat
-against. So a lone note stays steady enough to play a line on, and the drift
-opens up as more voices are held, reaching full depth on a six-note chord.
-
-**Tips:**
-
-- Pair with a MIDI keyboard for immediate polyphonic play
-- Sequence the GATE and V/OCT jacks and let CURVE's tail do the work — an arpeggio becomes a chord
-- Playing from short triggers rather than gates? Set **Gate Length** (CC 85) and each one holds for a fixed time, so the chord builds even at slow CURVE settings
-- Short gates with a long CURVE tail stack the most voices; long gates hold fewer
-- CURVE swell + slow MOTION = lush evolving pads from held chords
-- RELATION and COLOR are the ensemble controls here — a little of either goes a long way across six voices
-- RELATION at zero is exactly in tune; a third of the way up is vintage-polysynth looseness
-- Play a wide chord and turn SPACE up: the voices fan out across the field
-- The MODE LED shows lime/yellow-green in POLY; the left voice LED brightness tracks the active voice count
-
----
-
 ### PLASMA — Coupled Oscillators
 
 **Sound:** unstable. Bell-like and hollow when handled gently, clangorous and
@@ -456,6 +407,57 @@ The oversampling that would prevent it does not fit the module's CPU budget
 alongside the effect chain, and on a mode built around instability the grit
 reads as part of the character. If you want it clean, keep MOTION below about
 half.
+
+---
+
+### POLY — True Polyphony
+
+**Sound:** six-voice polyphonic — each MIDI note is independent, with its own envelope, drift and velocity.
+
+Notes are allocated round-robin across six slots; a seventh note steals the oldest. Each slot sits at its own fixed position in the stereo field, running left to right across the six, so a held chord opens out across the image instead of stacking in the centre. Note velocity sets each voice's level.
+
+Every slot is equally loud wherever it sits, so the same note played twice does not jump in volume as round-robin moves it along the field.
+
+**POLY plays from CV as well as MIDI.** Every gate on the **GATE** jack claims the next voice and plays whatever pitch is on **V/OCT** at that moment, so a run of gates stacks up voices that ring together rather than one voice retriggering. Feed it a sequencer and the chord builds itself.
+
+When the gate falls the voice is released but keeps sounding through its tail, and its slot is only reclaimed once it has faded — so a new note takes a genuinely free voice first, an already-fading one next, and only steals a voice that is still held when all six are busy. MIDI notes draw from the same six voices, so CV and MIDI can be played together.
+
+| Control  | Effect in POLY                                                          |
+| -------- | ----------------------------------------------------------------------- |
+| RELATION | Detune spread across the voice slots — 0 = dead in tune, full CW = ±15¢ |
+| COLOR    | **TIMBRE SPREAD** — fans the slots apart across the SHAPE morph         |
+| MOTION   | Per-voice drift, scaled by how many voices are held — see below         |
+| CURVE    | Envelope shape applies per-voice — each note has its own AR             |
+| SPACE    | Width of the voice spread — CCW collapses to mono, CW throws it wider   |
+| SHAPE    | Waveform morph — the centre of the spread COLOR fans out from           |
+
+RELATION spreads the slots flat-to-sharp in the same order the stereo positions
+run left-to-right, so the detune reads as width rather than as mistuning. It
+works in cents rather than Hz, so a chord stays equally detuned whether you play
+it low or high on the keyboard.
+
+**COLOR spreads timbre**, exactly as in STRING: each slot sits at a slightly
+different point on the SHAPE morph, so a held chord has six voices that differ
+in character rather than six copies of one waveform. This is the right axis for
+it in POLY specifically: the slots hold different notes, so a fixed Hz offset
+would be a shimmer up top and a sour interval down low.
+
+**MOTION scales with the chord.** Drift on a single held note is just tuning
+instability; it only reads as life when there is something for it to beat
+against. So a lone note stays steady enough to play a line on, and the drift
+opens up as more voices are held, reaching full depth on a six-note chord.
+
+**Tips:**
+
+- Pair with a MIDI keyboard for immediate polyphonic play
+- Sequence the GATE and V/OCT jacks and let CURVE's tail do the work — an arpeggio becomes a chord
+- Playing from short triggers rather than gates? Set **Gate Length** (CC 85) and each one holds for a fixed time, so the chord builds even at slow CURVE settings
+- Short gates with a long CURVE tail stack the most voices; long gates hold fewer
+- CURVE swell + slow MOTION = lush evolving pads from held chords
+- RELATION and COLOR are the ensemble controls here — a little of either goes a long way across six voices
+- RELATION at zero is exactly in tune; a third of the way up is vintage-polysynth looseness
+- Play a wide chord and turn SPACE up: the voices fan out across the field
+- The MODE LED shows lime/yellow-green in POLY; the left voice LED brightness tracks the active voice count
 
 ---
 
@@ -524,14 +526,15 @@ voices are **tuned**, COLOR sets what they are **made of**. What that means
 changes per mode, but it is never a second detune — that is RELATION's job, and
 one spread control is enough.
 
-| Mode         | COLOR does                                                                            |
-| ------------ | ------------------------------------------------------------------------------------- |
-| PAIR         | **FM depth** — the RELATION voice phase-modulates ROOT. Warmth to bell to metal       |
-| CLOUD        | **MIX** — the six outer supersaw oscillators against the centre one                   |
-| CHORD        | **VOICING** — six positions, close to wide. RELATION picks the chord, COLOR spaces it |
-| CASCADE      | **FM depth** — as PAIR, but the modulator is never heard directly                     |
-| STRING, POLY | **TIMBRE SPREAD** — fans the voices apart across the SHAPE morph                      |
-| PLASMA       | **CROSS-MOD** — how hard the two coupled oscillators drive each other                 |
+| Mode    | COLOR does                                                                            |
+| ------- | ------------------------------------------------------------------------------------- |
+| PAIR    | **FM depth** — the RELATION voice phase-modulates ROOT. Warmth to bell to metal       |
+| CLOUD   | **MIX** — the six outer supersaw oscillators against the centre one                   |
+| CHORD   | **VOICING** — six positions, close to wide. RELATION picks the chord, COLOR spaces it |
+| CASCADE | **FM depth** — as PAIR, but the modulator is never heard directly                     |
+| STRING  | **TIMBRE SPREAD** — fans the voices apart across the SHAPE morph                      |
+| PLASMA  | **CROSS-MOD** — how hard the two coupled oscillators drive each other                 |
+| POLY    | **TIMBRE SPREAD** — the same fan, across the notes being held                         |
 
 At COLOR = 0 every mode sits at its neutral position: no FM, centre voice only,
 close voicing, every voice on the same waveform.
@@ -678,8 +681,8 @@ Always shows the current voice mode as a steady colour.
 | CHORD   | Amber               |
 | CASCADE | Magenta             |
 | STRING  | Purple              |
-| POLY    | Lime / yellow-green |
 | PLASMA  | Hot red             |
+| POLY    | Lime / yellow-green |
 
 When changing mode the panel plays two things in a row. First the CENTRE LED
 ignites white and the flash ripples outward through the others — that says
@@ -701,8 +704,8 @@ position in the cycle.
 | CHORD   | 3        | Amber               |
 | CASCADE | 4        | Magenta             |
 | STRING  | 5        | Purple              |
-| POLY    | 6        | Lime / yellow-green |
-| PLASMA  | 7        | Hot red             |
+| PLASMA  | 6        | Hot red             |
+| POLY    | 7        | Lime / yellow-green |
 
 Each LED stays lit once it fires, so by the end of the sweep you can simply
 count them; the newest one carries a white leading edge so the advance is easy
@@ -726,8 +729,8 @@ active.
 | CHORD   | Amber — root envelope         | Amber dimmer — interval spread     |
 | CASCADE | Magenta — carrier activity    | Magenta brighter — modulator depth |
 | STRING  | Purple — slow drift           | Purple — offset phase              |
-| POLY    | Warm red — active voice count | Cool blue — detune spread          |
 | PLASMA  | Hot red — M oscillator        | Hot red — C:M ratio                |
+| POLY    | Warm red — active voice count | Cool blue — detune spread          |
 
 ### MOD L + MOD R — Motion Layer
 
@@ -808,12 +811,12 @@ Alloy Flux responds to USB MIDI and TRS MIDI simultaneously. Connect via USB to 
 
 ### Note Messages
 
-| Message            | Action                                                                    |
-| ------------------ | ------------------------------------------------------------------------- |
-| Note On            | Set pitch + trigger envelope                                              |
-| Note Off           | Release envelope                                                          |
-| Pitch Bend         | ±2 semitones                                                              |
-| Program Change 1–6 | Switch voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=POLY) |
+| Message            | Action                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| Note On            | Set pitch + trigger envelope                                                        |
+| Note Off           | Release envelope                                                                    |
+| Pitch Bend         | ±2 semitones                                                                        |
+| Program Change 1–7 | Switch voice mode (1=PAIR, 2=CLOUD, 3=CHORD, 4=CASCADE, 5=STRING, 6=PLASMA, 7=POLY) |
 
 The velocity on Note On messages is used to set the output volume of that note, from 0 (off) to 1 (full volume). This can be disabled so all notes play at the global volume level regardless of how hard they are struck. Use the **Alloy Controller** (Envelope → Velocity Response), the serial command `veloc off`, or **CC 102 < 64** to disable.
 
@@ -837,7 +840,7 @@ Map your MIDI controller to any of these parameters for expressive real-time con
 | ------ | ------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | CC 103 | Input Quantization | —            | 0 = Chromatic (off) · 1 = Major · 2 = Natural Minor · 3 = Harmonic Minor · 4 = Melodic Minor · 5 = Pentatonic Maj · 6 = Pentatonic Min · 7 = Blues · 8 = Dorian · 9 = Phrygian · 10 = Lydian · 11 = Mixolydian · 12 = Locrian · 13 = Whole Tone · 14 = Diminished | Quantize incoming pitch to a scale                                          |
 | CC 104 | Transpose          | −24 … +24 st | 0–48                                                                                                                                                                                                                                                              | Semitone offset applied after quantization; the CC value is the offset + 24 |
-| CC 115 | Voice Mode         | —            | 0–17 = Pair · 18–35 = Cloud · 36–53 = Chord · 54–71 = Cascade · 72–89 = String · 90–107 = Poly · 108–127 = Plasma                                                                                                                                                 | Switch voice mode                                                           |
+| CC 115 | Voice Mode         | —            | 0–17 = Pair · 18–35 = Cloud · 36–53 = Chord · 54–71 = Cascade · 72–89 = String · 90–107 = Plasma · 108–127 = Poly                                                                                                                                                 | Switch voice mode                                                           |
 
 #### Oscillator
 

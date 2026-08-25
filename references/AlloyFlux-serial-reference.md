@@ -55,7 +55,8 @@ mode cloud           → CLOUD mode (ensemble)
 mode chord           → CHORD mode (harmonic stack)
 mode cascade         → CASCADE mode (FM synthesis)
 mode string          → STRING mode (vintage ensemble)
-mode poly            → POLY mode (4-voice polyphony)
+mode plasma          → PLASMA mode (coupled oscillators)
+mode poly            → POLY mode (6-voice polyphony)
 chord <name|0-10>    → CHORD mode convenience: set chord shape by name or index
                        (unison|power|minor|major|sus2|sus4|maj7|min7|dom7|dim|octaves)
 ```

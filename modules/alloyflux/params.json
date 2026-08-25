@@ -101,13 +101,13 @@
           "value": 4
         },
         {
-          "label": "Poly",
+          "label": "Plasma",
           "ccMin": 90,
           "ccMax": 107,
           "value": 5
         },
         {
-          "label": "Plasma",
+          "label": "Poly",
           "ccMin": 108,
           "ccMax": 127,
           "value": 6

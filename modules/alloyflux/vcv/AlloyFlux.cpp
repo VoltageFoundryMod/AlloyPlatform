@@ -896,9 +896,9 @@ struct AlloyFlux : Module
                 else if(value <= 89)
                     vm = VoiceMode::STRING;
                 else if(value <= 107)
-                    vm = VoiceMode::POLY;
-                else
                     vm = VoiceMode::PLASMA;
+                else
+                    vm = VoiceMode::POLY;
                 _voiceMode = vm;
                 break;
             }
@@ -1134,8 +1134,8 @@ struct AlloyFlux : Module
                                                        VoiceMode::CHORD,
                                                        VoiceMode::CASCADE,
                                                        VoiceMode::STRING,
-                                                       VoiceMode::POLY,
-                                                       VoiceMode::PLASMA};
+                                                       VoiceMode::PLASMA,
+                                                       VoiceMode::POLY};
                     constexpr int          kN
                         = (int)(sizeof(kModes) / sizeof(kModes[0]));
                     int idx = 0;
@@ -1672,8 +1672,8 @@ struct AlloyFluxWidget : ModuleWidget
                                                    VoiceMode::CHORD,
                                                    VoiceMode::CASCADE,
                                                    VoiceMode::STRING,
-                                                   VoiceMode::POLY,
-                                                   VoiceMode::PLASMA};
+                                                   VoiceMode::PLASMA,
+                                                   VoiceMode::POLY};
                 for(int i = 0; i < (int)(sizeof(kModes) / sizeof(kModes[0]));
                     i++)
                 {

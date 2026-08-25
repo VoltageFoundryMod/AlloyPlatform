@@ -15,11 +15,17 @@
  * | CHORD   | 4      | Chord shape — sweeps through chord table   | M23 ✅    |
  * | CASCADE | 2      | FM interaction depth and character         | M24       |
  * | STRING  | 4–8    | Ensemble width and microdetune             | M25       |
- * | POLY    | 4      | 4-voice polyphony — per-voice envelopes    | M2x ✅    |
  * | PLASMA  | 2×2    | M:C ratio of the cross-modulating pair     | M72 ✅    |
+ * | POLY    | 4      | 4-voice polyphony — per-voice envelopes    | M2x ✅    |
  *
  * Modes share the same synthesis backbone (SHAPE, CURVE, MOTION, SPACE, FATNESS)
  * and differ only in how voices are pitched and panned.
+ *
+ * **POLY sits last, on its own.** Everything above it drones: left alone in
+ * PAIR through PLASMA the module keeps sounding, and those six are variations
+ * on how an ensemble is voiced. POLY is the one mode that says nothing until a
+ * note arrives, so the cycle runs the ensembles together and lands on the
+ * keyboard mode at the end.
  *
  * **Seven is the ceiling.** The panel counts the mode out on its seven LEDs
  * when you tap MODE (see LedEngine::notifyModeChanged), so an eighth would
@@ -32,8 +38,8 @@ enum class VoiceMode : uint8_t
     CHORD   = 2, // interval stack from chord table (M23)
     CASCADE = 3, // restrained FM oscillator interaction (M24)
     STRING  = 4, // vintage string machine ensemble (M25)
-    POLY    = 5, // 4-voice polyphonic — independent per-voice envelopes (M2x)
-    PLASMA  = 6, // cross-modulating pair through a ring mod (M72)
+    PLASMA  = 5, // cross-modulating pair through a ring mod (M72)
+    POLY    = 6, // 4-voice polyphonic — independent per-voice envelopes (M2x)
 };
 
 inline const char *voiceModeName(VoiceMode m)
@@ -45,8 +51,8 @@ inline const char *voiceModeName(VoiceMode m)
         case VoiceMode::CHORD: return "CHORD";
         case VoiceMode::CASCADE: return "CASCADE";
         case VoiceMode::STRING: return "STRING";
-        case VoiceMode::POLY: return "POLY";
         case VoiceMode::PLASMA: return "PLASMA";
+        case VoiceMode::POLY: return "POLY";
         default: return "PAIR";
     }
 }

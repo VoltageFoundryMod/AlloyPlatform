@@ -89,7 +89,7 @@ The RELATION knob is the signature control of the module. It is the most express
 | MCU         | Raspberry Pi Pico 2 — RP2350 (dual Cortex-M33 @ 150MHz)                                                    |
 | DAC         | PCM5102A (I2S, 16-bit, 112dB SNR)                                                                          |
 | Output      | Stereo L/R — passive mono normalled on Left when R unplugged                                               |
-| Voice modes | PAIR / CLOUD / CHORD / CASCADE / STRING / POLY                                                             |
+| Voice modes | PAIR / CLOUD / CHORD / CASCADE / STRING / PLASMA / POLY                                                    |
 | Framework   | Arduino + the Alloy Platform's own I2S driver; custom DSP engines (ShapeOsc, ChorusEngine, CurveEngine, …) |
 | Build tool  | PlatformIO                                                                                                 |
 | Knobs       | 9 (ROOT, RELATION, SHAPE, MOTION, FM, CURVE, SPACE, DELAY, REVERB)                                         |
@@ -746,8 +746,8 @@ colour means.
                            D12 → D13 → D14 → D15 → D16 → D21 → D22,
                            n = the mode's position in the cycle:
                              PAIR 1  CLOUD 2  CHORD 3
-                             CASCADE 4  STRING 5  POLY 6
-                             PLASMA 7  ← the count fills the panel
+                             CASCADE 4  STRING 5  PLASMA 6
+                             POLY 7  → the count fills the panel
                            80 ms apart, each staying lit once it fires, in
                            the mode's own colour with a white leading edge
                            on the newest. Every LED past n is forced dark
@@ -757,10 +757,10 @@ colour means.
                            D14 → new mode colour
                            D12/D22 → new mode voice colours
                            D15 → resumes heartbeat role
-Total duration: ~800 ms (PAIR) … ~1.3 s (PLASMA)
+Total duration: ~800 ms (PAIR) … ~1.3 s (POLY)
 ```
 
-**Seven modes is the ceiling**, and it is this animation that sets it. PLASMA
+**Seven modes is the ceiling**, and it is this animation that sets it. POLY
 lights all seven; an eighth mode would have nowhere to show itself.
 
 The chain order, not the role order, is what the count walks — `LedId` pairs
@@ -825,7 +825,7 @@ Calibration complete:
 
 | Action                    | Result                                                                                    |
 | ------------------------- | ----------------------------------------------------------------------------------------- |
-| MODE tap (SHIFT not held) | Cycle voice mode: PAIR → CLOUD → CHORD → CASCADE → STRING → POLY → PAIR                   |
+| MODE tap (SHIFT not held) | Cycle voice mode: PAIR → CLOUD → CHORD → CASCADE → STRING → PLASMA → POLY → PAIR          |
 | SHIFT hold + turn knob    | Access secondary pot parameter (FATNESS / DRIFTSPEED / CURVETIME / VOL)                   |
 | SHIFT hold + MODE tap     | Return to drone mode — hold SHIFT then tap MODE; clears gate arm, D15 breathes warm white |
 | Hold MODE during power-on | Enter V/OCT calibration routine (2-point: 1V then 3V)                                     |

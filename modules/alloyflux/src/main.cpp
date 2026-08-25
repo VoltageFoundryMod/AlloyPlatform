@@ -453,8 +453,8 @@ void updateControl()
                                                              VoiceMode::CHORD,
                                                              VoiceMode::CASCADE,
                                                              VoiceMode::STRING,
-                                                             VoiceMode::POLY,
-                                                             VoiceMode::PLASMA};
+                                                             VoiceMode::PLASMA,
+                                                             VoiceMode::POLY};
                     static constexpr uint8_t kN
                         = sizeof(kActiveModes) / sizeof(kActiveModes[0]);
                     uint8_t idx = 0;
