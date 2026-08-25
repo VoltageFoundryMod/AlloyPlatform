@@ -108,6 +108,9 @@ float     gRelation  = 0.0f;       // 0.0 = unison, 1.0 = +2 octaves (PAIR mode)
 float     gCurve     = 0.5f;       // 0.0 = pluck, 0.5 = natural, 1.0 = swell
 float     gCurveTime = 1.0f;       // overall envelope time scale (0.25–4.0)
 float     gGateLength      = 0.0f; // GATE note length ms; 0 = follow the gate
+// CLOUD's oscillator pool (M78) — see params.h for why these are runtime.
+uint8_t gCloudPool     = kCloudPoolDefault;
+uint8_t gCloudMaxNotes = kCloudMaxNotes;
 volatile bool gGateHigh    = false; // true while gate is asserted
 volatile bool gGatePatched = false; // false = drone (bypass VCA)
 float         gVolume      = 1.0f;
@@ -177,13 +180,22 @@ void potsReattach()
 // ringing out its release tail (kPolySlotReleasing) is a worse choice than a
 // silent one but a better choice than stealing a note that is still held, so it
 // sits between the two.
-uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag)
+uint8_t polyNoteOn(float   freq,
+                   float   velocity,
+                   float   subMult,
+                   uint8_t noteTag,
+                   uint8_t maxSlots)
 {
+    if(maxSlots < 1u)
+        maxSlots = 1u;
+    else if(maxSlots > 6u)
+        maxSlots = 6u;
+
     uint8_t slot    = 255;
     uint8_t relSlot = 255;
-    for(uint8_t i = 0; i < 6; i++)
+    for(uint8_t i = 0; i < maxSlots; i++)
     {
-        const uint8_t idx = (sPolyRR + i) % 6;
+        const uint8_t idx = (sPolyRR + i) % maxSlots;
         if(sPolySlots[idx].midiNote == kPolySlotFree)
         {
             slot = idx;
@@ -195,9 +207,9 @@ uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag)
     if(slot == 255)
     {
         // Nothing free: take the oldest release tail, else steal round-robin.
-        slot = (relSlot != 255) ? relSlot : (uint8_t)(sPolyRR % 6);
+        slot = (relSlot != 255) ? relSlot : (uint8_t)(sPolyRR % maxSlots);
     }
-    sPolyRR = (sPolyRR + 1) % 6;
+    sPolyRR = (sPolyRR + 1) % maxSlots;
 
     sPolySlots[slot].freq     = freq;
     sPolySlots[slot].velocity = velocity;
@@ -205,6 +217,33 @@ uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag)
     gSynthEngine.polyRetrigger(slot, freq, subMult);
     return slot;
 }
+// M63d — hand the module back to the drone. Declared in params.h; both routes
+// to it (CC 119 and the MODE+SHIFT combo) come through here so they cannot
+// drift apart.
+//
+// Clearing the slots is what M78 added, and it is not cosmetic. CLOUD reads
+// them every control tick: a slot left holding a note would keep its stack
+// planned, so the drone would come back layered under a chord nobody is
+// playing any more — and the next note to arrive would allocate around slots
+// that are occupied by ghosts.
+void returnToDrone()
+{
+    gGatePatched  = false;
+    gGateHigh     = false;
+    gMidiVelocity = 1.0f; // restore full volume on return to drone/CV
+    sActiveNote   = 255;
+    for(uint8_t i = 0; i < 6; i++)
+    {
+        if(sPolyEnvs[i])
+        {
+            sPolyEnvs[i]->setGate(false);
+            sPolyEnvs[i]->reset();
+        }
+        sPolySlots[i].midiNote = kPolySlotFree;
+    }
+    sPolyRR = 0;
+}
+
 // M30/M37k — LED language. Platform-independent colour logic shared with the
 // VCV build; writeTo() pushes the result through sHardwareIO, which shifts it
 // out to the APA102 chain on GP6/GP7.
@@ -393,10 +432,7 @@ void updateControl()
                 sDroneComboFired = true;
                 sShiftConsumed   = true; // don't trig on SHIFT release
                 sModeConsumed    = true; // don't cycle on MODE release
-                gGatePatched     = false;
-                gGateHigh        = false;
-                gMidiVelocity
-                    = 1.0f; // restore full volume when returning to drone/CV
+                returnToDrone();
 #ifdef SERIAL_CONTROL
                 Serial.println(F("gate -> free (drone)"));
 #endif
@@ -500,6 +536,10 @@ void updateControl()
         p.relation   = gRelation;
         p.curve      = gCurve;
         p.curveTime  = gCurveTime;
+        // CLOUD pool sizing — the engine clamps both, so a bad console value
+        // degrades the stack rather than overrunning the arrays.
+        p.cloudPool     = gCloudPool;
+        p.cloudMaxNotes = gCloudMaxNotes;
         // p.gateHigh / p.gatePatched — set by fillSynthParams() above.
         p.volume       = gVolume;
         p.midiVelocity = gMidiVelocity;
@@ -579,7 +619,7 @@ void updateControl()
                     sCvPolyReleaseAt[slot] = 0;
             };
 
-            if(p.voiceMode == VoiceMode::POLY)
+            if(modeUsesPolySlots(p.voiceMode))
             {
                 const bool     timed   = (gGateLength > 0.5f);
                 const bool     gateNow = p.gateHigh;
@@ -588,8 +628,11 @@ void updateControl()
                 if(gateNow && !sPrevCvGate)
                 {
                     const float   subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
-                    const uint8_t slot    = polyNoteOn(
-                        p.baseFreq, 1.0f, subMult, kPolySlotCvHeld);
+                    const uint8_t slot    = polyNoteOn(p.baseFreq,
+                                                    1.0f,
+                                                    subMult,
+                                                    kPolySlotCvHeld,
+                                                    polySlotLimit(p.voiceMode));
                     if(timed)
                     {
                         // Trigger mode: arm this slot's own deadline and do not
@@ -622,8 +665,8 @@ void updateControl()
             }
             else
             {
-                // Leaving POLY abandons any gate-owned slot; control() frees
-                // the slots themselves on the mode-change tick.
+                // Leaving a slot-driven mode abandons any gate-owned slot;
+                // control() frees the slots themselves on the mode-change tick.
                 sCvPolySlot = 255;
                 sPrevCvGate = false;
                 for(uint8_t i = 0; i < 6; i++)
@@ -652,7 +695,7 @@ void updateControl()
             }
 
             LedSignals sig;
-            if(p.voiceMode == VoiceMode::POLY)
+            if(modeUsesPolySlots(p.voiceMode))
             {
                 for(uint8_t i = 0; i < 6; i++)
                 {

@@ -177,7 +177,29 @@ RELATION's response is deliberately non-linear. The first third of its travel ba
 
 COLOR sets how loud the six outer oscillators are against the centre one. Fully CCW you hear essentially one clean voice; fully CW the outer six dominate and the stack is at its widest and most restless. It changes the character without moving a single frequency, so you can set the detune you want and then decide how much of it you want to hear.
 
-Every note attack **randomises the seven phases**, which is why no two stabs sound quite alike — a large part of what makes this sound recognisable.
+Every note attack **randomises the phases**, which is why no two stabs sound quite alike — a large part of what makes this sound recognisable.
+
+#### Polyphony, and the drone
+
+CLOUD is **polyphonic up to four notes, and still drones when nothing is played.** Patch nothing and it sits on the ROOT knob as a pad, exactly as it always has. Send a gate or a MIDI note and the drone steps aside for the notes. It comes back the same way every other mode does: **SHIFT + MODE**, MIDI **CC 119**, or `gate free` on the console.
+
+The seven oscillators are a shared pool rather than one fixed stack, so **the stack narrows as you add notes** — there is only so much silicon:
+
+| Notes held | Saws per note |
+| ---------- | ------------- |
+| Drone      | 7             |
+| 1          | 7             |
+| 2          | 5             |
+| 3          | 3             |
+| 4          | 3             |
+
+One held note keeps the **full seven-saw stack**, identical to the drone — playing a single note never sounds thinner than droning on it. Play a chord and each note gets a narrower stack, which matters less than it sounds like it should: the chord itself supplies the density that the detune was supplying on one note.
+
+Everything about that is a fade rather than a switch. Adding a note narrows the notes already sounding over about 190 ms, releasing one widens them back, and the drone crossfades in and out over about 40 ms. You should never hear a click, only the stack breathing.
+
+**Levels work the way a polysynth's should.** One held note plays at the same level as the drone — a stack is a stack — and a chord is louder than one note, because that is what a chord is. Nothing is attenuated in advance to make room for the worst case; the output stage saturates gently instead, so a dense chord rounds off rather than clipping. In practice that means the drone and single notes run fully clean and only a three- or four-note chord touches the curve at all.
+
+**Pool size is adjustable.** Twelve oscillators is the shipped default, chosen to sit alongside POLY's measured cost with every effect running. If your patch has the headroom, `cloud pool 16` on the console gives you 7/7/5/3 instead — two notes at the full stack. Watch `stats` afterwards: read the _deltas_ on `slow-blk` and `overruns`, not the totals. `cloud notes` caps the polyphony; it does not change any note's level, since every stack plays at the same level whatever the setting. In VCV both settings are in the right-click menu under **CLOUD supersaw pool**.
 
 | Control  | Effect in CLOUD                                                                       |
 | -------- | ------------------------------------------------------------------------------------- |
@@ -186,7 +208,7 @@ Every note attack **randomises the seven phases**, which is why no two stabs sou
 | SHAPE    | Applies to all seven. Saw is the classic, but the whole morph works — see below       |
 | MOTION   | Slow drift on top. Deliberately restrained here; the detune supplies the width        |
 | SPACE    | Width of the stereo image — CCW collapses to mono, CW throws the stack wider          |
-| FATNESS  | One sub oscillator on the centre voice                                                |
+| FATNESS  | One sub oscillator, tuned to the lowest note held (the root when droning)             |
 
 **SHAPE is not locked to saw.** The detune pattern and the mix balance are about how the stack is _tuned_, not what it is made of, so the whole SHAPE morph works: a super-sine is a gorgeous shimmering pad, a super-pulse is enormous and hollow, and sweeping SHAPE across the stack while it plays is a sound the original never made.
 
@@ -470,8 +492,9 @@ When it is patched, SHAPE becomes an attenuverter for that CV.
 **SHIFT function:** Hold SHIFT + turn SHAPE → adjusts **FATNESS** (sub oscillator level — adds a square wave one or two octaves (set by configurator) below each voice for Juno-style body).
 
 FATNESS is **level-matched across the modes.** They run different numbers of
-voices — two in PAIR, four in the ensemble modes, six in POLY, and CLOUD's
-supersaw takes a single sub on its centre voice — so the same knob position
+voices — two in PAIR, four in the ensemble modes, six in POLY, and CLOUD takes
+a single sub for the whole mode, tuned to the lowest note held — so the same
+knob position
 would otherwise mean two sub oscillators in one mode and six in another, and
 the modes with the most voices would go muddy first. Each mode scales its sub
 so the knob means the same amount of weight wherever you are.
@@ -552,7 +575,7 @@ Glide causes pitch changes to slide smoothly from the previous note to the new o
 
 **Glide time:** Use CC 5 to set the slide duration from 0 (instant, effectively off) to 2 seconds. The glide uses a one-pole exponential smoother so short slides are snappy and long slides trail off naturally.
 
-Glide applies to all monophonic voice modes (PAIR, CLOUD, CHORD, CASCADE, STRING). In POLY mode each voice has its own independent pitch and glide has no effect.
+Glide applies to the monophonic voice modes (PAIR, CHORD, CASCADE, STRING) and to CLOUD's drone. In POLY, and on CLOUD's played notes, each voice has its own independent pitch and glide has no effect.
 
 ---
 

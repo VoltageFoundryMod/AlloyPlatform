@@ -22,6 +22,18 @@
 volatile bool gGatePatched = false;
 volatile bool gGateHigh    = false;
 
+// CLOUD's oscillator pool (M78). Process-wide here rather than per-module, the
+// same compromise gGatePatched already makes — the pool size is a CPU-budget
+// setting, not a musical one, so two AlloyFluxes in a rack wanting different
+// values is not a case worth the plumbing. Both are set from the context menu.
+uint8_t gCloudPool     = kCloudPoolDefault;
+uint8_t gCloudMaxNotes = kCloudMaxNotes;
+
+// The firmware's drone-return path. In VCV each module owns its own drone
+// state (_droneMode) and there is no global to clear, so this exists only to
+// satisfy the declaration in params.h — CC 119 is handled inline in _applyCC().
+void returnToDrone() {}
+
 // Performance counters referenced by params.h; unused in VCV.
 volatile bool     gPerformancePrintEnabled = false;
 volatile uint32_t gAudioElapsedUs          = 0;
@@ -942,15 +954,18 @@ struct AlloyFlux : Module
                     // Note On
                     _droneMode = false;
                     _leds.notifyNoteOn();
-                    if(_voiceMode == VoiceMode::POLY)
+                    if(modeUsesPolySlots(_voiceMode))
                     {
-                        // POLY: search for a free slot starting at _polyRR so
-                        // voices are assigned in rotation (same as CV/gate path).
-                        // Steal round-robin if all busy.
-                        uint8_t slot = 255;
-                        for(uint8_t i = 0; i < 6; i++)
+                        // Search for a free slot starting at _polyRR so voices
+                        // are assigned in rotation (same as CV/gate path).
+                        // Steal round-robin if all busy. CLOUD is bounded by
+                        // gCloudMaxNotes rather than the full six — every note
+                        // there costs a whole stack out of the oscillator pool.
+                        const uint8_t lim  = polySlotLimit(_voiceMode);
+                        uint8_t       slot = 255;
+                        for(uint8_t i = 0; i < lim; i++)
                         {
-                            uint8_t idx = (_polyRR + i) % 6;
+                            uint8_t idx = (_polyRR + i) % lim;
                             if(_polySlots[idx].midiNote == kPolySlotFree)
                             {
                                 slot = idx;
@@ -958,8 +973,8 @@ struct AlloyFlux : Module
                             }
                         }
                         if(slot == 255)
-                            slot = _polyRR % 6;
-                        _polyRR = (_polyRR + 1) % 6;
+                            slot = _polyRR % lim;
+                        _polyRR = (_polyRR + 1) % lim;
                         _polySlots[slot].freq
                             = 440.0f * exp2f(((int)note - 69) / 12.0f);
                         _polySlots[slot].velocity
@@ -984,7 +999,7 @@ struct AlloyFlux : Module
                 else if(status == 0x8 || (status == 0x9 && value == 0))
                 {
                     // Note Off
-                    if(_voiceMode == VoiceMode::POLY)
+                    if(modeUsesPolySlots(_voiceMode))
                     {
                         for(uint8_t i = 0; i < 6; i++)
                         {
@@ -1156,7 +1171,9 @@ struct AlloyFlux : Module
 
         // ---------------------------------------------------------------
         fillSynthParams(_io, _params);
-        _params.voiceMode = _voiceMode;
+        _params.voiceMode     = _voiceMode;
+        _params.cloudPool     = gCloudPool;
+        _params.cloudMaxNotes = gCloudMaxNotes;
         // VCV Rack V/Oct convention: 0 V = C4 (261.626 Hz).
         // Internally, 0 V on the V/Oct path = A4 (440 Hz) — 9 semitones = 0.75 V higher.
         // Correct only when a cable is patched; free-running / ROOT-knob tuning is unaffected.
@@ -1183,11 +1200,19 @@ struct AlloyFlux : Module
             _params.gateHigh    = false;
         }
 
+        // Slot-driven modes: gatePatched carries the drone latch and nothing
+        // else. POLY does not read it at all; CLOUD reads it as the one thing
+        // that decides drone against notes (M78), so it has to track
+        // _droneMode exactly — the mono merge below would leave it wherever
+        // the GATE jack put it.
+        if(modeUsesPolySlots(_voiceMode))
+            _params.gatePatched = !_droneMode;
+
         // M37i: MIDI pitch/gate merge (monophonic modes only).
-        // In POLY mode, SynthEngine reads _polySlots[] directly for pitch and
-        // triggers per-voice envelopes via polyEnvs[i]->setGate() in the handlers
-        // above — gateHigh/gatePatched are not used.
-        if(_voiceMode != VoiceMode::POLY)
+        // In the slot-driven modes, SynthEngine reads _polySlots[] directly for
+        // pitch and triggers per-voice envelopes via polyEnvs[i]->setGate() in
+        // the handlers above — gateHigh is not used.
+        if(!modeUsesPolySlots(_voiceMode))
         {
             // Pitch: persists through release so the tail plays at the correct pitch.
             if(!inputs[VOCT_INPUT].isConnected() && _midiEverPlayed)
@@ -1223,14 +1248,15 @@ struct AlloyFlux : Module
         // Falling edge → call setGate(false) but keep slot as 129 so tail rings out.
         // Control tick → scan 129 slots; free when envelope level drops to silence.
         const float gateLenMs = params[GATE_LENGTH_PARAM].getValue();
-        if(_voiceMode == VoiceMode::POLY && inputs[GATE_INPUT].isConnected())
+        const uint8_t cvSlotLim = polySlotLimit(_voiceMode);
+        if(modeUsesPolySlots(_voiceMode) && inputs[GATE_INPUT].isConnected())
         {
             if(gateRising)
             {
                 // Prefer a truly free slot, then a releasing one, then steal RR.
                 uint8_t slot    = 255;
                 uint8_t relSlot = 255;
-                for(uint8_t i = 0; i < 6; i++)
+                for(uint8_t i = 0; i < cvSlotLim; i++)
                 {
                     if(_polySlots[i].midiNote == kPolySlotFree)
                     {
@@ -1242,8 +1268,8 @@ struct AlloyFlux : Module
                         relSlot = i;
                 }
                 if(slot == 255)
-                    slot = (relSlot != 255) ? relSlot : _polyRR % 6;
-                _polyRR                   = (_polyRR + 1) % 6;
+                    slot = (relSlot != 255) ? relSlot : _polyRR % cvSlotLim;
+                _polyRR                   = (_polyRR + 1) % cvSlotLim;
                 _polySlots[slot].freq     = _params.baseFreq;
                 _polySlots[slot].velocity = 1.0f;
                 _polySlots[slot].midiNote = kPolySlotCvHeld;
@@ -1376,7 +1402,7 @@ struct AlloyFlux : Module
             }
 
             LedSignals sig;
-            if(_voiceMode == VoiceMode::POLY)
+            if(modeUsesPolySlots(_voiceMode))
             {
                 for(int i = 0; i < 6; i++)
                 {
@@ -2078,6 +2104,53 @@ struct AlloyFluxWidget : ModuleWidget
                     [=]()
                     { m->params[AlloyFlux::SUB_OCTAVE_PARAM].setValue(1.f); }));
             }));
+
+        // --- CLOUD supersaw pool (M78) ---
+        // Width per note is derived, not chosen, so the menu shows the ladder
+        // each pool size produces rather than making the player work it out:
+        // that string is what actually describes what they will hear.
+        {
+            auto sawLadder = [](uint8_t pool, uint8_t notes)
+            {
+                std::string s;
+                for(uint8_t n = 1; n <= notes; n++)
+                {
+                    uint8_t w = 7u;
+                    while(w > 1u && (uint16_t)w * (uint16_t)n > (uint16_t)pool)
+                        w -= 2u;
+                    if(n > 1)
+                        s += "/";
+                    s += std::to_string((int)w);
+                }
+                return s;
+            };
+            menu->addChild(rack::createSubmenuItem(
+                "CLOUD supersaw pool",
+                sawLadder(gCloudPool, gCloudMaxNotes) + " saws",
+                [=](rack::ui::Menu *submenu)
+                {
+                    submenu->addChild(
+                        rack::createMenuLabel("Oscillators (saws per note)"));
+                    // 9 and below cannot give a lone note the full seven, which
+                    // is the property the mode is built around — so the choices
+                    // start where a single note still drones at full width.
+                    for(int pool = 10; pool <= (int)kCloudOscMax; pool += 2)
+                        submenu->addChild(rack::createCheckMenuItem(
+                            std::to_string(pool) + "  ("
+                                + sawLadder((uint8_t)pool, gCloudMaxNotes)
+                                + ")",
+                            "",
+                            [=]() { return gCloudPool == (uint8_t)pool; },
+                            [=]() { gCloudPool = (uint8_t)pool; }));
+                    submenu->addChild(rack::createMenuLabel("Max held notes"));
+                    for(int n = 1; n <= (int)kCloudMaxNotes; n++)
+                        submenu->addChild(rack::createCheckMenuItem(
+                            std::to_string(n),
+                            "",
+                            [=]() { return gCloudMaxNotes == (uint8_t)n; },
+                            [=]() { gCloudMaxNotes = (uint8_t)n; }));
+                }));
+        }
 
         // --- Portamento submenu ---
         menu->addChild(rack::createSubmenuItem(

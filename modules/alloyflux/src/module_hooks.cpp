@@ -53,7 +53,7 @@ static inline float midiNoteToHz(uint8_t note)
 
 void moduleHook_noteOn(uint8_t note, uint8_t velocity)
 {
-    if(gVoiceMode == VoiceMode::POLY)
+    if(modeUsesPolySlots(gVoiceMode))
     {
         const float freq = constrain(
             midiNoteToHz(quantizeNote(note, gQuantizeScale, gTranspose)),
@@ -61,8 +61,17 @@ void moduleHook_noteOn(uint8_t note, uint8_t velocity)
             8000.0f);
         // subMult depends on voice sub-octave param — use 0.5 (default, -1 oct)
         // as a safe approximation; control() will correct the sub freq next tick.
-        polyNoteOn(
-            freq, gVelocitySensitive ? (velocity / 127.0f) : 1.0f, 0.5f, note);
+        polyNoteOn(freq,
+                   gVelocitySensitive ? (velocity / 127.0f) : 1.0f,
+                   0.5f,
+                   note,
+                   polySlotLimit(gVoiceMode));
+        // The latch that stops CLOUD's drone (M78). POLY has no drone to stop
+        // and ignores the flag entirely, so setting it for both costs nothing
+        // and keeps CLOUD on the same rule every other mode follows: the first
+        // note takes the module off drone, and only CC 119 or MODE+SHIFT hands
+        // it back.
+        gGatePatched = true;
         return;
     }
 
@@ -79,7 +88,7 @@ void moduleHook_noteOn(uint8_t note, uint8_t velocity)
 
 void moduleHook_noteOff(uint8_t note)
 {
-    if(gVoiceMode == VoiceMode::POLY)
+    if(modeUsesPolySlots(gVoiceMode))
     {
         for(uint8_t i = 0; i < 6; i++)
         {
@@ -116,10 +125,7 @@ bool moduleHook_controlChange(uint8_t cc, uint8_t value)
             gRevFrozen = (value >= 64);
             return true;
         case 119: // Drone return — clears gGatePatched, module returns to drone
-            gGatePatched  = false;
-            gGateHigh     = false;
-            gMidiVelocity = 1.0f; // restore full volume on return to drone/CV
-            sActiveNote   = 255;
+            returnToDrone();
             return true;
         case 123: // All Notes Off / panic
             gGateHigh   = false;

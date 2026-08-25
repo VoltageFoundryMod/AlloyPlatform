@@ -84,6 +84,18 @@ extern volatile bool
 // gGatePatched=true while the envelope is still in IDLE (which caused a click).
 extern EnvelopeEngine *gCurveEng;
 
+// CLOUD's oscillator pool (M78). The mode builds a supersaw stack per held
+// note out of a shared pool, and per-note width is whatever divides — one note
+// still gets the full seven-saw stack, four share out to three each.
+//
+// Runtime rather than compile-time because the ceiling is a *measurement*, not
+// a derivation: twelve is what sits alongside POLY's measured cost with every
+// effect running, but the only way to find out whether fifteen also fits is to
+// set it on real hardware and watch `slow-blk` and `overruns` for a while.
+// `cloud pool <n>` and `cloud notes <n>` on the console.
+extern uint8_t gCloudPool;     // oscillators CLOUD may sound at once, 1–16
+extern uint8_t gCloudMaxNotes; // simultaneous held notes in CLOUD, 1–4
+
 // Level
 extern float gVolume; // 0.0 – 1.0 master output
 extern float
@@ -238,9 +250,39 @@ extern EnvelopeEngine *sPolyEnvs[6]; // pointers so ISR can call virtual next()
  * @param subMult  sub-oscillator multiplier (0.5 = −1 oct, 0.25 = −2 oct)
  * @param noteTag  MIDI note number, for Note Off matching; 254 = owned by a
  *                 trig pulse rather than a held note; 255 is reserved for free
+ * @param maxSlots how many of the six slots this mode may use. POLY takes all
+ *                 six; CLOUD is bounded by gCloudMaxNotes, because every note
+ *                 it plays costs a whole stack of oscillators out of a pool
+ *                 that a seventh note would leave nothing for.
  * @return the slot claimed, 0–5
  */
-uint8_t polyNoteOn(float freq, float velocity, float subMult, uint8_t noteTag);
+uint8_t polyNoteOn(float   freq,
+                   float   velocity,
+                   float   subMult,
+                   uint8_t noteTag,
+                   uint8_t maxSlots = 6);
+
+/**
+ * How many poly slots the given mode may allocate. One line, but it is the
+ * difference between CLOUD stealing its own notes correctly and CLOUD
+ * allocating a fifth note into a pool sized for four.
+ */
+inline uint8_t polySlotLimit(VoiceMode m)
+{
+    if(m != VoiceMode::CLOUD)
+        return 6u;
+    return (gCloudMaxNotes < 1u) ? 1u
+           : (gCloudMaxNotes > 6u) ? 6u
+                                   : gCloudMaxNotes;
+}
+
+/**
+ * Hand the module back to the drone: clear the gate latch, release every poly
+ * slot and restore full volume. Both routes to it — MIDI CC 119 and the
+ * MODE+SHIFT panel combo — call this rather than each clearing their own
+ * subset of the state. Defined in main.cpp.
+ */
+void returnToDrone();
 
 /**
  * Fire a gate pulse of the given duration on the current voice mode.

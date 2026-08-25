@@ -12,6 +12,7 @@
 #include "dsp/FxChain.h"
 #include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
+#include "dsp/Saturate.h"
 #include "dsp/SVFFilter.h"
 #include "dsp/ShapeOsc.h"
 #include "dsp/SpaceEngine.h"
@@ -106,6 +107,125 @@ static constexpr float kFmInPmScale = kFmInMaxRad * (2048.0f * 65536.0f)
                                       / (2.0f * 3.14159265f * kFmInFullScaleV);
 
 // ---------------------------------------------------------------------------
+// CLOUD's oscillator pool (M78) — polyphony without giving up the drone.
+//
+// Before M78 CLOUD spent all seven oscillators on one supersaw stack at one
+// pitch. Making it polyphonic cannot mean seven saws per note — four notes
+// would be twenty-eight oscillators against a budget that measures out at
+// roughly thirteen — so the stack has to narrow as notes are added.
+//
+// The trap is doing that the obvious way. A *fixed* width (say three saws a
+// note) makes a single held note thinner than the drone, which is the one thing
+// the mode must not lose. A *naive* dynamic width narrows notes that are
+// already sounding, which is the same retroactive-gain mistake POLY's
+// normalisation comment warns about, one level worse: it changes timbre, not
+// just loudness, under a player's fingers.
+//
+// So: a pool, not a per-note allocation. Width is whatever divides:
+//
+//     pool 12   1 note → 7 saws   2 → 5   3 → 3   4 → 3
+//
+// One note keeps the full seven-saw stack — identical to the drone — and the
+// stack narrows only when there is genuinely something to share with. Every
+// level change an oscillator makes on the way in or out is ramped at control
+// rate (kCloudLvlRamp), and no oscillator is ever re-tasked to a new note until
+// it has actually reached silence, so neither the narrowing nor the reuse is
+// audible as a step.
+//
+// Widths are odd on purpose. kCloudOffset's centre voice is index 3, and COLOR
+// is a centre-against-sides balance — an even-width subset has no centre and
+// COLOR stops meaning anything in the one mode where it is a headline control.
+// ---------------------------------------------------------------------------
+
+// kCloudOscMax, kCloudMaxNotes and kCloudPoolDefault are in VoiceMode.h — the
+// console clamps against them and should not have to include this header.
+// SynthParams::cloudPool / cloudMaxNotes trim them at runtime.
+
+/// Pseudo-slot the drone stack is planned under, so drone and notes share one
+/// allocator and one set of level ramps — which is what makes the crossfade
+/// between them fall out for free instead of needing its own code path.
+static constexpr uint8_t kCloudDroneSlot = kCloudMaxNotes;
+
+/// Oscillator belongs to nothing and is free to claim.
+static constexpr uint8_t kCloudNoOwner = 255;
+
+// Two ramps, because the two things that change level here are not the same
+// size and cannot afford the same treatment.
+//
+// A saw joining or leaving a *live* stack is a fraction of that stack, and a
+// control-rate ramp on it measures clean. The whole drone stopping is the
+// entire output, and the same control-rate ramp on that is plainly audible —
+// measured at 7.7x the steady-state sample step on the host harness, a click,
+// because a one-pole moving 20% of its remaining distance every 7.8 ms is a
+// staircase when what it is scaling is the whole signal.
+//
+// So the drone gets a per-sample ramp and the individual saws keep the
+// control-rate one. That costs one multiply-add a sample rather than one per
+// oscillator, because the drone is a single stack and its gain folds into the
+// same per-stack multiply its envelope would use.
+
+/// Ticks a saw takes to fade fully in or out of a live stack. Linear, not a
+/// one-pole, and that matters for more than smoothness: a one-pole only
+/// approaches zero, so "has this oscillator gone quiet enough to re-task?"
+/// would take ~28 ticks to answer yes. A linear ramp reaches zero exactly, on
+/// the tick you can predict, which is what bounds how long a stack waits to
+/// widen back out.
+/// Long, because the gate only moves at control rate and its per-tick step is
+/// therefore a discontinuity. Measured against the steady-state sample step,
+/// narrowing a stack cost 10x at 6 ticks, 2.7x at 24 and 1.9x at 48.
+///
+/// The cost of the length is that a *third* note waits for its last saw, since
+/// the first two have to fade theirs out before it can have them — up to this
+/// many ticks of filling in. One note to two never waits: the pool has spares.
+///
+/// If a tick is ever audible when notes are added, the real fix is to advance
+/// the gate per sample rather than per tick, the way _cloudDroneGain already
+/// does. That costs a multiply per *ramping* oscillator per sample — nothing in
+/// steady state, if the render list is split into ramping and settled runs.
+static constexpr uint8_t kCloudGateTicks = 48; // ≈ 375 ms at 128 Hz
+static constexpr float   kCloudGateStep  = 1.0f / (float)kCloudGateTicks;
+
+/// Time constant for the drone's own fade, seconds. Long enough not to click,
+/// short enough that the drone is out of the way by the time a note has
+/// attacked.
+static constexpr float kCloudDroneFadeS = 0.04f;
+
+/// Below this a gate counts as closed and its oscillator may be re-tasked.
+static constexpr float kCloudSilent = 0.0008f;
+
+/// Level of one CLOUD stack — drone and every held note alike.
+///
+/// **Fixed, and deliberately not divided by the polyphony.** The obvious law is
+/// 1/sqrt(maxNotes), so that the maximum chord lands exactly at full scale. It
+/// is also wrong, and audibly so: peak grows as sqrt(N) under it, which means
+/// designing for four notes makes *one* note a quarter of the level, and the
+/// common case — one or two notes — comes out weak. That is the complaint that
+/// prompted this.
+///
+/// Roland's polysynths do not do that. A JUNO or a JP-8000 runs each voice at
+/// its own fixed level, lets the sum grow with the chord, and lets the output
+/// stage round off what comes out the top. A chord being louder than one note
+/// is correct — it is what a chord sounds like — and the peaks are handled at
+/// the end rather than pre-empted at every voice.
+///
+/// So this is a per-stack level, the same for one note as for four, and
+/// softSaturate() catches the sum.
+///
+/// 0.75 is chosen on the fraction of samples the saturator actually shapes,
+/// which is the honest measure of how much it colours anything — everything
+/// below the knee is untouched by construction. Measured, SHAPE at saw:
+///
+///     drone  0.02%    1 note  0.00%    2  0.58%    3  1.80%    4  4.68%
+///
+/// The drone and a single note are effectively linear, which is what the
+/// always-on Padé clip could not claim and why it was removed twice. Only the
+/// dense chord — the case that actually needs it — rounds off. Pushing to 0.90
+/// buys 1.6 dB and takes a 4-note chord to 10% shaped, which is audible
+/// compression; 0.62 is cleaner still but gives up 2.5 dB for nothing anyone
+/// can hear.
+static constexpr float kCloudStackLevel = 0.75f;
+
+// ---------------------------------------------------------------------------
 // SynthParams — snapshot of all goal parameters for one control cycle.
 //
 // The hardware shim in main.cpp populates this struct from the gXxx globals
@@ -143,6 +263,13 @@ struct SynthParams
     // — kFmInOctPerVolt on the pitch path, kFmInMaxRad on the PM path.
     // SHIFT+ROOT on hardware; context-menu slider in VCV.
     float        fmAmount      = 1.0f;
+    // CLOUD's oscillator pool (M78) — how many supersaw oscillators the mode
+    // may sound at once, and across how many held notes. Width per note falls
+    // out of the two; see _cloudWidthFor(). Runtime rather than compile-time so
+    // the ceiling can be walked up against `slow-blk` on real hardware instead
+    // of guessed at — `cloud pool` / `cloud notes` on the console.
+    uint8_t      cloudPool     = kCloudPoolDefault;
+    uint8_t      cloudMaxNotes = kCloudMaxNotes;
     EnvelopeType envelopeType  = EnvelopeType::AR;
     float        adsrAttack    = 0.05f;
     float        adsrDecay     = 0.10f;
@@ -318,6 +445,39 @@ class SynthEngine
     void setSampleRate(uint32_t audioRate);
 
     /**
+     * Snapshot of CLOUD's oscillator pool as control() last left it.
+     *
+     * The pool's correctness is not something the audio output shows you: an
+     * oscillator handed to two stacks at once, or a stack left one saw short,
+     * sounds like a slightly different supersaw rather than like a bug. So the
+     * plan is readable, and the host harness asserts on it directly.
+     *
+     * Also what the `cloud` console command reports, which is the reason it is
+     * a real accessor rather than test scaffolding: the derived width is the
+     * number that tells a player what the pool setting actually bought them.
+     */
+    struct CloudPoolState
+    {
+        uint8_t pool    = 0; ///< oscillators in play
+        uint8_t width   = 0; ///< saws per stack
+        uint8_t notes   = 0; ///< configured max held notes
+        bool    droning = true;
+        /// Per oscillator: owning slot, kCloudDroneSlot, or kCloudNoOwner.
+        uint8_t owner[kCloudOscMax] = {};
+        /// Per oscillator: index into kCloudOffset.
+        uint8_t offset[kCloudOscMax] = {};
+        /// Per oscillator: fade gate, 0–1. 1 is fully in the stack, 0 is free.
+        float gate[kCloudOscMax] = {};
+        /// Which render buffer audio() is reading, and the saw count each
+        /// stack has in each buffer. Exposed so the harness can assert the
+        /// property the double-buffering exists for: control() must never
+        /// write the buffer audio() is currently reading.
+        uint8_t activeList                   = 0;
+        uint8_t listN[2][kCloudMaxNotes + 1] = {};
+    };
+    void cloudPoolState(CloudPoolState &s) const;
+
+    /**
      * Noise-free poly note retrigger — call from the MIDI note-on callback.
      *
      * Three separate click sources are eliminated in one atomic step:
@@ -373,14 +533,20 @@ class SynthEngine
     void _updateFmInSplit();
 
     // -----------------------------------------------------------------------
-    // Oscillators — 7 main voices + 7 sub voices.
+    // Oscillators — kCloudOscMax main voices + the same number of subs.
     //
-    // Seven, not six, because of CLOUD: the JP-8000 supersaw is a seven-saw
-    // stack and the count is not arbitrary — the detune offsets below are
-    // fitted to that many. POLY still uses only the first six.
+    // Every mode but CLOUD uses at most the first six or seven: the JP-8000
+    // supersaw is a seven-saw stack and the detune offsets below are fitted to
+    // that many, POLY takes six, the rest fewer. The array is sized for CLOUD's
+    // pool (M78), which spreads stacks of those seven offsets across up to
+    // kCloudMaxNotes held notes and so needs more oscillators than any single
+    // stack does. Only SynthParams::cloudPool of them ever sound at once.
+    //
+    // The sub array is the same length purely so the two stay index-parallel;
+    // CLOUD sounds exactly one sub and the other modes one per voice.
     // -----------------------------------------------------------------------
-    ShapeOsc<48000u> _voices[7];
-    ShapeOsc<48000u> _subVoices[7];
+    ShapeOsc<48000u> _voices[kCloudOscMax];
+    ShapeOsc<48000u> _subVoices[kCloudOscMax];
 
     // -----------------------------------------------------------------------
     // Envelopes
@@ -396,8 +562,8 @@ class SynthEngine
     // -----------------------------------------------------------------------
     // Effect engines
     // -----------------------------------------------------------------------
-    DriftEngine<7u>      _drift;
-    ChorusEngine<48000u> _chorus;
+    DriftEngine<kCloudOscMax> _drift;
+    ChorusEngine<48000u>      _chorus;
 
     SVFFilter  _svfFilter;
     OTALadder  _otaLadder;
@@ -497,8 +663,8 @@ class SynthEngine
     /// CASCADE, where the second pair is what makes the mode stereo at all.
     /// Read only when the mode is an FM one; other modes leave it alone.
     uint8_t _fmPairs = 1u;
-    int16_t _panL[7] = {256, 0, 0, 0, 0, 0, 0};
-    int16_t _panR[7] = {0, 256, 0, 0, 0, 0, 0};
+    int16_t _panL[kCloudOscMax] = {256};
+    int16_t _panR[kCloudOscMax] = {0, 256};
 
     // Gate edge detection (control()).
     bool _prevGate = false;
@@ -532,9 +698,11 @@ class SynthEngine
     // rather than absolute frequencies. RELATION moving costs seven multiplies.
     float _cachedRelCloud    = -99.0f;
     float _cloudDetuneMul[7] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
-    // Per-voice level, already normalised. Recomputed when COLOR moves.
+    // COLOR's centre/side balance, before normalisation — the normalisation
+    // itself depends on the stack width and so is applied per slot, not here.
     float _cachedColorCloud = -99.0f;
-    float _cloudLevel[7]    = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f};
+    float _cloudCentreLvl   = 1.0f;
+    float _cloudSideLvl     = 0.0f;
 
     // STRING
     float _cachedRelStr      = -99.0f;
@@ -577,9 +745,9 @@ class SynthEngine
     /**
      * Pan weight scale. Sized so CLOUD's summed level matches the ensemble
      * modes it replaces (their per-voice 128 over four voices) once the
-     * seven decorrelated voices are added in quadrature — see _cloudLevel's
-     * normalisation. Held a little under the exact match for headroom: the
-     * supersaw is peakier than its RMS suggests.
+     * decorrelated voices are added in quadrature — see the `norm` term in the
+     * CLOUD case of control(). Held a little under the exact match for
+     * headroom: the supersaw is peakier than its RMS suggests.
      */
     static constexpr float kCloudPanScale = 240.0f;
 
@@ -615,8 +783,160 @@ class SynthEngine
         return s;
     }
 
-    /** Re-randomise all seven supersaw phases (note attack, mode entry). */
+    /**
+     * Subsets of kCloudOffset for each odd stack width, indexed (width-1)/2.
+     *
+     * Every row keeps index 3 — the centre voice — so COLOR's centre-against-
+     * sides law survives at any width. The narrower rows take the *outermost*
+     * offsets rather than the innermost: three saws at the full ±11% spread
+     * still read as a supersaw, where three saws clustered at ±2% read as
+     * chorus and lose the mode entirely.
+     */
+    static constexpr uint8_t kCloudWidthIdx[4][7] = {
+        {3, 0, 0, 0, 0, 0, 0}, // width 1 — centre alone
+        {0, 3, 6, 0, 0, 0, 0}, // width 3 — outer pair + centre
+        {0, 2, 3, 4, 6, 0, 0}, // width 5
+        {0, 1, 2, 3, 4, 5, 6}, // width 7 — the full JP-8000 stack
+    };
+
+    /**
+     * Widest odd stack that `notes` of them will fit in `pool`.
+     *
+     * The loop steps down by two so the result is always odd (see
+     * kCloudWidthIdx) and always fits — there is deliberately no lower clamp
+     * beyond 1. A floor of, say, three saws would let a pool be oversubscribed
+     * whenever cloudMaxNotes was raised past pool/3, and an oversubscribed pool
+     * is an oscillator sounding in two stacks at once. Degrading to a single
+     * saw a note is the honest answer to "you asked for more notes than you
+     * gave me oscillators".
+     */
+    static inline uint8_t _cloudWidthFor(uint8_t pool, uint8_t notes)
+    {
+        if(notes == 0u)
+            notes = 1u;
+        uint8_t w = 7u;
+        while(w > 1u && (uint16_t)w * (uint16_t)notes > (uint16_t)pool)
+            w -= 2u;
+        return w;
+    }
+
+    /** Re-randomise every pool phase (mode entry — see _cloudRandomisePhases
+     *  for why a *known* phase is the wrong answer for a supersaw). */
     void _cloudRandomisePhases();
+
+    /** Randomise one oscillator's phase as it is claimed for a new stack.
+     *  Only ever called on an oscillator that has already ramped to silence,
+     *  so the discontinuity is inaudible. */
+    void _cloudClaimOsc(uint8_t osc, uint8_t owner, uint8_t offIdx);
+
+    /** Re-plan the pool for this control tick: retire what no longer belongs,
+     *  then claim what is newly wanted. */
+    void _cloudPlan(const SynthParams &p, PolySlot polySlots[6]);
+
+    /** Ensure `owner` has an oscillator on detune `offIdx`, claiming a free one
+     *  if not. Silently does nothing when the pool is momentarily exhausted —
+     *  the need is retried on the next tick. */
+    void _cloudClaimIfNeeded(uint8_t owner, uint8_t offIdx, uint8_t pool);
+
+    // --- Pool state -------------------------------------------------------
+    // _cloudOscOwner is the single source of truth; the slot lists below are
+    // rebuilt from it every tick rather than maintained incrementally, which
+    // is sixteen iterations at 128 Hz and removes a whole class of bookkeeping
+    // bug for it.
+    uint8_t _cloudOscOwner[kCloudOscMax]; // slot, kCloudDroneSlot, or kCloudNoOwner
+    uint8_t _cloudOscOff[kCloudOscMax];   // which kCloudOffset entry it plays
+    /// Fade gate, 0–1, linear at kCloudGateStep a tick. Multiplies the level
+    /// COLOR and the width normalisation produce, so the fade is independent
+    /// of how loud the saw happens to be — a saw entering a quiet stack takes
+    /// exactly as long as one entering a loud stack.
+    float _cloudOscGate[kCloudOscMax];
+    float _cloudOscGateTgt[kCloudOscMax];
+    /// Set by _cloudPlan(): this oscillator still belongs in the plan. A false
+    /// here is a *retiring* oscillator — it keeps its owner and keeps
+    /// rendering under that stack's envelope while its level ramps out, and is
+    /// only freed once it reaches silence.
+    bool _cloudOscWanted[kCloudOscMax] = {};
+    /// Slot is held, or still ringing out a release. Notes come and go between
+    /// control ticks, so this is latched once per tick and then used by the
+    /// planner, the sub and the tracking HPF alike.
+    bool _cloudSounding[kCloudMaxNotes] = {};
+
+    // -----------------------------------------------------------------------
+    // Render lists — everything audio() needs to draw a stack, in one place.
+    //
+    // Grouped by stack so the per-sample envelope is one float multiply per
+    // *stack* rather than one per oscillator: four multiplies a sample at full
+    // polyphony against twelve, which is most of what makes a twelve-oscillator
+    // mode affordable at all.
+    //
+    // Each entry carries the oscillator *pointer* and its own pan weights
+    // rather than an index into _voices/_panL. Two reasons, and both showed up
+    // on hardware:
+    //
+    //  - Cost. An index means the inner loop recomputes `_voices[i]` — a load
+    //    and a multiply by sizeof(ShapeOsc) — for every oscillator of every
+    //    sample, where POLY's flat loop strength-reduces to a pointer walk.
+    //    Contiguous entries make this loop the same shape as POLY's.
+    //  - Correctness. It puts the pan weights inside the same published
+    //    snapshot as the list, so a stack can never render against another
+    //    tick's levels.
+    //
+    // ⚠ DOUBLE-BUFFERED, and it has to be. control() runs on Core 0 and audio()
+    // on Core 1, so a list rebuilt in place is read while it is half-written —
+    // and because a rebuild starts by zeroing the counts, the reader does not
+    // see a *slightly* wrong stack, it sees an **empty** one. At 128 Hz that is
+    // a hole in the output on every control tick: heard on hardware as constant
+    // crackle at any polyphony, with ~50% CPU headroom and no overruns, and
+    // invisible to the host harness, where the two run sequentially.
+    //
+    // control() fills the buffer audio() is not reading, then publishes it with
+    // a single byte store.
+    // -----------------------------------------------------------------------
+    struct CloudEntry
+    {
+        ShapeOsc<48000u> *osc  = nullptr;
+        int16_t           panL = 0;
+        int16_t           panR = 0;
+    };
+    CloudEntry       _cloudList[2][kCloudMaxNotes + 1][7] = {};
+    uint8_t          _cloudListN[2][kCloudMaxNotes + 1]   = {};
+    volatile uint8_t _cloudListIdx                        = 0;
+
+    /// Which stack the single sub belongs to, so it is shaped by that stack's
+    /// envelope rather than droning under a chord that has already released.
+    /// kCloudNoOwner when nothing is sounding — the sub is skipped entirely.
+    /// Volatile for the same cross-core reason as _cloudListIdx: written on
+    /// Core 0, read every sample on Core 1.
+    volatile uint8_t _cloudSubSlot = kCloudDroneSlot;
+
+    /// The sub's own level, matching the gain of the stack it is tuned under.
+    ///
+    /// Without this the sub is the loudest thing in the mode as soon as CLOUD
+    /// goes polyphonic. kSubScale[CLOUD] is 1.35 — scaled *up*, because the
+    /// mode runs one sub where PAIR runs two — and that was calibrated when
+    /// CLOUD was a single stack at unity. Once the stacks dropped to
+    /// _cloudNoteGain, an unscaled sub became two to three times too loud
+    /// against them: FATNESS turned into a different control in poly than in
+    /// drone, and a low-frequency signal that big is what actually eats the
+    /// headroom a chord needs.
+    volatile float _cloudSubGain = 1.0f;
+
+    uint8_t _cloudPool    = kCloudPoolDefault; // clamped copy of cloudPool
+    uint8_t _cloudNotes   = kCloudMaxNotes;    // clamped copy of cloudMaxNotes
+    uint8_t _cloudWidth   = 7u;                // current per-stack width
+    bool    _cloudDroning = true;              // no notes: the stack is the drone
+
+    /// The drone stack's own gain, ramped *per sample* in audio() — see the
+    /// two-ramps note above kCloudGateTicks. Volatile because control() sets
+    /// the target on Core 0 and audio() advances it on Core 1.
+    float          _cloudDroneGain = 1.0f;
+    volatile float _cloudDroneTgt  = 1.0f;
+    float          _cloudDroneRamp = 0.0f; // one-pole coeff for _audioRate
+    /// Fixed 1/sqrt(cloudMaxNotes) headroom for the note stacks — fixed, not
+    /// scaled by how many are sounding, for the reason POLY's normalisation
+    /// comment gives. The drone does not take it (it is one stack by
+    /// definition), which is what keeps drone level identical to pre-M78.
+    float _cloudNoteGain = 0.5f;
 
     /** Cheap LCG — phase randomisation only, never in the audio path. */
     uint32_t        _rngState = 0x9E3779B9u;

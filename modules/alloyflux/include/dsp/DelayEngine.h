@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Saturate.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -147,15 +148,17 @@ class DelayEngine
         // Write to delay lines with cross-channel feedback.
         int32_t fbL = inL + (int32_t)((float)delayedR * _feedback);
         int32_t fbR = inR + (int32_t)((float)delayedL * _feedback);
-        // Clamp to prevent feedback accumulation beyond rail.
-        if(fbL > 32767)
-            fbL = 32767;
-        else if(fbL < -32767)
-            fbL = -32767;
-        if(fbR > 32767)
-            fbR = 32767;
-        else if(fbR < -32767)
-            fbR = -32767;
+        // Saturate rather than clamp, to stop feedback accumulating past the
+        // rail. This is the single most audible clamp in the module: it is
+        // inside a *feedback loop*, so once the input reaches the rail the
+        // clipped result is written to the buffer and recirculated, and every
+        // pass adds more. Heard as ringing rather than as distortion, which is
+        // why it is hard to place by ear.
+        //
+        // A gently saturating feedback path is also what tape and BBD delays
+        // actually do, so this is closer to the reference than the clamp was.
+        fbL = softSaturate(fbL);
+        fbR = softSaturate(fbR);
 
         _bufL[_writeIdx] = fbL;
         _bufR[_writeIdx] = fbR;
@@ -164,17 +167,13 @@ class DelayEngine
         if(++_writeIdx >= kMaxSamples)
             _writeIdx = 0;
 
-        // Dry + wet mix; clamp output.
+        // Dry + wet mix. The mix law is not unity — it reaches 1.25x at
+        // mix 0.5 — so this stage can push a source that was already near
+        // full scale over the top on its own.
         int32_t oL = (int32_t)((float)inL * _dryGain + (float)delayedL * _mix);
         int32_t oR = (int32_t)((float)inR * _dryGain + (float)delayedR * _mix);
-        if(oL > 32767)
-            oL = 32767;
-        else if(oL < -32767)
-            oL = -32767;
-        if(oR > 32767)
-            oR = 32767;
-        else if(oR < -32767)
-            oR = -32767;
+        oL = softSaturate(oL);
+        oR = softSaturate(oR);
         *outL = oL;
         *outR = oR;
     }

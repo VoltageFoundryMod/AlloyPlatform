@@ -53,10 +53,18 @@ change — old flash data is discarded on mismatch rather than misread.
 
 ## Engine notes
 
-**Voice counts differ per mode.** PAIR runs 2 voices, CHORD, CLOUD, STRING and
+**Voice counts differ per mode.** PAIR runs 2 voices, CHORD, STRING and
 CASCADE run 4, POLY runs 6. `_activeVoices` in `SynthEngine::control()` is what
 the non-FM audio loop iterates; the FM modes are rendered by a separate branch
 driven by `_fmPairs`.
+
+**CLOUD is neither.** Since M78 it shares an oscillator pool (default 12) across
+up to four held notes, deriving saws-per-note from what divides — one note keeps
+the full seven-saw stack, four get three each — and falls back to a seven-saw
+drone when the gate latch is clear. It renders from its own branch in `audio()`,
+grouped by stack so the per-note envelope costs one multiply per stack rather
+than one per oscillator. `make flux-cloud` asserts the pool invariants, which
+the audio output does not reveal.
 
 **POLY notes come from MIDI, the serial `trig` command and the GATE jack**, all
 through `polyNoteOn()` and all drawing on one pool of six slots — no source owns

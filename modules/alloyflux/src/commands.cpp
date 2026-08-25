@@ -130,7 +130,9 @@ static void cmd_gate(const char *args, Print &out)
 {
     if(strcmp(args, "free") == 0)
     {
-        gGatePatched = false;
+        // Same path CC 119 and MODE+SHIFT take — clears the slots too, which
+        // CLOUD needs or the drone returns underneath a phantom chord.
+        returnToDrone();
         out.println(F("gate -> free (drone)"));
     }
     else
@@ -147,13 +149,17 @@ extern uint8_t  sTrigPolySlot;  // defined in main.cpp — 255 = not set
 
 void doTrig(uint32_t durMs)
 {
-    if(gVoiceMode == VoiceMode::POLY)
+    if(modeUsesPolySlots(gVoiceMode))
     {
         const float freq    = constrain(gBaseFreq, 20.0f, 8000.0f);
         const float subMult = (gSubOctave == 2) ? 0.25f : 0.5f;
         // 1.0 velocity — a trig is always full level.
         // 254 tags the slot as owned by this pulse rather than a held note.
-        sTrigPolySlot = polyNoteOn(freq, 1.0f, subMult, 254);
+        sTrigPolySlot
+            = polyNoteOn(freq, 1.0f, subMult, 254, polySlotLimit(gVoiceMode));
+        // CLOUD needs the latch armed or the drone plays straight over the
+        // trigged note; POLY ignores it. Same rule as a MIDI note on.
+        gGatePatched = true;
     }
     else
     {
@@ -178,6 +184,46 @@ static void cmd_driftspeed(const char *args, Print &out)
     gDriftSpeed = constrain((float)atof(args), 0.001f, 0.10f);
     out.print(F("driftspeed -> "));
     out.println(gDriftSpeed, 4);
+}
+
+// CLOUD's oscillator pool (M78). Two numbers, deliberately left adjustable at
+// runtime: twelve oscillators is where the mode is *known* to fit alongside
+// every effect, but the only honest way to find out whether fifteen also fits
+// on a given clock and effect chain is to set it and watch. Run `stats` for a
+// while afterwards and read the *deltas* on `slow-blk` and `overruns`, not the
+// totals — a static overrun count is a mode-switch transient, not a fault.
+//
+// Width per note falls out of the two and is printed for that reason: it is
+// the number that actually describes what you will hear.
+static void cmd_cloud(const char *args, Print &out)
+{
+    if(strncasecmp(args, "pool", 4) == 0)
+        gCloudPool = (uint8_t)constrain(atoi(args + 4), 1, (int)kCloudOscMax);
+    else if(strncasecmp(args, "notes", 5) == 0)
+        gCloudMaxNotes
+            = (uint8_t)constrain(atoi(args + 5), 1, (int)kCloudMaxNotes);
+    else if(*args != '\0')
+    {
+        out.println(F("usage: cloud [pool <n> | notes <n>]"));
+        return;
+    }
+
+    out.print(F("cloud -> pool "));
+    out.print(gCloudPool);
+    out.print(F("  notes "));
+    out.print(gCloudMaxNotes);
+    out.print(F("  saws/note "));
+    // Mirrors SynthEngine::_cloudWidthFor() — widest odd stack that fits.
+    for(uint8_t n = 1; n <= gCloudMaxNotes; n++)
+    {
+        uint8_t w = 7u;
+        while(w > 1u && (uint16_t)w * (uint16_t)n > (uint16_t)gCloudPool)
+            w -= 2u;
+        out.print(w);
+        if(n < gCloudMaxNotes)
+            out.print('/');
+    }
+    out.println();
 }
 
 static void cmd_rel(const char *args, Print &out)
@@ -1330,6 +1376,7 @@ const CommandEntry kCommands[] = {
     {"note",      "<note>      note name (e.g., C4, A#3)",                                cmd_note},
     {"mode",      "<pair|cloud|chord|cascade|string>  voice mode (default: pair)",        cmd_mode},
     {"rel",       "<0-24>      RELATION semitones: 0=unison  7=fifth  12=octave  24=2oct",  cmd_rel},
+    {"cloud",     "[pool <n>|notes <n>]  CLOUD supersaw pool; bare = show saws/note",     cmd_cloud},
     {"color",     "<0-1>       COLOR: FM depth (pair/cascade) or fine Hz spread (other)",   cmd_color},
     {"shape",     "<0-1>       waveform: 0=sine  0.25=tri  0.5=saw  0.75=pulse  1=hollow", cmd_shape},
     {"fat",       "<0-1>       sub osc level: 0=off  1=full (50% of main)",               cmd_fat},

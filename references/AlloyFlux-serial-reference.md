@@ -60,6 +60,29 @@ chord <name|0-10>    → CHORD mode convenience: set chord shape by name or inde
                        (unison|power|minor|major|sus2|sus4|maj7|min7|dom7|dim|octaves)
 ```
 
+### CLOUD Supersaw Pool
+
+CLOUD shares one oscillator pool across the notes held, so saws-per-note is
+derived rather than chosen: `pool / notes`, rounded down to the nearest odd
+number. One held note always gets the full seven-saw stack, identical to the
+drone.
+
+```txt
+cloud                → show pool, max notes and the resulting saws-per-note ladder
+cloud pool <1–16>    → oscillators CLOUD may sound at once (default 12 → 7/5/3/3)
+cloud notes <1–4>    → max simultaneous held notes (default 4)
+```
+
+12 is the shipped default because it sits alongside POLY's measured render cost
+with every effect running. 16 gives 7/7/5/3 and is worth trying if the patch has
+headroom — check `stats` afterwards and read the _deltas_ on `slow-blk` and
+`overruns`, not the totals.
+
+`cloud notes` caps polyphony only; it does not affect level. Every stack — the
+drone and each held note alike — plays at the same fixed level, and the output
+stage saturates the sum, so a chord is louder than one note without ever
+reaching the rail.
+
 ### Sub Oscillator
 
 ```txt

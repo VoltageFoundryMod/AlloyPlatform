@@ -56,12 +56,23 @@ Interval set from chord table; RELATION knob sweeps chord shape.
 All slots share the same SHAPE, CURVE, and MOTION settings.
 ```
 
-**CLOUD** (4–8 voices, Milestone 22):
+**CLOUD** (shared oscillator pool, up to 4 held notes — Milestone 22, made
+polyphonic in M78):
 
 ```txt
-slot[0..7]  ROOT ± micro-detune (animated by MOTION)
-            stereo position drifts slowly per slot
+no notes held    →  one 7-saw stack on ROOT, no envelope (the drone)
+note held        →  one stack per note, own AR envelope, own stereo arc
+                    saws per note = pool / notes, rounded down to odd
+                    pool 12: 1 note → 7   2 → 5   3 → 3   4 → 3
+one sub          →  tuned to the lowest note held, for the whole mode
 ```
+
+Width is derived, never chosen, and a single held note therefore keeps the full
+seven-saw stack — the drone and one note are the same sound. Oscillators fade in
+and out of a stack over ~190 ms and are only re-tasked once silent; the drone
+crossfades on its own per-sample gain over ~40 ms because it is the whole output
+when it moves. Pool size and max notes are runtime (`cloud pool`, `cloud notes`)
+so the CPU ceiling can be measured on hardware rather than derived.
 
 **POLY** (up to 4 voices, Milestone 38):
 

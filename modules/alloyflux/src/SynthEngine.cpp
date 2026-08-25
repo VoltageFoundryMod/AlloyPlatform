@@ -47,6 +47,13 @@ uint8_t sPolyRR = 0;
 // read by usb_midi.cpp (setGate) and by SynthEngine::audio() (next()).
 EnvelopeEngine *sPolyEnvs[6] = {};
 
+// Out-of-line definitions for the two constexpr tables. Required under C++14,
+// which is what the host harness builds with: taking `kCloudWidthIdx[n]` as a
+// pointer is an ODR-use, and without these the firmware links but the host
+// build does not.
+constexpr float   SynthEngine::kCloudOffset[7];
+constexpr uint8_t SynthEngine::kCloudWidthIdx[4][7];
+
 // ---------------------------------------------------------------------------
 // SynthEngine::init()
 // ---------------------------------------------------------------------------
@@ -61,9 +68,9 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     // before any setFreq() / setShape() calls.
     _generateWavetables();
 
-    // Assign table pointers to all oscillators.  Seven of them — CLOUD's
-    // supersaw needs the seventh; POLY uses only the first six.
-    for(int i = 0; i < 7; i++)
+    // Assign table pointers to all oscillators.  The array is sized for
+    // CLOUD's pool (M78); every other mode uses at most the first seven.
+    for(int i = 0; i < kCloudOscMax; i++)
     {
         _voices[i].setTables(
             _sineTable, _triTable, _sawTable, _squareTable, _narrowPulseTable);
@@ -108,10 +115,16 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
     reverb = &_dattorroReverb;
 
     // Initial voice frequencies
-    for(int i = 0; i < 7; i++)
+    for(int i = 0; i < kCloudOscMax; i++)
     {
         _voices[i].setFreq(440.0f);
         _subVoices[i].setFreq(440.0f * 0.5f);
+        // CLOUD's pool starts empty; the first control tick in the mode plans
+        // it, and with no notes held that plan is the drone.
+        _cloudOscOwner[i]   = kCloudNoOwner;
+        _cloudOscOff[i]     = 3u;
+        _cloudOscGate[i]    = 0.0f;
+        _cloudOscGateTgt[i] = 0.0f;
     }
 
     // Pre-warm powf() so the first CHORD/PAIR updateControl() call avoids a
@@ -126,7 +139,7 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
 void SynthEngine::setSampleRate(uint32_t audioRate)
 {
     _audioRate = audioRate;
-    for(int i = 0; i < 7; i++)
+    for(int i = 0; i < kCloudOscMax; i++)
     {
         _voices[i].setSampleRate(audioRate);
         _subVoices[i].setSampleRate(audioRate);
@@ -162,6 +175,13 @@ void SynthEngine::setSampleRate(uint32_t audioRate)
 // ---------------------------------------------------------------------------
 void SynthEngine::_updateFmInSplit()
 {
+    // CLOUD's drone fade rides along here rather than getting its own hook:
+    // both are one-pole coefficients that depend on nothing but _audioRate,
+    // and both callers of this function are exactly the places a rate change
+    // has to be picked up.
+    _cloudDroneRamp
+        = 1.0f - expf(-1.0f / (kCloudDroneFadeS * (float)_audioRate));
+
     _fmInLpA
         = 1.0f - expf(-2.0f * 3.14159265f * kFmInSplitHz / (float)_audioRate);
 
@@ -229,16 +249,269 @@ float SynthEngine::_cloudDetuneCurve(float x)
 // RELATION they would otherwise hold indefinitely — nothing pulls them apart
 // once their phase increments match.
 //
-// Called on note attack and on entry to CLOUD. The second is what covers
-// drone, where there is no attack to hang it on.
+// Called on entry to CLOUD — which is what covers drone, where there is no
+// attack to hang it on. Per-note attacks no longer come through here: since
+// M78 a note claims individual oscillators out of the pool and each is
+// randomised as it is claimed, in _cloudClaimOsc().
 // ---------------------------------------------------------------------------
 void SynthEngine::_cloudRandomisePhases()
 {
-    for(int i = 0; i < 7; i++)
+    for(int i = 0; i < kCloudOscMax; i++)
     {
         _voices[i].setPhase(_rng());
         _subVoices[i].setPhase(_rng());
     }
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::_cloudClaimOsc()  — hand one pool oscillator to a stack
+//
+// Phase is randomised here for the reason above, and it is safe to do so here
+// *only* because _cloudPlan() never claims an oscillator whose level has not
+// already ramped below kCloudSilent. A phase jump on a sounding oscillator is
+// a click; on a silent one it is nothing.
+//
+// Level starts at zero and ramps up, so a saw joining a stack fades in rather
+// than appearing. That is what lets a note widen from three saws to seven as
+// other notes release without the change reading as a glitch.
+// ---------------------------------------------------------------------------
+void SynthEngine::_cloudClaimOsc(uint8_t osc, uint8_t owner, uint8_t offIdx)
+{
+    _cloudOscOwner[osc] = owner;
+    _cloudOscOff[osc]   = offIdx;
+    // The drone's oscillators do not fade in individually — the stack's own
+    // per-sample gain does that for all seven at once, and running both would
+    // be a fade inside a fade.
+    _cloudOscGate[osc] = (owner == kCloudDroneSlot) ? 1.0f : 0.0f;
+    _voices[osc].setPhase(_rng());
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::cloudPoolState()  — read the plan back out
+// ---------------------------------------------------------------------------
+void SynthEngine::cloudPoolState(CloudPoolState &s) const
+{
+    s.pool    = _cloudPool;
+    s.width   = _cloudWidth;
+    s.notes   = _cloudNotes;
+    s.droning    = _cloudDroning;
+    s.activeList = _cloudListIdx;
+    for(uint8_t b = 0; b < 2; b++)
+        for(uint8_t k = 0; k <= kCloudMaxNotes; k++)
+            s.listN[b][k] = _cloudListN[b][k];
+    for(uint8_t i = 0; i < kCloudOscMax; i++)
+    {
+        s.owner[i]  = _cloudOscOwner[i];
+        s.offset[i] = _cloudOscOff[i];
+        s.gate[i]   = _cloudOscGate[i];
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::_cloudPlan()  — hand out the supersaw pool for this tick
+//
+// Decides *ownership* only: which oscillator belongs to which stack and which
+// of kCloudOffset's seven detunes it plays. Levels, frequencies and pans are
+// the CLOUD case in control(), which has the smoothed knobs to hand.
+//
+// Two passes, and the order matters. Retire first so that oscillators freed by
+// a note ending are available to the note replacing it on the same tick — a
+// chord change is the case that would otherwise stutter. Claim second, and
+// only from oscillators that have actually reached silence: an unmet need is
+// simply left for the next tick, by which point more of the retiring stack has
+// faded. That deferral is the entire anti-click mechanism, and it is why there
+// is no crossfade buffer or gain-compensation anywhere in the audio path.
+// ---------------------------------------------------------------------------
+void SynthEngine::_cloudPlan(const SynthParams &p, PolySlot polySlots[6])
+{
+    // Runtime config, clamped to what the arrays can hold. Both come from the
+    // console so both have to survive a nonsense value.
+    uint8_t pool = p.cloudPool;
+    if(pool < 1u)
+        pool = 1u;
+    else if(pool > kCloudOscMax)
+        pool = kCloudOscMax;
+    uint8_t maxNotes = p.cloudMaxNotes;
+    if(maxNotes < 1u)
+        maxNotes = 1u;
+    else if(maxNotes > kCloudMaxNotes)
+        maxNotes = kCloudMaxNotes;
+    _cloudPool  = pool;
+    _cloudNotes = maxNotes;
+    // One fixed level per stack, independent of how many are sounding and of
+    // how many *could* sound — see kCloudStackLevel. Independent of the
+    // sounding count for the reason POLY's normalisation comment gives (a
+    // level that tracked it would change the loudness of notes already
+    // ringing); independent of maxNotes because designing every voice around
+    // the worst-case chord is what made a single note quiet.
+    _cloudNoteGain = kCloudStackLevel;
+
+    // Drone is decided by the gate latch alone, not by what is still ringing:
+    // the first note arms gatePatched and the drone goes, CC 119 or MODE+SHIFT
+    // clears it and the drone comes back. Same latch every other mode uses.
+    _cloudDroning  = !p.gatePatched;
+    _cloudDroneTgt = _cloudDroning ? 1.0f : 0.0f;
+
+    uint8_t nSounding = 0u;
+    for(uint8_t s = 0; s < kCloudMaxNotes; s++)
+    {
+        bool live = false;
+        if(!_cloudDroning && s < maxNotes)
+        {
+            // Held, or released and still ringing. Both keep their
+            // oscillators: a note-off frees the slot immediately
+            // (moduleHook_noteOff) but the release tail is still audible.
+            live = (polySlots[s].midiNote != kPolySlotFree)
+                   || (_polyEnvArr[s].level() > kCloudSilent);
+        }
+        _cloudSounding[s] = live;
+        if(live)
+            nSounding++;
+    }
+
+    _cloudWidth
+        = _cloudDroning
+              ? _cloudWidthFor(pool, 1u)
+              : _cloudWidthFor(pool, nSounding ? nSounding : 1u);
+    const uint8_t *widthSet = kCloudWidthIdx[(_cloudWidth - 1u) / 2u];
+
+    // --- Retire ---------------------------------------------------------
+    for(uint8_t i = 0; i < kCloudOscMax; i++)
+    {
+        _cloudOscWanted[i] = false;
+        const uint8_t own  = _cloudOscOwner[i];
+        if(own == kCloudNoOwner)
+            continue;
+
+        // An oscillator past the current pool size is always surplus — the
+        // pool can be shrunk from the console while the mode is sounding.
+        bool ownerLives;
+        if(own == kCloudDroneSlot)
+            ownerLives = _cloudDroning;
+        else if(own >= maxNotes)
+            ownerLives = false;
+        else
+            ownerLives = _cloudSounding[own];
+
+        if(ownerLives && i < pool)
+        {
+            for(uint8_t k = 0; k < _cloudWidth; k++)
+                if(widthSet[k] == _cloudOscOff[i])
+                {
+                    _cloudOscWanted[i] = true;
+                    break;
+                }
+        }
+        if(_cloudOscWanted[i])
+            continue;
+
+        // Past the current pool size, and so already inaudible: the render
+        // lists are rebuilt only from oscillators inside the pool, which also
+        // means the control loop will never advance this one's gate again.
+        // Freeing it here is what stops a shrunk pool from stranding
+        // oscillators it can no longer reach.
+        if(i >= pool)
+        {
+            _cloudOscOwner[i]   = kCloudNoOwner;
+            _cloudOscGate[i]    = 0.0f;
+            _cloudOscGateTgt[i] = 0.0f;
+            _panL[i]            = 0;
+            _panR[i]            = 0;
+            continue;
+        }
+
+        // Surplus. Whether it needs a fade, and whose fade, depends on what
+        // silenced it — the three cases are genuinely different.
+        //
+        // The drone's saws keep their gate wide open even on the way out. The
+        // stack gain is already fading them at audio rate, and closing the
+        // gate as well would put a second, control-rate staircase on top of
+        // it — which is a click, and measurably so: it was worth 3300 against
+        // a steady-state sample step of 400 on the host harness.
+        _cloudOscGateTgt[i] = (own == kCloudDroneSlot) ? 1.0f : 0.0f;
+        bool freeNow;
+        if(own == kCloudDroneSlot)
+        {
+            // The drone has no envelope; its per-sample gain is the fade, and
+            // the oscillators belong to it until that gain has run out.
+            freeNow = (_cloudDroneGain < kCloudSilent);
+        }
+        else if(own >= maxNotes || !_cloudSounding[own])
+        {
+            // The owning note has stopped sounding, so its envelope has
+            // already reached zero — these oscillators are inaudible right
+            // now. Freeing them this instant costs nothing and hands them
+            // straight to whatever replaced the note, which is what keeps a
+            // chord change from stuttering.
+            freeNow = true;
+        }
+        else
+        {
+            // Still under a live note, merely squeezed out by a narrower
+            // stack: fade it on the gate before reusing it.
+            freeNow = (_cloudOscGate[i] < kCloudSilent);
+        }
+
+        if(freeNow)
+        {
+            _cloudOscOwner[i] = kCloudNoOwner;
+            _cloudOscGate[i]  = 0.0f;
+        }
+    }
+
+    // --- Claim ----------------------------------------------------------
+    // Guarded on a count rather than run unconditionally: the search is
+    // O(pool × width × pool) and the plan only changes on note events, so on
+    // the overwhelming majority of ticks there is nothing to do.
+    const uint8_t stacks = _cloudDroning ? 1u : nSounding;
+    uint8_t       live   = 0u;
+    for(uint8_t i = 0; i < kCloudOscMax; i++)
+        if(_cloudOscWanted[i])
+            live++;
+    if(live >= (uint16_t)stacks * (uint16_t)_cloudWidth)
+        return;
+
+    if(_cloudDroning)
+    {
+        for(uint8_t k = 0; k < _cloudWidth; k++)
+            _cloudClaimIfNeeded(kCloudDroneSlot, widthSet[k], pool);
+        return;
+    }
+    for(uint8_t s = 0; s < maxNotes; s++)
+    {
+        if(!_cloudSounding[s])
+            continue;
+        for(uint8_t k = 0; k < _cloudWidth; k++)
+            _cloudClaimIfNeeded(s, widthSet[k], pool);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SynthEngine::_cloudClaimIfNeeded()
+//
+// Make sure `owner` has an oscillator playing detune `offIdx`, taking a free
+// one if it does not. A retiring oscillator that still carries the right owner
+// and offset counts as present — it simply stops retiring and ramps back up
+// from wherever its level had fallen to, which is both cheaper than claiming a
+// fresh one and smoother, because no phase is disturbed.
+// ---------------------------------------------------------------------------
+void SynthEngine::_cloudClaimIfNeeded(uint8_t owner, uint8_t offIdx, uint8_t pool)
+{
+    for(uint8_t i = 0; i < pool; i++)
+        if(_cloudOscOwner[i] == owner && _cloudOscOff[i] == offIdx)
+        {
+            _cloudOscWanted[i] = true;
+            return;
+        }
+    for(uint8_t i = 0; i < pool; i++)
+        if(_cloudOscOwner[i] == kCloudNoOwner)
+        {
+            _cloudClaimOsc(i, owner, offIdx);
+            _cloudOscWanted[i] = true;
+            return;
+        }
+    // Nothing free this tick — a retiring oscillator has not finished fading.
+    // Left for the next tick on purpose; see the header comment.
 }
 
 // ---------------------------------------------------------------------------
@@ -292,22 +565,19 @@ void SynthEngine::control(const SynthParams  &p,
     // ------------------------------------------------------------------
     {
         const bool curGate = p.gateHigh;
-        if(p.voiceMode != VoiceMode::POLY && curGate != _prevGate)
+        // The mono envelope belongs to the modes that have one. POLY and, since
+        // M78, CLOUD both shape per slot, and a gate edge there is a note event
+        // handled by the allocator — driving the mono envelope from here as
+        // well would put a second, mode-wide VCA over the per-note ones.
+        if(!modeUsesPolySlots(p.voiceMode) && curGate != _prevGate)
         {
             curveEng->setGate(curGate);
             if(curGate && curveEng->level() < 0.01f)
-            {
-                // CLOUD wants the opposite of a known phase — see
-                // _cloudRandomisePhases().
-                if(p.voiceMode == VoiceMode::CLOUD)
-                    _cloudRandomisePhases();
-                else
-                    for(int i = 0; i < 4; i++)
-                    {
-                        _voices[i].resetPhase();
-                        _subVoices[i].resetPhase();
-                    }
-            }
+                for(int i = 0; i < 4; i++)
+                {
+                    _voices[i].resetPhase();
+                    _subVoices[i].resetPhase();
+                }
             _prevGate = curGate;
         }
     }
@@ -564,6 +834,10 @@ void SynthEngine::control(const SynthParams  &p,
             // MIX — centre against sides, on Szabo's two fitted curves. At
             // full CCW the centre voice carries the sound almost alone; at
             // full CW the six sides dominate it.
+            //
+            // Held unnormalised: since M78 a stack can be one, three, five or
+            // seven saws wide, and the normalisation depends on how many are
+            // actually in it. Only the balance is cached here.
             if(fabsf(_sColor - _cachedColorCloud) > 0.002f || modeChanged)
             {
                 float mix = _sColor;
@@ -571,63 +845,166 @@ void SynthEngine::control(const SynthParams  &p,
                     mix = 0.0f;
                 else if(mix > 1.0f)
                     mix = 1.0f;
-                const float centre = -0.55366f * mix + 0.99785f;
-                const float side
+                _cloudCentreLvl = -0.55366f * mix + 0.99785f;
+                _cloudSideLvl
                     = -0.73764f * mix * mix + 1.2841f * mix + 0.044372f;
-
-                // Normalise in *quadrature*, not by the plain sum: the seven
-                // voices are detuned and so add incoherently, and normalising
-                // by the arithmetic sum would make COLOR read as a volume cut
-                // rather than as the density control it is.
-                float sumSq = centre * centre + 6.0f * side * side;
-                if(sumSq < 1e-6f)
-                    sumSq = 1e-6f;
-                const float norm = 1.0f / sqrtf(sumSq);
-
-                for(int i = 0; i < 7; i++)
-                    _cloudLevel[i] = (i == 3 ? centre : side) * norm;
                 _cachedColorCloud = _sColor;
             }
 
-            // Voices. MOTION is dialled well back from the old CLOUD (×1.5 →
-            // ×0.4): the detune already supplies the width, and drift on top
-            // of it only smears the beating that makes a supersaw legible.
-            // Movement is STRING's job now — that split is what finally tells
-            // the two modes apart.
+            // Hand out the pool: which oscillator plays which detune of which
+            // held note — or of the drone, when nothing is held.
+            _cloudPlan(p, polySlots);
+
+            // Normalise in *quadrature*, not by the plain sum: the voices are
+            // detuned and so add incoherently, and normalising by the
+            // arithmetic sum would make COLOR read as a volume cut rather than
+            // as the density control it is. (_cloudWidth − 1) sides, because
+            // exactly one voice in any width is the centre.
+            float sumSq = _cloudCentreLvl * _cloudCentreLvl
+                          + (float)(_cloudWidth - 1u) * _cloudSideLvl
+                                * _cloudSideLvl;
+            if(sumSq < 1e-6f)
+                sumSq = 1e-6f;
+            const float norm = 1.0f / sqrtf(sumSq);
+
+            // The pitch the sub and the tracking HPF sit under: the lowest
+            // note being held, or the root when droning. Lowest rather than
+            // most recent — a sub that jumped to whichever note was played
+            // last would walk around under a held chord.
             const float smCloud = (p.subOctave == 2) ? 0.25f : 0.5f;
-            for(int i = 0; i < 7; i++)
+            float       subRoot = _sGlidedFreq;
+            _cloudSubSlot       = kCloudDroneSlot;
+            _cloudSubGain       = kCloudStackLevel;
+            if(!_cloudDroning)
             {
-                voiceFreqs[i] = _sGlidedFreq * _cloudDetuneMul[i]
-                                + _drift.offset(i) * 0.4f;
-                if(voiceFreqs[i] < 20.0f)
-                    voiceFreqs[i] = 20.0f;
-                _voices[i].setFreq(voiceFreqs[i]);
+                bool    found = false;
+                uint8_t subS  = kCloudNoOwner; // nothing sounding: no sub
+                for(uint8_t s = 0; s < _cloudNotes; s++)
+                {
+                    if(!_cloudSounding[s])
+                        continue;
+                    const float f = polySlots[s].freq * _fmInMul;
+                    if(!found || f < subRoot)
+                    {
+                        subRoot = f;
+                        found   = true;
+                        subS    = s;
+                    }
+                }
+                // Same gain as the stack it sits under — see _cloudSubGain.
+                _cloudSubGain = found ? _cloudNoteGain * polySlots[subS].velocity
+                                      : 0.0f;
+                _cloudSubSlot = subS;
+            }
+            if(subRoot < 20.0f)
+                subRoot = 20.0f;
+
+            // Build this tick's render lists into the buffer Core 1 is *not*
+            // reading, and publish at the end — see _cloudList.
+            const uint8_t build = (uint8_t)(1u - _cloudListIdx);
+            for(uint8_t s = 0; s <= kCloudMaxNotes; s++)
+                _cloudListN[build][s] = 0u;
+
+            // MOTION is dialled well back from the old CLOUD (×1.5 → ×0.4):
+            // the detune already supplies the width, and drift on top of it
+            // only smears the beating that makes a supersaw legible. Movement
+            // is STRING's job now — that split is what tells the two apart.
+            for(uint8_t i = 0; i < _cloudPool; i++)
+            {
+                const uint8_t own = _cloudOscOwner[i];
+                if(own == kCloudNoOwner)
+                    continue;
+                const uint8_t off = _cloudOscOff[i];
+
+                // Stack root: the drone takes the glided root, a note takes
+                // its own slot pitch. _fmInMul by hand for the same reason
+                // POLY applies it per slot — slot pitches never pass through
+                // _sGlidedFreq, where every other mode picks FM IN up.
+                float root, gain;
+                if(own == kCloudDroneSlot)
+                {
+                    root = _sGlidedFreq;
+                    // Same level as a held note. The drone *is* one stack, so
+                    // making it louder than one note is what made playing a
+                    // note feel like the module dropped in volume.
+                    gain = kCloudStackLevel;
+                }
+                else
+                {
+                    root = polySlots[own].freq * _fmInMul;
+                    gain = _cloudNoteGain * polySlots[own].velocity;
+                }
+
+                float f = root * _cloudDetuneMul[off] + _drift.offset(i) * 0.4f;
+                if(f < 20.0f)
+                    f = 20.0f;
+                _voices[i].setFreq(f);
                 _voices[i].setShape(_sShape);
+
+                // Fade gate, linear. A retiring saw keeps rendering under its
+                // stack's envelope while it closes; _cloudPlan() frees it on
+                // the tick the gate hits zero. The drone's saws hold their
+                // gate open and let the stack gain do the work instead.
+                if(_cloudOscWanted[i])
+                    _cloudOscGateTgt[i] = 1.0f;
+                if(_cloudOscGate[i] < _cloudOscGateTgt[i])
+                {
+                    _cloudOscGate[i] += kCloudGateStep;
+                    if(_cloudOscGate[i] > 1.0f)
+                        _cloudOscGate[i] = 1.0f;
+                }
+                else if(_cloudOscGate[i] > _cloudOscGateTgt[i])
+                {
+                    _cloudOscGate[i] -= kCloudGateStep;
+                    if(_cloudOscGate[i] < 0.0f)
+                        _cloudOscGate[i] = 0.0f;
+                }
+
+                const float lvl
+                    = ((off == 3u) ? _cloudCentreLvl : _cloudSideLvl) * norm
+                      * gain * _cloudOscGate[i];
 
                 // Stereo: flat-to-sharp maps left-to-right, so the detune
                 // reads as width rather than as mistuning — the same law POLY
-                // uses. Constant-sum, matching the ensemble modes.
-                const float w   = kCloudPanScale * _cloudLevel[i];
-                const float p01 = (float)i * (1.0f / 6.0f);
-                _panL[i]        = (int16_t)(w * (1.0f - p01));
-                _panR[i]        = (int16_t)(w * p01);
+                // uses. Constant-sum, matching the ensemble modes. Keyed on
+                // the *detune index*, not the oscillator, so a stack lands in
+                // the same image whichever pool slots it happened to get.
+                const float w   = kCloudPanScale * lvl;
+                const float p01 = (float)off * (1.0f / 6.0f);
+
+                uint8_t &n = _cloudListN[build][own];
+                if(n < 7u)
+                {
+                    CloudEntry &e = _cloudList[build][own][n++];
+                    e.osc         = &_voices[i];
+                    e.panL        = (int16_t)(w * (1.0f - p01));
+                    e.panR        = (int16_t)(w * p01);
+                }
             }
 
-            // One sub, on the centre voice, rather than seven. The JP-8000 has
-            // none at all; seven would be seven more oscillators for a band
-            // the stack already fills. FATNESS still does something useful.
-            _subVoices[3].setFreq(_sGlidedFreq * smCloud < 20.0f
-                                      ? 20.0f
-                                      : _sGlidedFreq * smCloud);
+            // Publish. One byte, written after every entry is in place, which
+            // is what makes the hand-off atomic from Core 1's point of view.
+            _cloudListIdx = build;
 
-            // Track the HPF to the played note — see _cloudHpA.
+            // One sub for the whole mode, rather than one per stack. The
+            // JP-8000 has none at all; one per note would be four more
+            // oscillators filling a band the stacks already fill, and a sub
+            // under every note of a chord is mud. FATNESS still does something
+            // useful. Rendered from _subVoices[0] regardless of which pool
+            // oscillators are in play.
+            _subVoices[0].setFreq(subRoot * smCloud < 20.0f
+                                      ? 20.0f
+                                      : subRoot * smCloud);
+
+            // Track the HPF to the lowest sounding note — see _cloudHpA.
             {
-                const float fc = _sGlidedFreq;
-                const float w0 = 6.2831853f * fc / (float)_audioRate;
+                const float w0 = 6.2831853f * subRoot / (float)_audioRate;
                 _cloudHpA      = 1.0f / (1.0f + w0);
             }
 
-            _activeVoices = 7;
+            voiceFreqs[0] = subRoot;
+            voiceFreqs[1] = subRoot * _cloudDetuneMul[6];
+            _activeVoices = _cloudPool;
             break;
         }
         case VoiceMode::CASCADE:
@@ -920,6 +1297,26 @@ void SynthEngine::control(const SynthParams  &p,
         // stale one in the filter is a click.
         _cloudHpXL = _cloudHpYL = 0.0f;
         _cloudHpXR = _cloudHpYR = 0.0f;
+        // Empty the supersaw pool. Leaving stale ownership behind would have
+        // the next entry to CLOUD render stacks for notes that no longer
+        // exist, at levels left over from before the mode changed.
+        for(uint8_t i = 0; i < kCloudOscMax; i++)
+        {
+            _cloudOscOwner[i]   = kCloudNoOwner;
+            _cloudOscWanted[i]  = false;
+            _cloudOscGate[i]    = 0.0f;
+            _cloudOscGateTgt[i] = 0.0f;
+        }
+        // Both buffers, not just the one being built: the other is what Core 1
+        // renders from until the next CLOUD tick publishes over it.
+        for(uint8_t b = 0; b < 2; b++)
+            for(uint8_t s = 0; s <= kCloudMaxNotes; s++)
+                _cloudListN[b][s] = 0u;
+        _cloudSubSlot = kCloudDroneSlot;
+        // Entering CLOUD with the drone already faded out would leave the mode
+        // silent until the first note; entering it mid-fade would be a ramp
+        // nobody asked for. Either way the fade belongs to the last visit.
+        _cloudDroneGain = _cloudDroneTgt;
         // PLASMA's feedback taps likewise. A coupled system started from a
         // stale state can ring before it settles, which on entry sounds like
         // a fault rather than like the mode.
@@ -1059,6 +1456,20 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
         return;
     // 1. Hard-silence the envelope so the attack always starts from 0.
     _polyEnvArr[slot].reset();
+
+    // CLOUD stops here. Its slots do not own oscillator `slot` — they own
+    // whatever the pool hands them, several at a time — so steps 2 and 3 would
+    // reset the phase and frequency of some unrelated stack's saw. The pool
+    // planner picks the note up on the next control tick, sets every one of
+    // its frequencies, and randomises phase per oscillator as it is claimed;
+    // a *known* phase is in any case the wrong answer for a supersaw, which is
+    // the whole point of _cloudRandomisePhases().
+    if(_voiceMode == VoiceMode::CLOUD)
+    {
+        _polyEnvArr[slot].setGate(true);
+        return;
+    }
+
     // 2. Reset oscillator phase — new note starts at a known waveform position.
     _voices[slot].resetPhase();
     _subVoices[slot].resetPhase();
@@ -1211,19 +1622,58 @@ void SynthEngine::audio(int32_t  revWetL,
     }
     else if(isCloudMode)
     {
-        // Supersaw: seven mains, and exactly one sub — the centre voice's.
-        // Skipping the other six is what keeps a seven-oscillator mode
-        // cheaper than POLY's six-plus-six.
-        for(uint8_t i = 0; i < 7; i++)
+        // Supersaw stacks out of the shared pool, and exactly one sub for the
+        // whole mode. Rendered stack by stack rather than oscillator by
+        // oscillator, which is what keeps the cost near POLY's: every saw in a
+        // stack shares one envelope, so the envelope is one float multiply per
+        // *stack* — four of them at full polyphony — where POLY pays one per
+        // oscillator. The integer pan accumulation inside a stack is the same
+        // work the mode always did.
+        //
+        // Envelopes are advanced first and unconditionally. next() has to be
+        // called exactly once per envelope per sample whatever the plan looks
+        // like, or a stack that briefly holds no oscillators would stall its
+        // own release.
+        float slotEnv[kCloudMaxNotes + 1];
+        for(uint8_t s = 0; s < kCloudMaxNotes; s++)
+            slotEnv[s] = _polyEnvArr[s].next();
+        // The drone has no envelope; what it has instead is this gain, ramped
+        // here at audio rate rather than at 128 Hz. It is the whole output
+        // when it moves, and a control-rate staircase on the whole output is a
+        // click — see the note above kCloudGateTicks. One multiply-add a
+        // sample buys the transition into and out of the drone.
+        _cloudDroneGain += (_cloudDroneTgt - _cloudDroneGain) * _cloudDroneRamp;
+        slotEnv[kCloudDroneSlot] = _cloudDroneGain;
+
+        // Read the published buffer index once. Taking it per stack, or per
+        // oscillator, would let a flip land mid-frame and render half of one
+        // plan against half of another.
+        const uint8_t li = _cloudListIdx;
+        for(uint8_t s = 0; s <= kCloudMaxNotes; s++)
         {
-            const int32_t s = _voices[i].nextPM(fmPm);
-            left += (s * _panL[i]) >> 8;
-            right += (s * _panR[i]) >> 8;
+            const uint8_t n = _cloudListN[li][s];
+            if(n == 0u)
+                continue;
+            const CloudEntry *e = _cloudList[li][s];
+            int32_t           sl = 0, sr = 0;
+            for(uint8_t k = 0; k < n; k++)
+            {
+                const int32_t v = e[k].osc->nextPM(fmPm);
+                sl += (v * e[k].panL) >> 8;
+                sr += (v * e[k].panR) >> 8;
+            }
+            const float env = slotEnv[s];
+            left += (int32_t)((float)sl * env);
+            right += (int32_t)((float)sr * env);
         }
-        if(_sSubWf > 0.001f)
+        // The sub follows whichever stack it was tuned under, so it releases
+        // with that note instead of droning on beneath a chord that has
+        // already let go.
+        if(_sSubWf > 0.001f && _cloudSubSlot <= kCloudDroneSlot)
         {
-            const int32_t sub = _subVoices[3].next();
-            const int32_t sm  = (int32_t)((float)sub * _sSubWf);
+            const int32_t sub = _subVoices[0].next();
+            const int32_t sm  = (int32_t)((float)sub * _sSubWf * _cloudSubGain
+                                         * slotEnv[_cloudSubSlot]);
             left += sm >> 1; // centred
             right += sm >> 1;
         }
@@ -1293,24 +1743,26 @@ void SynthEngine::audio(int32_t  revWetL,
         }
     }
 
-    // Transparent safety limit before the VCA.
-    // The previous always-on Padé soft clip distorted even nominal single-voice
-    // sine output, injecting harmonics into otherwise clean tones. Limit only on
-    // true overflow so sub-clipping signals remain fully linear.
-    if(left > 32767)
-        left = 32767;
-    else if(left < -32767)
-        left = -32767;
-    if(right > 32767)
-        right = 32767;
-    else if(right < -32767)
-        right = -32767;
+    // Saturation before the VCA — see softSaturate().
+    //
+    // Was a hard clamp, which the comment here rightly defended against the
+    // always-on Padé clip it replaced: that distorted clean single-voice sines
+    // that were nowhere near the ceiling. softSaturate() keeps that property by
+    // construction — it is the identity below kSatKnee — and only changes what
+    // the hard clamp would have cornered.
+    left  = softSaturate(left);
+    right = softSaturate(right);
 
     // ------------------------------------------------------------------
     // VCA — envelope × volume × velocity, with de-click on downward moves
     // ------------------------------------------------------------------
-    const float envLevel
-        = (!isPolyMode && gGatePatched) ? curveEng->next() : 1.0f;
+    // CLOUD joins POLY in bypassing the mode-wide envelope (M78): both shape
+    // per stack now, and CLOUD's drone is the *reason* the bypass exists —
+    // unpatched gate has always meant gain 1.0 here. Leaving CLOUD on the mono
+    // envelope would put it in series with the per-note ones.
+    const float envLevel = (!modeUsesPolySlots(_voiceMode) && gGatePatched)
+                               ? curveEng->next()
+                               : 1.0f;
     const float gainTarget = _sVolume * _sMidiVel * envLevel;
     if(gainTarget < _sGainSmooth)
         _sGainSmooth += (gainTarget - _sGainSmooth) * 0.2f;
@@ -1352,19 +1804,13 @@ void SynthEngine::audio(int32_t  revWetL,
     {
         left += (int32_t)((float)revWetL * revMix);
         right += (int32_t)((float)revWetR * revMix);
-        // Hard-limit to prevent int16 wrapping crackle when passed to from16Bit.
-        // The previous Padé soft-clip caused ~6-7% continuous non-linear distortion
-        // at typical reverb tail levels (s≈0.4-0.6), adding harmonics to the tail
-        // and producing audible shimmer. A hard-limit is fully transparent at all
-        // levels up to ±32767 and only activates at simultaneous dry+wet peaks.
-        if(left > 32767)
-            left = 32767;
-        else if(left < -32767)
-            left = -32767;
-        if(right > 32767)
-            right = 32767;
-        else if(right < -32767)
-            right = -32767;
+        // Saturate rather than wrap when dry and wet peak together — see
+        // softSaturate(). The Padé clip this replaced put 6–7% distortion on
+        // reverb tails at s≈0.4–0.6 and was heard as shimmer; that cannot
+        // happen here, because a tail at those levels is under the knee and
+        // therefore untouched.
+        left  = softSaturate(left);
+        right = softSaturate(right);
     }
 
     // [DELAY — POST-REVERB]
@@ -1380,8 +1826,16 @@ void SynthEngine::audio(int32_t  revWetL,
         right = spR;
     }
 
-    *finalL = left;
-    *finalR = right;
+    // The module's output stage, and the only bound that is unconditional.
+    //
+    // Before this, the last clamp in the path sat *inside* `if(revEnabled)`, so
+    // with reverb off and the delay up the engine returned unbounded int32 —
+    // straight into the platform's int16 conversion, where it wraps rather than
+    // clips. SPACE and the post-reverb delay slot were downstream of every
+    // bound as well. Whatever the effect order and whatever is switched on,
+    // audio() now hands back something inside the rails.
+    *finalL = softSaturate(left);
+    *finalR = softSaturate(right);
 }
 
 // ---------------------------------------------------------------------------
