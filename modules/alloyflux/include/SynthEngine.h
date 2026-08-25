@@ -193,6 +193,12 @@ static constexpr float kCloudDroneFadeS = 0.04f;
 /// Below this a gate counts as closed and its oscillator may be re-tasked.
 static constexpr float kCloudSilent = 0.0008f;
 
+/// Above this a poly slot counts as still sounding when a note re-presses it,
+/// and polyRetrigger() rises out of the tail instead of zeroing it. Matches the
+/// level at which updateControl() reaps a releasing slot, so a slot the
+/// allocator considers finished is one this considers silent.
+static constexpr float kPolyRetrigSilent = 0.001f;
+
 /// Where the note-tracking high-pass sits, as a fraction of the played note.
 ///
 /// It used to sit *on* the note, which is the JP-8000's own arrangement and
@@ -1007,6 +1013,14 @@ class SynthEngine
     /// of how loud the saw happens to be — a saw entering a quiet stack takes
     /// exactly as long as one entering a loud stack.
     float _cloudOscGate[kCloudOscMax];
+
+    /// Notes that have arrived but whose stack the planner has not handed out
+    /// yet. Set by polyRetrigger(), cleared in control() on the tick the slot
+    /// gets its oscillators — which is where its envelope is armed, so that
+    /// the envelope and the sound it shapes begin on the same sample. Also
+    /// tells _cloudClaimOsc() the stack is silent, so its saws open at full
+    /// gate instead of fading in under an envelope that is already moving.
+    bool _cloudPendingAttack[kCloudMaxNotes] = {};
     float _cloudOscGateTgt[kCloudOscMax];
     /// Set by _cloudPlan(): this oscillator still belongs in the plan. A false
     /// here is a *retiring* oscillator — it keeps its owner and keeps

@@ -130,6 +130,8 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
         _cloudOscOff[i]     = 3u;
         _cloudOscGate[i]    = 0.0f;
         _cloudOscGateTgt[i] = 0.0f;
+        if(i < kCloudMaxNotes)
+            _cloudPendingAttack[i] = false;
     }
 
     // Pre-warm powf() so the first CHORD/PAIR updateControl() call avoids a
@@ -290,10 +292,29 @@ void SynthEngine::_cloudClaimOsc(uint8_t osc, uint8_t owner, uint8_t offIdx)
 {
     _cloudOscOwner[osc] = owner;
     _cloudOscOff[osc]   = offIdx;
-    // The drone's oscillators do not fade in individually — the stack's own
-    // per-sample gain does that for all seven at once, and running both would
-    // be a fade inside a fade.
-    _cloudOscGate[osc] = (owner == kCloudDroneSlot) ? 1.0f : 0.0f;
+    // Fade in only when there is something to fade against.
+    //
+    // The drone never needs it: its own per-sample gain fades all seven in at
+    // once, and running both would be a fade inside a fade. A note's envelope
+    // is that same gain one stack down, so a saw joining a stack that has not
+    // started sounding does not need one either — the envelope is at zero and
+    // is what brings it in.
+    //
+    // That case is a note *starting*, and it is the common one. Fading it as
+    // well put a fixed 375 ms ramp under every new note whatever CURVE said,
+    // and the two ramps do not compose: with a fast attack the envelope had
+    // peaked and begun decaying while the gate was still opening, so the note
+    // arrived soft and its loudest moment landed well after the attack instead
+    // of on it. It is audible as the note and its attack arriving separately.
+    //
+    // What the fade is for is a saw joining a stack that is *already* audible —
+    // a note widening from three saws to seven as others release. There the
+    // envelope is up, so an unfaded saw would appear rather than arrive. Those
+    // still ramp, which is what kCloudGateTicks was measured for.
+    const bool stackNotYetSounding
+        = (owner == kCloudDroneSlot)
+          || (owner < kCloudMaxNotes && _cloudPendingAttack[owner]);
+    _cloudOscGate[osc] = stackNotYetSounding ? 1.0f : 0.0f;
     _voices[osc].setPhase(_rng());
 }
 
@@ -992,6 +1013,42 @@ void SynthEngine::control(const SynthParams  &p,
             // held note — or of the drone, when nothing is held.
             _cloudPlan(p, polySlots);
 
+            // Now that the pool has been handed out, start the envelopes of
+            // any notes that were waiting for it.
+            //
+            // A CLOUD note cannot arm its envelope when the note arrives, the
+            // way every other mode does. Its oscillators do not exist yet: the
+            // planner assigns them here, up to a control period later, and
+            // until then the slot has nothing to render. Arming on arrival
+            // meant the envelope spent that period climbing against an empty
+            // stack, so by the time there was anything to hear the attack had
+            // already happened — with a fast CURVE the level was measured at
+            // 0.58 before the stack existed at all, and the note's loudest
+            // moment landed a fifth of a second after its attack.
+            //
+            // Deferring costs at most one tick of latency, which is the tick
+            // the sound could not have existed in anyway.
+            for(uint8_t s = 0; s < kCloudMaxNotes; s++)
+            {
+                if(!_cloudPendingAttack[s])
+                    continue;
+                // Only once the slot actually holds oscillators. A pool that
+                // was momentarily exhausted hands them over on a later tick,
+                // and the note should start then rather than open its envelope
+                // over silence.
+                bool has = false;
+                for(uint8_t i = 0; i < kCloudOscMax && !has; i++)
+                    has = (_cloudOscOwner[i] == s);
+                if(!has)
+                    continue;
+                if(polyEnvs[s])
+                {
+                    polyEnvs[s]->setGate(false); // guarantee the attack edge
+                    polyEnvs[s]->setGate(true);
+                }
+                _cloudPendingAttack[s] = false;
+            }
+
             // Normalise in *quadrature*, not by the plain sum: the voices are
             // detuned and so add incoherently, and normalising by the
             // arithmetic sum would make COLOR read as a volume cut rather than
@@ -1436,6 +1493,9 @@ void SynthEngine::control(const SynthParams  &p,
             sPolySlots[i].midiNote = kPolySlotFree;
         }
         sPolyRR = 0;
+        // No note is waiting for a stack any more; the slots just went away.
+        for(uint8_t i = 0; i < kCloudMaxNotes; i++)
+            _cloudPendingAttack[i] = false;
         // CLOUD's HPF holds the last sample it saw; entering the mode with a
         // stale one in the filter is a click.
         _cloudHpXL = _cloudHpYL = 0.0f;
@@ -1589,32 +1649,81 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
     EnvelopeEngine *env = polyEnvs[slot];
     if(!env)
         return;
-    // 1. Hard-silence the envelope so the attack always starts from 0.
-    env->reset();
 
-    // CLOUD stops here. Its slots do not own oscillator `slot` — they own
-    // whatever the pool hands them, several at a time — so steps 2 and 3 would
-    // reset the phase and frequency of some unrelated stack's saw. The pool
-    // planner picks the note up on the next control tick, sets every one of
-    // its frequencies, and randomises phase per oscillator as it is claimed;
-    // a *known* phase is in any case the wrong answer for a supersaw, which is
-    // the whole point of _cloudRandomisePhases().
-    if(_voiceMode == VoiceMode::CLOUD)
+    // 1. Is the slot still making sound? Everything below turns on this.
+    //
+    // A slot that has decayed to silence can be restarted from scratch —
+    // envelope zeroed, oscillator phase reset — because there is nothing
+    // audible to interrupt, and a known starting phase is the nicer answer for
+    // a fresh note. That is the case this function was written for.
+    //
+    // A slot that is still ringing cannot. Zeroing a live envelope is a step
+    // from wherever the tail had reached straight down to zero, and resetting
+    // the oscillator phase underneath a live envelope is the same
+    // discontinuity one stage earlier — each is heard as a click, and the
+    // original ordering has both. Measured on a re-press 190 ms into the tail:
+    // the sample-to-sample step was 24-31x the steady-state one in POLY.
+    //
+    // POLY has always been able to reach this, because its releases have
+    // always been long. CLOUD only started to once its envelopes followed
+    // CURVE — a tail that was a fixed ~21 ms whatever the knob said is now
+    // seconds long, so the re-press lands on a tail that is still up.
+    //
+    // Re-pressing a ringing note therefore keeps both: the attack rises from
+    // the level the tail had reached and the phase runs on unbroken. That is
+    // also what it should sound like — a re-press swelling out of its own tail
+    // rather than restarting from nothing underneath it.
+    const bool ringing = env->level() > kPolyRetrigSilent;
+
+    if(!ringing)
+        env->reset(); // silent already: start the attack from a known zero
+
+    // 2. Arm the attack — but a CLOUD note starting from silence waits.
+    //
+    // Its oscillators do not exist yet; _cloudPlan() assigns them on the next
+    // control tick and arms the envelope there, so that the envelope and the
+    // stack it shapes start together. Arming here instead let the envelope run
+    // ahead of its own sound. A *re-press* does not wait: that stack is
+    // already rendering, so there is nothing to wait for.
+    const bool deferToPlanner = (_voiceMode == VoiceMode::CLOUD) && !ringing
+                                && slot < kCloudMaxNotes;
+    if(deferToPlanner)
     {
+        _cloudPendingAttack[slot] = true;
+    }
+    else
+    {
+        // Lowered first so that a slot stolen while its gate is still high
+        // re-attacks: setGate(true) is edge-triggered, so on its own it would
+        // be a no-op there and the voice would never sound.
+        env->setGate(false);
         env->setGate(true);
-        return;
     }
 
-    // 2. Reset oscillator phase — new note starts at a known waveform position.
-    _voices[slot].resetPhase();
-    _subVoices[slot].resetPhase();
-    // 3. Apply the new frequency immediately (normally deferred to next control
+    // CLOUD stops here. Its slots do not own oscillator `slot` — they own
+    // whatever the pool hands them, several at a time — so the steps below
+    // would reset the phase and frequency of some unrelated stack's saw. The
+    // pool planner picks the note up on the next control tick, sets every one
+    // of its frequencies, and randomises phase per oscillator as it is
+    // claimed; a *known* phase is in any case the wrong answer for a supersaw,
+    // which is the whole point of _cloudRandomisePhases().
+    if(_voiceMode == VoiceMode::CLOUD)
+        return;
+
+    // 3. Reset oscillator phase — new note starts at a known waveform
+    //    position. Only when nothing was sounding; see above.
+    if(!ringing)
+    {
+        _voices[slot].resetPhase();
+        _subVoices[slot].resetPhase();
+    }
+    // 4. Apply the new frequency immediately (normally deferred to next control
     //    tick), so the attack samples are at the correct pitch from the start.
+    //    Unconditional: retuning an oscillator is continuous in amplitude, so
+    //    it is not a click even mid-tail, and the new note must be in tune.
     _voices[slot].setFreq(freq);
     const float subFreq = freq * subMult;
     _subVoices[slot].setFreq(subFreq < 20.0f ? 20.0f : subFreq);
-    // 4. Arm the attack.
-    env->setGate(true);
 }
 
 // ---------------------------------------------------------------------------

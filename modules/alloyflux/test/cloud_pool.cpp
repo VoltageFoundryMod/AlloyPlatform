@@ -687,6 +687,145 @@ int main()
         }
     }
 
+    // ---- re-pressing a note whose tail is still ringing ------------------
+    //
+    // polyRetrigger() used to zero the envelope and reset the oscillator phase
+    // unconditionally. Against a silent slot that is right; against one still
+    // ringing, each is a step discontinuity in the output, and the pair of
+    // them is an audible click on every re-press of a note that has not
+    // finished decaying.
+    //
+    // POLY could always reach it — its releases have always been long — and it
+    // measured 24-31x the steady-state sample step. CLOUD reached it as soon
+    // as its envelopes started following CURVE: a tail that was a fixed ~21 ms
+    // is now seconds, so the re-press lands while it is still up. Both are
+    // measured here against their own steady state, which is the only scale
+    // that means anything for a click.
+    {
+        printf("\n== Re-pressing a ringing note does not step ==\n");
+        struct
+        {
+            VoiceMode   mode;
+            const char *name;
+        } modes[] = {{VoiceMode::CLOUD, "CLOUD"}, {VoiceMode::POLY, "POLY"}};
+
+        for(auto &m : modes)
+        {
+            SynthParams p = mkParams(true, 12, 4);
+            p.voiceMode   = m.mode;
+            p.curve       = 0.95f; // a tail long enough to still be up
+            p.fatness     = 0.0f;  // isolate the main stacks
+
+            gGatePatched = true;
+            render(p, 4, nullptr, nullptr); // land the mode change
+            allNotesOff();
+            noteOn(0, 220.0f, 60);
+            render(p, 200, nullptr, nullptr); // up to full
+
+            float steady = 0.0f;
+            render(p, 40, nullptr, &steady); // steady state, for scale
+
+            slots[0].midiNote = kPolySlotFree;
+            if(eng.polyEnvs[0])
+                eng.polyEnvs[0]->setGate(false);
+            render(p, 24, nullptr, nullptr); // ~190 ms in: tail still well up
+
+            const float lvl = eng.polyEnvs[0] ? eng.polyEnvs[0]->level() : 0.0f;
+            noteOn(0, 220.0f, 60); // re-press it
+            float step = 0.0f;
+            render(p, 2, nullptr, &step);
+
+            const float ratio = steady > 0.0f ? step / steady : 999.0f;
+            printf("  %-5s tail at re-press %.3f, step %5.0f vs steady %5.0f"
+                   "  (%.1fx)\n",
+                   m.name,
+                   lvl,
+                   step,
+                   steady,
+                   ratio);
+            // The tail has to actually still be up, or the check below passes
+            // for the wrong reason — that is exactly how this went unnoticed
+            // in CLOUD while its releases were frozen at ~21 ms.
+            check(lvl > 0.5f, "the tail is still ringing at the re-press");
+            check(ratio < 1.5f, "re-pressing it does not step");
+        }
+    }
+
+    // ---- a new note starts with its stack, not after it ------------------
+    //
+    // Two ramps open a CLOUD note and they have to be the same ramp. The
+    // envelope is one; the pool's per-oscillator fade gate is the other, and
+    // at kCloudGateTicks it runs 375 ms whatever CURVE says. Claiming a new
+    // note's saws through that fade put both under a note that only needed
+    // one, and they do not compose: with a fast attack the envelope had peaked
+    // and begun decaying while the gate was still opening, so the loudest
+    // moment of the note landed a fifth of a second after its attack. Heard as
+    // the note arriving soft with its attack following separately.
+    //
+    // A stack that is not sounding yet does not need the fade at all — its
+    // envelope is at zero and is what brings it in — which is the exemption
+    // the drone already had. The fade stays for what it was measured on: a saw
+    // joining a stack that is already audible, checked above.
+    {
+        printf("\n== A new note starts with its stack, not after it ==\n");
+        SynthParams p = mkParams(true, 12, 4);
+        p.relation    = 0.0f;  // unison: no supersaw beat to swing the RMS
+        p.fatness     = 0.0f;  // no sub: the stacks alone
+        p.curve       = 0.10f; // fast attack, so a slow fade cannot hide in it
+
+        gGatePatched = true;
+        render(p, 4, nullptr, nullptr);
+        allNotesOff();
+        render(p, 20, nullptr, nullptr); // silence: gate patched, nothing held
+        noteOn(0, 220.0f, 60);
+
+        float rms[24], env[24];
+        int   firstTick = -1;
+        float firstGate = 0.0f;
+        for(int t = 0; t < 24; t++)
+        {
+            render(p, 1, &rms[t], nullptr);
+            env[t] = eng.polyEnvs[0] ? eng.polyEnvs[0]->level() : 0.0f;
+
+            SynthEngine::CloudPoolState st;
+            eng.cloudPoolState(st);
+            int   n = 0;
+            float g = 1.0f;
+            for(int i = 0; i < kCloudOscMax; i++)
+                if(st.owner[i] == 0u)
+                {
+                    n++;
+                    if(st.gate[i] < g)
+                        g = st.gate[i];
+                }
+            if(n > 0 && firstTick < 0)
+            {
+                firstTick = t;
+                firstGate = g;
+            }
+        }
+        printf("  stack arrives at tick %d, lowest gate on it %.3f\n",
+               firstTick,
+               firstGate);
+        check(firstTick >= 0, "the note is given a stack");
+        check(firstGate > 0.99f, "its saws open at full gate, not over 375 ms");
+
+        int rPeak = 0, ePeak = 0;
+        for(int t = 1; t < 24; t++)
+        {
+            if(rms[t] > rms[rPeak])
+                rPeak = t;
+            if(env[t] > env[ePeak])
+                ePeak = t;
+        }
+        const int lag = rPeak > ePeak ? rPeak - ePeak : ePeak - rPeak;
+        printf("  loudest tick %d, envelope peaks at tick %d (lag %d)\n",
+               rPeak,
+               ePeak,
+               lag);
+        check(lag <= 3, "the note is loudest on its attack, not long after");
+    }
+
     printf("\n%s (%d failure%s)\n",
            failures ? "FAILURES" : "all checks passed",
            failures,
