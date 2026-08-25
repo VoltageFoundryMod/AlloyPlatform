@@ -175,7 +175,7 @@ help:
 	@echo "    upload            build and flash over USB"
 	@echo "    upload-monitor    flash, then open the serial monitor"
 	@echo "    monitor           serial monitor only"
-	@echo "    test              PlatformIO native unit tests"
+	@echo "    test              every host suite, then the PlatformIO ones"
 	@echo "    firmware-clean    clean the PlatformIO build"
 	@echo "      e.g.  make upload MODULE=alloycoil"
 	@echo ""
@@ -198,11 +198,14 @@ help:
 	@echo "    params            regenerate tables from modules/\$$(MODULE)/params.json"
 	@echo "    params-check      CI gate: fail if the committed tables are stale"
 	@echo ""
-	@echo "  Alloy Coil engine"
-	@echo "    coil-host       host-build + run the engine, print its footprint"
+	@echo "  Tests (host builds, no board needed — 'make test' runs them all)"
+	@echo "    flux-cloud      Alloy Flux: CLOUD oscillator pool + levels"
+	@echo "    coil-params     Alloy Coil: IOBridge knobs match params.json"
+	@echo "    coil-host       Alloy Coil: run the engine, print its footprint"
+	@echo ""
+	@echo "  Measurements (print numbers to weigh; they cannot fail)"
 	@echo "    coil-ab         measure echo aliasing + quantiser noise"
 	@echo "    coil-ab-sweep   the same, across the whole switch matrix"
-	@echo "    coil-params     verify IOBridge knobs match params.json"
 	@echo ""
 	@echo "  Across the repo"
 	@echo "    everything        every firmware image + vcv + the web build"
@@ -269,22 +272,85 @@ monitor:
 firmware-clean:
 	$(PIO) run -e $(MODULE) -t clean
 
+# ── Tests ────────────────────────────────────────────────────────────────────
+# Every pass/fail suite in the repo, and one target that runs them all.
+#
+# They are host builds, not firmware: each compiles the DSP it covers against
+# nothing but the standard library, runs it, and exits non-zero if an assertion
+# fails. No board, no flashing, seconds to run — which is the only reason they
+# get run at all.
+#
+# What lives here is what *asserts*. The measurement tools that print numbers
+# for a human to weigh — coil-ab and coil-ab-sweep — are deliberately not in
+# this section and not in `test`: they always exit 0, because there is nothing
+# for them to fail.
+#
+#   make test           every suite below, then the PlatformIO ones
+#   make flux-cloud     just that suite (they all still run individually)
+#
+# ⚠ A host build cannot see a cross-core race. control() and audio() run on
+# separate cores on hardware but sequentially here, so anything that depends on
+# the two interleaving has to be tested through its *structure* instead — see
+# the buffer-ownership check in cloud_pool.cpp for what that looks like.
+.PHONY: test flux-cloud coil-host coil-host-clean coil-params
+
+# Suites, in ascending order of runtime so a failure surfaces fast.
+HOST_TESTS := coil-params flux-cloud coil-host
+
 # `pio test` fails outright ("Nothing to build. Please put your test suites to
 # the 'test' folder") when test/ holds only its README, which is the case
 # today. Ask the filesystem rather than hardcoding it, so this starts working
 # the moment a suite is added.
-.PHONY: test
 TEST_SUITES := $(wildcard test/test_*)
 
-test:
+test: $(HOST_TESTS)
+	@echo ""
+	@echo "host suites passed: $(HOST_TESTS)"
 ifeq ($(TEST_SUITES),)
-	@echo "No test suites under test/ - nothing to run."
-	@echo "Add test/test_<name>/ to enable 'make test'."
+	@echo "no PlatformIO suites under test/ - add test/test_<name>/ to enable them."
 else
 	$(PIO) test -e $(MODULE)
 endif
 
-# ── Alloy Coil engine, host build ────────────────────────────────────────────────
+# --- Alloy Flux: CLOUD oscillator pool ---------------------------------------
+# M78 made CLOUD polyphonic by sharing one oscillator pool across held notes,
+# and the pool's correctness is invisible in the audio: a stack left a saw
+# short, or an oscillator handed to two notes at once, sounds like a slightly
+# different supersaw rather than like a fault. So the plan is asserted on
+# directly, alongside sample-step checks that the drone stopping and the stacks
+# narrowing are fades rather than steps, and level checks that a chord never
+# reaches the rail while the drone stays out of the saturator.
+#
+# Cheap enough to run on every edit to the CLOUD case in SynthEngine.cpp.
+FLUX_CLOUD_BIN := $(BUILD_TMP)/flux_cloud$(EXE)
+
+flux-cloud:
+	@mkdir -p $(BUILD_TMP)
+	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
+	  -Imodules/alloyflux/include -Iplatform/include $(HOST_EXTRA) \
+	  modules/alloyflux/test/cloud_pool.cpp modules/alloyflux/src/SynthEngine.cpp \
+	  -o $(FLUX_CLOUD_BIN)
+	@$(FLUX_CLOUD_BIN)
+
+# --- Alloy Coil: knob/CC agreement -------------------------------------------
+# params.json is the source of truth, but io/IOBridge.h is a hand-written mirror
+# of it — what a knob and a CV actually do — and nothing was checking the two
+# agreed. M63i changed two curves and every hand-computed number derived from
+# the old ones had to be found by eye; one was missed, and the VCV module booted
+# with its echo at 1.14 s instead of 0.5 s.
+#
+# Walks every knob across its travel and compares IOBridge against
+# ParamDescriptor::fromPos(). Cheap enough to run on every params.json edit.
+COIL_PARAMS_BIN := $(BUILD_TMP)/coil_params$(EXE)
+
+coil-params:
+	@mkdir -p $(BUILD_TMP)
+	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
+	  -Iplatform/include -Imodules/alloycoil/include -Ivendor/daisysp $(HOST_EXTRA) \
+	  modules/alloycoil/test/params_check.cpp -o $(COIL_PARAMS_BIN)
+	@$(COIL_PARAMS_BIN)
+
+# --- Alloy Coil: engine host build -------------------------------------------
 # Compiles the vendored Audrey II engine (M63e) against nothing but the vendored
 # DaisySP subset and the standard library — no Daisy headers, no SDRAM
 # allocator, no heap. Then runs it for 10 s at maximum feedback and echo
@@ -293,9 +359,8 @@ endif
 #
 # That footprint is the point: it is what decides whether the engine can fit a
 # 520 KB RP2350 at all, and it costs nothing to learn here rather than on a
-# flashed board.
-.PHONY: coil-host coil-host-clean
-
+# flashed board. It is a test as well as a report — non-finite output, silence
+# or DC drift all exit non-zero — which is why it belongs in `test`.
 COIL_BIN := $(BUILD_TMP)/coil_host$(EXE)
 
 # The three engine sources, named rather than globbed. modules/alloycoil/src/ also
@@ -326,26 +391,6 @@ coil-host:
 
 coil-host-clean:
 	rm -f $(COIL_BIN)
-
-# ── Alloy Coil knob/CC agreement ─────────────────────────────────────────────
-# params.json is the source of truth, but io/IOBridge.h is a hand-written mirror
-# of it — what a knob and a CV actually do — and nothing was checking the two
-# agreed. M63i changed two curves and every hand-computed number derived from
-# the old ones had to be found by eye; one was missed, and the VCV module booted
-# with its echo at 1.14 s instead of 0.5 s.
-#
-# Walks every knob across its travel and compares IOBridge against
-# ParamDescriptor::fromPos(). Cheap enough to run on every params.json edit.
-.PHONY: coil-params
-
-COIL_PARAMS_BIN := $(BUILD_TMP)/coil_params$(EXE)
-
-coil-params:
-	@mkdir -p $(BUILD_TMP)
-	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
-	  -Iplatform/include -Imodules/alloycoil/include -Ivendor/daisysp $(HOST_EXTRA) \
-	  modules/alloycoil/test/params_check.cpp -o $(COIL_PARAMS_BIN)
-	@$(COIL_PARAMS_BIN)
 
 # ── Alloy Coil echo A/B ──────────────────────────────────────────────────────────
 # The two DSP risks M63f has been carrying since it landed, measured instead of
