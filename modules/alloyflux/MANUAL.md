@@ -175,7 +175,9 @@ Seven oscillators tuned around the root, spread by an uneven detune pattern and 
 
 RELATION's response is deliberately non-linear. The first third of its travel barely moves — that is where the subtle chorusing lives and it needs the resolution — then it opens out steeply to a spread of about 1.8 semitones at full CW.
 
-COLOR sets how loud the six outer oscillators are against the centre one. Fully CCW you hear essentially one clean voice; fully CW the outer six dominate and the stack is at its widest and most restless. It changes the character without moving a single frequency, so you can set the detune you want and then decide how much of it you want to hear.
+COLOR sets how loud the six outer oscillators are against the centre one. Fully CCW the centre voice carries the sound; fully CW the outer six dominate and the stack is at its widest and most restless. It changes the character without moving a single frequency, so you can set the detune you want and then decide how much of it you want to hear.
+
+With COLOR fully CCW **and** RELATION at unison you get one clean saw. Open RELATION from there and the outer voices come up with the detune, so the stack fades in as it spreads — the big knob is never dead, wherever COLOR happens to be sitting. Past the first tenth or so of COLOR's travel that no longer applies and the balance is COLOR's alone.
 
 Every note attack **randomises the phases**, which is why no two stabs sound quite alike — a large part of what makes this sound recognisable.
 

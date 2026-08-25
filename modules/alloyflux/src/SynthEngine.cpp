@@ -812,11 +812,16 @@ void SynthEngine::control(const SynthParams  &p,
             // ----------------------------------------------------------------
             // Supersaw. RELATION is DETUNE, COLOR is MIX — the JP-8000's own
             // two controls, landed on the two knobs that carry mode identity
-            // here. They are genuinely orthogonal, which is the point: COLOR
+            // here. They are very nearly orthogonal, which is the point: COLOR
             // in the other ensemble modes is a second detune spread, and next
             // to RELATION it has very little to say. Here it sets *balance*,
             // sweeping from a single clean voice to the full seven-wide stack
             // without moving a single frequency.
+            //
+            // The one coupling is deliberate and confined to the bottom of
+            // COLOR's travel: RELATION lifts a floor under the side voices so
+            // that it is not a dead knob with COLOR closed. See
+            // kCloudSideFloor for why that is worth breaking orthogonality for.
             // ----------------------------------------------------------------
             if(modeChanged)
                 _cloudRandomisePhases(); // covers drone: no attack to hang on
@@ -828,6 +833,7 @@ void SynthEngine::control(const SynthParams  &p,
                 const float d = _cloudDetuneCurve(_sRelation / 24.0f);
                 for(int i = 0; i < 7; i++)
                     _cloudDetuneMul[i] = 1.0f + d * kCloudOffset[i];
+                _cloudDetuneAmt = d; // the MIX block below reads this
                 _cachedRelCloud = _sRelation;
             }
 
@@ -838,7 +844,8 @@ void SynthEngine::control(const SynthParams  &p,
             // Held unnormalised: since M78 a stack can be one, three, five or
             // seven saws wide, and the normalisation depends on how many are
             // actually in it. Only the balance is cached here.
-            if(fabsf(_sColor - _cachedColorCloud) > 0.002f || modeChanged)
+            if(fabsf(_sColor - _cachedColorCloud) > 0.002f
+               || fabsf(_sRelation - _cachedRelMix) > 0.05f || modeChanged)
             {
                 float mix = _sColor;
                 if(mix < 0.0f)
@@ -846,9 +853,22 @@ void SynthEngine::control(const SynthParams  &p,
                 else if(mix > 1.0f)
                     mix = 1.0f;
                 _cloudCentreLvl = -0.55366f * mix + 0.99785f;
-                _cloudSideLvl
+                float side
                     = -0.73764f * mix * mix + 1.2841f * mix + 0.044372f;
+
+                // Floor the sides so RELATION is audible with COLOR closed —
+                // see kCloudSideFloor. Scaled by the *detune amount*, so the
+                // voices come up as they spread rather than before they do, and
+                // faded out by COLOR so the fitted curve is untouched anywhere
+                // but the bottom of its travel.
+                const float floorLvl
+                    = kCloudSideFloor * _cloudDetuneAmt * (1.0f - mix);
+                if(side < floorLvl)
+                    side = floorLvl;
+                _cloudSideLvl = side;
+
                 _cachedColorCloud = _sColor;
+                _cachedRelMix     = _sRelation;
             }
 
             // Hand out the pool: which oscillator plays which detune of which
@@ -998,7 +1018,8 @@ void SynthEngine::control(const SynthParams  &p,
 
             // Track the HPF to the lowest sounding note — see _cloudHpA.
             {
-                const float w0 = 6.2831853f * subRoot / (float)_audioRate;
+                const float w0 = 6.2831853f * kCloudHpTrack * subRoot
+                                 / (float)_audioRate;
                 _cloudHpA      = 1.0f / (1.0f + w0);
             }
 

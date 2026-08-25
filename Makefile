@@ -204,6 +204,7 @@ help:
 	@echo "    coil-host       Alloy Coil: run the engine, print its footprint"
 	@echo ""
 	@echo "  Measurements (print numbers to weigh; they cannot fail)"
+	@echo "    flux-levels     Alloy Flux: output level of every voice mode"
 	@echo "    coil-ab         measure echo aliasing + quantiser noise"
 	@echo "    coil-ab-sweep   the same, across the whole switch matrix"
 	@echo ""
@@ -391,6 +392,29 @@ coil-host:
 
 coil-host-clean:
 	rm -f $(COIL_BIN)
+
+# ── Alloy Flux mode levels ───────────────────────────────────────────────────
+# Renders every voice mode on the same patch and prints RMS, peak and dB
+# relative to PAIR. A measurement, not a test — there is no correct answer for
+# it to assert, only numbers to weigh.
+#
+# It exists because "mode X sounds quieter" is otherwise unanswerable by ear.
+# The distinction it makes is the useful one: CLOUD peaks exactly where every
+# other mode peaks and is 7 dB down in *RMS*, which is crest factor rather than
+# gain — seven near-coincident voices spend most of the cycle near zero. That
+# is also why raising its level mostly feeds the saturator instead of adding
+# loudness. See kCloudStackLevel.
+.PHONY: flux-levels
+
+FLUX_LEVELS_BIN := $(BUILD_TMP)/flux_levels$(EXE)
+
+flux-levels:
+	@mkdir -p $(BUILD_TMP)
+	@$(HOST_CXX) -std=c++14 -O2 -w \
+	  -Imodules/alloyflux/include -Iplatform/include $(HOST_EXTRA) \
+	  modules/alloyflux/test/mode_levels.cpp modules/alloyflux/src/SynthEngine.cpp \
+	  -o $(FLUX_LEVELS_BIN)
+	@$(FLUX_LEVELS_BIN)
 
 # ── Alloy Coil echo A/B ──────────────────────────────────────────────────────────
 # The two DSP risks M63f has been carrying since it landed, measured instead of

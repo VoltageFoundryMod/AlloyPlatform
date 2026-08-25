@@ -193,6 +193,59 @@ static constexpr float kCloudDroneFadeS = 0.04f;
 /// Below this a gate counts as closed and its oscillator may be re-tasked.
 static constexpr float kCloudSilent = 0.0008f;
 
+/// Where the note-tracking high-pass sits, as a fraction of the played note.
+///
+/// It used to sit *on* the note, which is the JP-8000's own arrangement and
+/// keeps a seven-saw stack from going muddy in the low register. The catch is
+/// that a one-pole high-pass at the fundamental takes 3 dB off the fundamental
+/// itself — and on a sawtooth that is the largest partial there is. Measured,
+/// it was costing CLOUD **2.3 dB of RMS**, which is most of why the mode read
+/// quieter than every other one on a scope while peaking in exactly the same
+/// place.
+///
+/// Half the note frequency keeps the tracking and still thins everything below
+/// the fundamental, where the stack actually piles up, but only takes ~1 dB off
+/// the fundamental instead of 3.
+///
+/// Worth +1.4 dB of raw RMS with the peak unchanged — but that figure flatters
+/// it, and the honest one is smaller. Lower crest means *more* samples sit near
+/// the peak, so more of them cross the saturator's knee: drone distortion went
+/// 0.36% → 1.72% at an unchanged level. Held at **equal distortion**, which is
+/// the only fair comparison, the recovered fundamental is worth about
+/// **+0.85 dB** (RMS 8860 at 0.36% before, 9767 at 0.43% after). Real, free,
+/// and a third of what the bypass measurement suggested.
+///
+/// ⚠ This is a deliberate departure from the reference, which tracks on the
+/// note. Raise it back to 1.0 for the authentic voicing if the low register
+/// ever sounds thick.
+static constexpr float kCloudHpTrack = 0.5f;
+
+/// Floor under the side voices that RELATION lifts, at COLOR fully closed.
+///
+/// Szabo's MIX curve puts the six side voices **27 dB** under the centre at
+/// COLOR 0 — faithful to the JP-8000, and the reason COLOR 0 gives one clean
+/// saw. The side effect is that RELATION, which only detunes those six, does
+/// nothing at all there. On a panel where RELATION is the largest knob, a
+/// player who has not yet found COLOR sweeps the biggest control on the module
+/// and hears silence from it. That is a bad first ten minutes.
+///
+/// So the side level gets a floor that RELATION raises. Two things keep it from
+/// being a hack:
+///
+///  - It is driven by the *detune amount* — the output of _cloudDetuneCurve,
+///    not the raw knob. The voices come up exactly as they spread apart, so it
+///    reads as detune becoming audible rather than as a volume change. Tying it
+///    to the knob instead would lift their level through the curve's flat first
+///    third, where there is no detune yet to hear.
+///  - It fades out as COLOR opens ((1 - mix)), so anywhere above the bottom of
+///    COLOR's travel the fitted curves govern exactly as before.
+///
+/// COLOR 0 with RELATION 0 is therefore still one clean saw, unchanged. COLOR 0
+/// with RELATION up is a subtly chorused one — which is what sweeping that knob
+/// ought to do. 0.22 lands the sides ~13 dB under the centre at full RELATION:
+/// clearly audible, still obviously centre-dominant.
+static constexpr float kCloudSideFloor = 0.26f;
+
 /// Level of one CLOUD stack — drone and every held note alike.
 ///
 /// **Fixed, and deliberately not divided by the polyphony.** The obvious law is
@@ -211,19 +264,61 @@ static constexpr float kCloudSilent = 0.0008f;
 /// So this is a per-stack level, the same for one note as for four, and
 /// softSaturate() catches the sum.
 ///
-/// 0.75 is chosen on the fraction of samples the saturator actually shapes,
-/// which is the honest measure of how much it colours anything — everything
-/// below the knee is untouched by construction. Measured, SHAPE at saw:
+/// **Above unity, and it has to be**, because CLOUD's problem is crest factor
+/// rather than gain. Seven near-coincident detuned voices spend most of their
+/// time near zero and spike when they briefly align, where PAIR's two sit close
+/// to their peak most of the cycle. Measured on the same patch, every mode
+/// peaks at 85–87% of full scale — but CLOUD's *RMS* came out 8.5 dB under
+/// PAIR's, and RMS is what a listener calls loudness (and what a scope shows as
+/// the dense band: ~±1.7 V against ±4.4 V on the jacks).
 ///
-///     drone  0.02%    1 note  0.00%    2  0.58%    3  1.80%    4  4.68%
+/// The quadrature normalisation is not wrong — holding summed power constant is
+/// the right law for adding decorrelated voices — it just says nothing about
+/// loudness once the crest factor changes underneath it. So the level is set
+/// above unity and softSaturate() rounds the peaks, which is exactly what every
+/// hardware supersaw does and the reason the saturator exists at all.
 ///
-/// The drone and a single note are effectively linear, which is what the
-/// always-on Padé clip could not claim and why it was removed twice. Only the
-/// dense chord — the case that actually needs it — rounds off. Pushing to 0.90
-/// buys 1.6 dB and takes a 4-note chord to 10% shaped, which is audible
-/// compression; 0.62 is cleaner still but gives up 2.5 dB for nothing anyone
-/// can hear.
-static constexpr float kCloudStackLevel = 0.75f;
+/// Chosen against **measured distortion**, not against the fraction of samples
+/// the curve touches. Those are not the same thing and the difference matters:
+/// a sample just past the knee is barely altered, because the slope there is 1.
+/// The number below is error energy against a bit-identical unsaturated render
+/// of the same stream, which is the only honest measure. SHAPE at saw:
+///
+///     level   vs PAIR   drone    1 note   2 notes   4 notes
+///     0.75     -8.5 dB   0.000%   0.07%     1.56%     4.52%
+///     0.90     -6.9 dB   0.364%   1.44%     2.95%     5.96%
+///     1.05     -5.6 dB   1.452%   3.00%     4.24%     7.21%
+///     1.25     -4.3 dB   3.115%   4.46%     5.39%     8.33%
+///
+/// **The gap to the mono modes is crest factor, exactly.** Measured on the same
+/// patch, CLOUD peaks at 87% of full scale and so does PAIR — identical. What
+/// differs is the crest: 2.93 against 1.56, because seven near-coincident
+/// voices spend most of the cycle near zero and spike only when they briefly
+/// align. That ratio predicts -5.5 dB and -5.4 dB is what was measured, so
+/// there is nothing else going on and nothing being held in reserve. In
+/// particular the drone is *not* attenuated to leave room for notes: it already
+/// sits at the peak ceiling, which is why boosting it in drone mode alone buys
+/// nothing that saturation does not also cost.
+///
+/// So the only lever is the saturator, and the exchange rate is:
+///
+///     level   vs PAIR   drone distortion
+///     0.90     -5.4 dB   0.43%
+///     1.10     -3.8 dB   2.10%
+///     1.30     -2.5 dB   3.49%
+///
+/// 1.10 lands CLOUD on CHORD's level (-3.8) and near STRING's (-3.5), which is
+/// the target: in family with the other ensemble modes rather than the odd one
+/// out on a scope.
+///
+/// This reverses an earlier, more conservative reading of the same numbers, and
+/// the reason is what the distortion lands *on*. The always-on Padé clip that
+/// this module removed twice put its 6–7% on clean single-oscillator sines and
+/// on reverb tails, where added harmonics have nothing to hide behind. Two
+/// percent on seven detuned sawtooths — already dense, bright and beating — is
+/// a different proposition, and masking is the whole difference. Judging a
+/// distortion figure without asking what signal carries it was the mistake.
+static constexpr float kCloudStackLevel = 1.10f;
 
 // ---------------------------------------------------------------------------
 // SynthParams — snapshot of all goal parameters for one control cycle.
@@ -234,35 +329,35 @@ static constexpr float kCloudStackLevel = 0.75f;
 // ---------------------------------------------------------------------------
 struct SynthParams
 {
-    float        baseFreq    = 440.0f;
-    float        shape       = 0.0f;
-    float        fatness     = 0.4f;
-    uint8_t      subOctave   = 1; // 1 = one octave below, 2 = two octaves below
-    float        motion      = 0.0f;
-    float        driftSpeed  = 0.04f;
-    VoiceMode    voiceMode   = VoiceMode::PAIR;
-    float        relation    = 0.0f;
-    float        curve       = 0.5f;
-    float        curveTime   = 1.0f;
-    bool         gateHigh    = false;
-    bool         gatePatched = false;
-    float        volume      = 1.0f;
-    float        midiVelocity  = 1.0f;
-    float        glideTime     = 0.0f;
-    bool         glideEnabled  = false;
-    ChorusMode   chorusMode    = ChorusMode::I_II;
-    float        space         = 1.0f;
-    float        color         = 0.0f;
+    float      baseFreq     = 440.0f;
+    float      shape        = 0.0f;
+    float      fatness      = 0.4f;
+    uint8_t    subOctave    = 1; // 1 = one octave below, 2 = two octaves below
+    float      motion       = 0.0f;
+    float      driftSpeed   = 0.04f;
+    VoiceMode  voiceMode    = VoiceMode::PAIR;
+    float      relation     = 0.0f;
+    float      curve        = 0.5f;
+    float      curveTime    = 1.0f;
+    bool       gateHigh     = false;
+    bool       gatePatched  = false;
+    float      volume       = 1.0f;
+    float      midiVelocity = 1.0f;
+    float      glideTime    = 0.0f;
+    bool       glideEnabled = false;
+    ChorusMode chorusMode   = ChorusMode::I_II;
+    float      space        = 1.0f;
+    float      color        = 0.0f;
     // FM IN jack, volts. Only a fallback path reads this — a platform that
     // calls setFmInSample() every audio frame (both of them do) supplies the
     // jack at audio rate instead and control() ignores this field. Kept so a
     // host that renders control ticks without an audio loop — a test harness,
     // a headless parameter sweep — still gets the slow half of the jack.
-    float        fmIn          = 0.0f;
+    float fmIn = 0.0f;
     // FM AMOUNT, 0–1: scales *both* halves of FM IN. 1.0 is full depth on each
     // — kFmInOctPerVolt on the pitch path, kFmInMaxRad on the PM path.
     // SHIFT+ROOT on hardware; context-menu slider in VCV.
-    float        fmAmount      = 1.0f;
+    float fmAmount = 1.0f;
     // CLOUD's oscillator pool (M78) — how many supersaw oscillators the mode
     // may sound at once, and across how many held notes. Width per note falls
     // out of the two; see _cloudWidthFor(). Runtime rather than compile-time so
@@ -403,7 +498,7 @@ class SynthEngine
      */
     inline void setFmInSample(float volts)
     {
-        _fmInFed = true;
+        _fmInFed      = true;
         const float a = _fmInLpA;
         _fmInLp1 += (volts - _fmInLp1) * a;
         _fmInLp2 += (_fmInLp1 - _fmInLp2) * a;
@@ -662,7 +757,7 @@ class SynthEngine
     /// FM carrier/modulator pairs the audio path renders: 1 in PAIR, 2 in
     /// CASCADE, where the second pair is what makes the mode stereo at all.
     /// Read only when the mode is an FM one; other modes leave it alone.
-    uint8_t _fmPairs = 1u;
+    uint8_t _fmPairs            = 1u;
     int16_t _panL[kCloudOscMax] = {256};
     int16_t _panR[kCloudOscMax] = {0, 256};
 
@@ -700,9 +795,18 @@ class SynthEngine
     float _cloudDetuneMul[7] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
     // COLOR's centre/side balance, before normalisation — the normalisation
     // itself depends on the stack width and so is applied per slot, not here.
+    //
+    // Cached against RELATION as well as COLOR since M78b: the side level has a
+    // floor that the detune amount lifts (kCloudSideFloor), so moving either
+    // knob invalidates it.
     float _cachedColorCloud = -99.0f;
+    float _cachedRelMix     = -99.0f;
     float _cloudCentreLvl   = 1.0f;
     float _cloudSideLvl     = 0.0f;
+    /// Szabo's detune curve output, 0–1. Cached with the detune multipliers and
+    /// read by the MIX block below, which is why it is a member rather than a
+    /// local.
+    float _cloudDetuneAmt = 0.0f;
 
     // STRING
     float _cachedRelStr      = -99.0f;
@@ -843,8 +947,9 @@ class SynthEngine
     // rebuilt from it every tick rather than maintained incrementally, which
     // is sixteen iterations at 128 Hz and removes a whole class of bookkeeping
     // bug for it.
-    uint8_t _cloudOscOwner[kCloudOscMax]; // slot, kCloudDroneSlot, or kCloudNoOwner
-    uint8_t _cloudOscOff[kCloudOscMax];   // which kCloudOffset entry it plays
+    uint8_t
+        _cloudOscOwner[kCloudOscMax]; // slot, kCloudDroneSlot, or kCloudNoOwner
+    uint8_t _cloudOscOff[kCloudOscMax]; // which kCloudOffset entry it plays
     /// Fade gate, 0–1, linear at kCloudGateStep a tick. Multiplies the level
     /// COLOR and the width normalisation produce, so the fade is independent
     /// of how loud the saw happens to be — a saw entering a quiet stack takes
@@ -924,7 +1029,7 @@ class SynthEngine
     uint8_t _cloudPool    = kCloudPoolDefault; // clamped copy of cloudPool
     uint8_t _cloudNotes   = kCloudMaxNotes;    // clamped copy of cloudMaxNotes
     uint8_t _cloudWidth   = 7u;                // current per-stack width
-    bool    _cloudDroning = true;              // no notes: the stack is the drone
+    bool    _cloudDroning = true; // no notes: the stack is the drone
 
     /// The drone stack's own gain, ramped *per sample* in audio() — see the
     /// two-ramps note above kCloudGateTicks. Volatile because control() sets

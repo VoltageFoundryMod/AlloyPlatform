@@ -386,17 +386,89 @@ int main()
         measure("3 notes", 3, -1.0f);
         measure("4 notes", 4, -1.0f);
 
-        // Dry, the drone and a single note sit essentially under the knee —
-        // a few samples in ten thousand touch the curve, and only at the very
-        // tip. That is the property the always-on Padé clip could not offer:
-        // it put 6–7% *continuous* distortion on signals nowhere near the
-        // ceiling, which is three orders of magnitude more than this, and is
-        // why it was removed twice. A curve that shapes a sustained pad is the
-        // mistake being avoided here, not the goal.
+        // Dry, sustained material must stay inside the *masking budget*.
+        //
+        // CLOUD deliberately runs into the saturator — it is 5.5 dB down on the
+        // mono modes purely through crest factor, and waveshaping the peaks is
+        // the only thing that closes any of that. So this cannot assert an
+        // untouched signal. What it can assert is that the colouring stays
+        // where seven detuned sawtooths hide it.
+        //
+        // The bound is on samples *touching* the curve, which is a loose proxy:
+        // a sample just past the knee is barely altered, since the slope there
+        // is exactly 1. Measured against it, kCloudStackLevel 1.10 gives ~1.8%
+        // touched and 2.1% actual distortion. 2.5% here corresponds to roughly
+        // 1.25–1.30, which is where distortion passes 3.5% and starts being
+        // audible as dirt rather than as level — so a careless bump trips this
+        // while the deliberate setting passes.
+        //
+        // ⚠ The number that matters is what the distortion lands *on*. The
+        // always-on Padé clip removed twice from this module put 6–7% on clean
+        // single-oscillator sines and reverb tails, where nothing masks it.
+        // Comparing that figure to this one without asking what carries it is
+        // the mistake to avoid.
         h.fatness  = 0.0f;
         h.delayMix = 0.0f;
-        measure("drone dry", 0, 0.10f);
-        measure("1 note dry", 1, 0.10f);
+        measure("drone dry", 0, 2.50f);
+        measure("1 note dry", 1, 2.50f);
+    }
+
+    // ---- RELATION must do something, wherever COLOR is -------------------
+    //
+    // RELATION only detunes the six side voices, and Szabo's MIX curve puts
+    // those 27 dB under the centre at COLOR 0. Faithful to the JP-8000, and the
+    // reason COLOR 0 gives one clean saw — but it also means the largest knob
+    // on the panel did nothing at all with COLOR closed. kCloudSideFloor lifts
+    // the sides as the detune widens to fix that.
+    //
+    // Measured as *beat depth*: how much the short-term RMS wobbles across a
+    // long window. Detuned voices beat against each other; a single voice is
+    // steady. It is the one number that distinguishes "the stack is detuned"
+    // from "the stack is loud".
+    printf("\n== RELATION is audible at every COLOR ==\n");
+    {
+        auto beatDepth = [&](float color, float relation)
+        {
+            SynthParams p = mkParams(false, 16, 4);
+            p.color       = color;
+            p.relation    = relation;
+            p.shape       = 0.5f; // saw
+            gGatePatched  = false;
+            allNotesOff();
+            render(p, 80, nullptr, nullptr); // settle the smoothers
+
+            SynthControlOutput co;
+            float lo = 1e30f, hi = 0.0f, mean = 0.0f;
+            const int kWindows = 256;
+            for(int t = 0; t < kWindows; t++)
+            {
+                eng.control(p, slots, co);
+                double sum = 0.0;
+                for(int s = 0; s < 375; s++)
+                {
+                    int32_t l, r, dl, dr;
+                    eng.audio(0, 0, 0.0f, false, &l, &r, &dl, &dr);
+                    sum += (double)l * l;
+                }
+                const float rms = (float)sqrt(sum / 375.0);
+                if(rms < lo) lo = rms;
+                if(rms > hi) hi = rms;
+                mean += rms;
+            }
+            mean /= (float)kWindows;
+            return (mean < 1e-3f) ? 0.0f : (hi - lo) / mean;
+        };
+
+        const float colors[] = {0.0f, 0.15f, 0.5f, 1.0f};
+        for(float c : colors)
+        {
+            const float flat  = beatDepth(c, 0.0f);
+            const float wide  = beatDepth(c, 24.0f);
+            const float swing = wide - flat;
+            printf("  COLOR %.2f  beat depth %.2f -> %.2f  (swing %.2f)\n",
+                   c, flat, wide, swing);
+            check(swing > 0.20f, "sweeping RELATION changes the sound");
+        }
     }
 
     // ---- the cross-core invariant ---------------------------------------
