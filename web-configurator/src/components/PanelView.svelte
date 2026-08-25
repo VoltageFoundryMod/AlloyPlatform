@@ -26,6 +26,7 @@
    * rather than two copies of it.
    */
   import type { CCParam } from "../lib/paramMap";
+  import type { PanelControl, ResolvedSection } from "../lib/panelLayout";
   import { layoutFor, stageWidthFor } from "../lib/panelLayout";
   import Knob from "./panel/Knob.svelte";
   import PanelSelect from "./panel/PanelSelect.svelte";
@@ -178,6 +179,77 @@
   const cutoffParam = $derived(map.find((p) => p.name === "filtercutoff"));
 </script>
 
+<!-- Both drawn as snippets rather than inline, because a section can now put
+     either one in two places: a diagram sits across the top of a section or
+     inside one of its columns, and a control sits in the row or in a column.
+     Two copies of this markup is two places for the bindings to drift. -->
+{#snippet diagram(section: ResolvedSection)}
+  {#if section.visual === "fxchain"}
+    <div class="visual">
+      <FxChainVisual
+        filterPost={isHigh("fxfilterpos")}
+        delayPost={isHigh("fxdelaypos")}
+      />
+    </div>
+  {:else if section.visual === "scale"}
+    <div class="visual scale">
+      <ScaleKeys
+        scaleCC={selectValues[ccOf.get("scale") ?? -1] ?? 0}
+        label={scaleLabel}
+      />
+    </div>
+  {:else if section.visual === "filter"}
+    <div class="visual filter">
+      <FilterResponse
+        mode={filterMode}
+        ladder={isHigh("filtertype")}
+        cutoff={val("filtercutoff", 1000)}
+        resonance={val("filterres", 0)}
+        {cutoffParam}
+      />
+    </div>
+  {:else if section.visual === "envelope"}
+    <div class="visual envelope">
+      <EnvelopeGraph
+        isAdsr={isHigh("envtype")}
+        attack={val("adsrattack", 0.05)}
+        decay={val("adsrdecay", 0.1)}
+        sustain={val("adsrsustain", 0.8)}
+        release={val("adsrrelease", 0.3)}
+        curve={val("curve", 0.5)}
+        curveTime={val("curvetime", 1.0)}
+      />
+    </div>
+  {/if}
+{/snippet}
+
+{#snippet control(param: CCParam, spec: PanelControl)}
+  {#if param.type === "select"}
+    <PanelSelect
+      {param}
+      label={spec.label}
+      variant={spec.control === "knob" ? undefined : spec.control}
+      icons={spec.icons}
+      initial={selectValues[param.cc]}
+      bind:this={selectRefs[param.cc]}
+      onchange={(v) => (selectValues[param.cc] = v)}
+    />
+  {:else}
+    <Knob
+      {param}
+      label={spec.label}
+      sub={spec.sub}
+      size={spec.size}
+      icons={spec.icons}
+      disabled={disabledParams.has(param.name)}
+      bind:value={paramValues[param.cc]}
+      bind:this={sliderRefs[param.cc]}
+      hint={sliderHints[param.name]}
+      displayOverride={sliderDisplays[param.name]}
+    />
+  {/if}
+{/snippet}
+
 <div class="panel">
   <div class="frame" bind:this={frameEl}>
     <!-- Carries the *scaled* size as real layout, which the transformed stage
@@ -207,73 +279,31 @@
               iconRow={section.iconRow}
               stretch={section.stretch}
             >
-              {#if section.visual === "fxchain"}
-                <div class="visual">
-                  <FxChainVisual
-                    filterPost={isHigh("fxfilterpos")}
-                    delayPost={isHigh("fxdelaypos")}
-                  />
-                </div>
-              {:else if section.visual === "scale"}
-                <div class="visual scale">
-                  <ScaleKeys
-                    scaleCC={selectValues[ccOf.get("scale") ?? -1] ?? 0}
-                    label={scaleLabel}
-                  />
-                </div>
-              {:else if section.visual === "filter"}
-                <div class="visual filter">
-                  <FilterResponse
-                    mode={filterMode}
-                    ladder={isHigh("filtertype")}
-                    cutoff={val("filtercutoff", 1000)}
-                    resonance={val("filterres", 0)}
-                    {cutoffParam}
-                  />
-                </div>
-              {:else if section.visual === "envelope"}
-                <div class="visual envelope">
-                  <EnvelopeGraph
-                    isAdsr={isHigh("envtype")}
-                    attack={val("adsrattack", 0.05)}
-                    decay={val("adsrdecay", 0.1)}
-                    sustain={val("adsrsustain", 0.8)}
-                    release={val("adsrrelease", 0.3)}
-                    curve={val("curve", 0.5)}
-                    curveTime={val("curvetime", 1.0)}
-                  />
-                </div>
+              {#if !section.visualInStack}
+                {@render diagram(section)}
               {/if}
 
-              {#each section.items as { param, control } (param.cc)}
-                {#if control.breakBefore}
-                  <div class="break"></div>
-                {/if}
-                {#if param.type === "select"}
-                  <PanelSelect
-                    {param}
-                    label={control.label}
-                    variant={control.control === "knob"
-                      ? undefined
-                      : control.control}
-                    icons={control.icons}
-                    initial={selectValues[param.cc]}
-                    bind:this={selectRefs[param.cc]}
-                    onchange={(v) => (selectValues[param.cc] = v)}
-                  />
+              {#each section.items as entry (entry.key)}
+                {#if entry.kind === "stack"}
+                  {#if entry.breakBefore}
+                    <div class="break"></div>
+                  {/if}
+                  <div class="stack">
+                    {#if entry.visual === "above"}
+                      {@render diagram(section)}
+                    {/if}
+                    {#each entry.items as { param, control: spec } (param.cc)}
+                      {@render control(param, spec)}
+                    {/each}
+                    {#if entry.visual === "below"}
+                      {@render diagram(section)}
+                    {/if}
+                  </div>
                 {:else}
-                  <Knob
-                    {param}
-                    label={control.label}
-                    sub={control.sub}
-                    size={control.size}
-                    icons={control.icons}
-                    disabled={disabledParams.has(param.name)}
-                    bind:value={paramValues[param.cc]}
-                    bind:this={sliderRefs[param.cc]}
-                    hint={sliderHints[param.name]}
-                    displayOverride={sliderDisplays[param.name]}
-                  />
+                  {#if entry.control.breakBefore}
+                    <div class="break"></div>
+                  {/if}
+                  {@render control(entry.param, entry.control)}
                 {/if}
               {/each}
             </PanelSection>
@@ -393,5 +423,28 @@
     max-width: none;
     display: flex;
     justify-content: center;
+  }
+
+  /* One column of a section's row — see PanelStack. It takes the width of its
+     widest member and nothing more, so it costs the row no width a plain
+     control would not have, and the members centre on each other rather than
+     lining up on a left edge that only one of them reaches. */
+  .stack {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  /* Inside a column the diagram is a member of it, not a band across the
+     section — so it drops the full-basis and the fixed widths the section-wide
+     placements above give it. Last, because those rules match at the same
+     specificity and this one has to win. */
+  .stack .visual {
+    flex-basis: auto;
+    width: auto;
+    max-width: none;
+    margin: 0;
   }
 </style>

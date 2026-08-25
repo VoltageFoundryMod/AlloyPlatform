@@ -67,13 +67,45 @@
    * refresh the port list first, then re-run the discovery probe against
    * whatever that turned up.
    */
+  /**
+   * Held true for a beat after a click so the button visibly does something.
+   *
+   * A rescan that turns up the same ports changes nothing on screen, and with
+   * no acknowledgement at all the button reads as broken precisely when the
+   * user is leaning on it hardest — right after a re-flash, when they are
+   * already unsure whether the page or the module is at fault.
+   */
+  let refreshing = $state(false);
+
   async function refreshMidi() {
-    await midi.scan();
-    midi.resync();
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      await midi.scan();
+      midi.resync();
+      // A flash drops both links at once, so the serial side gets a nudge from
+      // the same click. It reuses the already-granted port, so there is no
+      // picker dialog and nothing happens if serial is already up.
+      if ($serial.supported) await serial.autoConnect();
+    } finally {
+      setTimeout(() => (refreshing = false), 600);
+    }
   }
 
   async function connectSerial() {
     await serial.connect();
+  }
+
+  /**
+   * Retake a port this page has already been granted — no picker.
+   *
+   * Separate from Connect because requestPort() puts a dialog in front of the
+   * user, and after a re-flash the permission is still there: the port just
+   * needs opening again. Auto-reconnect normally gets there first; this is the
+   * manual way when it has run out of retries.
+   */
+  async function retrySerial() {
+    await serial.autoConnect();
   }
 </script>
 
@@ -120,7 +152,9 @@
       <button onclick={scanMidi}>Scan for MIDI Devices</button>
     {:else if $midi.outputs.length === 0}
       <span class="badge warn">No devices found</span>
-      <button onclick={refreshMidi} title="Refresh device list">Refresh</button>
+      <button onclick={refreshMidi} disabled={refreshing} title="Refresh device list"
+        >{refreshing ? "Refreshing…" : "Refresh"}</button
+      >
     {:else}
       <!-- Dropdown + Refresh, no disconnect.  There is nothing useful a manual
            disconnect does here: a port either exists or it does not, and
@@ -170,8 +204,9 @@ Asking again every 5 s — it will pick up on its own once something answers."
            the page, next to the traffic they describe. -->
       <button
         onclick={refreshMidi}
-        title="Refresh the MIDI port list, then ask the module to identify itself again — a live test of the link, without reloading the page"
-        >Refresh</button
+        disabled={refreshing}
+        title="Refresh the MIDI port list, then ask the module to identify itself again — a live test of the link, without reloading the page. Also retries the serial link, which drops alongside MIDI when the module is re-flashed."
+        >{refreshing ? "Refreshing…" : "Refresh"}</button
       >
     {/if}
     {#if $midi.error}
@@ -184,8 +219,22 @@ Asking again every 5 s — it will pick up on its own once something answers."
     <span class="conn-label">Serial</span>
     {#if !$serial.supported}
       <span class="badge warn">Not supported (use Chrome/Edge)</span>
+    {:else if $serial.connecting}
+      <!-- An open attempt is in flight — usually auto-reconnect working
+           through its retries after a re-flash. Saying so beats showing a
+           Connect button that would race with it. -->
+      <span class="badge probing" title="Opening the serial port…"
+        >Connecting…</span
+      >
     {:else if !$serial.connected}
       <button onclick={connectSerial}>Connect Serial</button>
+      <!-- Retakes an already-granted port with no picker dialog. Auto-reconnect
+           normally beats the user to it; this is the way back once it has run
+           out of retries. -->
+      <button
+        onclick={retrySerial}
+        title="Retry the port this page was already granted — no dialog">Retry</button
+      >
     {:else}
       <span class="badge ok">Connected</span>
       <button
@@ -340,6 +389,14 @@ Asking again every 5 s — it will pick up on its own once something answers."
   }
   button:hover {
     background: rgba(192, 137, 74, 0.16);
+  }
+  /* The refresh buttons latch disabled for a beat after a click so the label
+     change is legible; without this the hover tint makes it look live. */
+  button:disabled,
+  button:disabled:hover {
+    opacity: 0.55;
+    background: var(--bg-raised);
+    cursor: default;
   }
   .btn-disconnect {
     background: transparent;

@@ -59,6 +59,39 @@ export interface PanelControl {
   breakBefore?: boolean;
 }
 
+/**
+ * A vertical stack of controls taking one column of a section's row.
+ *
+ * The section body is a wrapping row, which is right for a bank of knobs and
+ * wrong for the cases where two or three controls are one idea: the quantiser
+ * and the keyboard strip that shows what it passes, or GLIDE sitting over
+ * CHORUS. Left as siblings in the row they read as separate neighbours, and
+ * whichever one is shortest leaves a hole under it.
+ *
+ * Stacking them costs no width the row did not already spend — the column is
+ * as wide as its widest member — and it buys back the height a wrapped line
+ * would have taken. That is what lets Voice and Animation say more in fewer
+ * rows rather than growing.
+ */
+export interface PanelStack {
+  stack: PanelControl[];
+  /**
+   * Draw the section's diagram inside this column, above or below its
+   * controls, rather than as a full-width band across the top of the section.
+   *
+   * "below" is the useful one so far: a diagram that reads as the *result* of
+   * the control above it (the scale strip under QUANTIZE) rather than as a
+   * header the section happens to open with.
+   */
+  visual?: "above" | "below";
+  /** Start a new line within the section before this column. */
+  breakBefore?: boolean;
+}
+
+export type PanelEntry = PanelControl | PanelStack;
+
+const isStack = (e: PanelEntry): e is PanelStack => "stack" in e;
+
 export interface PanelSectionDef {
   title: string;
   /** Width in columns of the stage's 12-column grid. */
@@ -72,9 +105,12 @@ export interface PanelSectionDef {
    * even outlines read as deliberate rather than as padding.
    */
   stretch?: boolean;
-  /** An inline diagram drawn above the controls. */
+  /**
+   * An inline diagram drawn above the controls — unless a PanelStack in
+   * `controls` claims it, in which case it is drawn inside that column.
+   */
   visual?: "fxchain" | "envelope" | "scale" | "filter";
-  controls: PanelControl[];
+  controls: PanelEntry[];
 }
 
 export interface PanelLayout {
@@ -109,22 +145,54 @@ const SIZE_PX = { sm: 66, md: 88, lg: 118 } as const;
  * downstream section (cutoff, level, and each effect's mix).
  */
 const ALLOYFLUX: PanelLayout = {
-  stageWidth: 1700,
+  // Wider than the 1700 this was drawn at, and the extra 200px buys two things
+  // band 1 could not have at the old width: OSCILLATOR's six controls on one
+  // line (they came to 676px against 666px of section, which is why FM IN used
+  // to be pushed onto a row of its own), and enough room in VOICE for three
+  // columns rather than a row that wrapped.
+  //
+  // It costs little in zoom, and on most windows it gains. Both changes take
+  // height *out* of band 1 — the oscillator's second knob row goes, and Voice
+  // drops from a wrapped row plus a header strip to three columns, so the band
+  // roughly halves. A window whose fit was decided by height (the common case
+  // once the dock is open) therefore scales the panel up, not down; only a
+  // genuinely narrow one pays the 1700→1900 ratio.
+  stageWidth: 1900,
   sections: [
     // ── Band 1 ────────────────────────────────────────────────── 3 + 5 + 4
     {
+      // Three columns, each a complete thought, instead of four controls in a
+      // row that wrapped and a keyboard strip floating above them: what the
+      // voice *is* (MODE), what it quantises to (QUANTIZE, with the strip
+      // under it showing the notes that selection passes), and how the pitch
+      // is offset (TRANSPOSE in semitones over SUB OCTAVE in octaves — the
+      // same quantity at two scales, which is why they stack).
       title: "Voice",
       span: 3,
       stretch: true,
       visual: "scale",
       controls: [
         { name: "mode", control: "ladder", label: "Mode" },
-        { name: "scale", control: "dropdown", label: "Quantize" },
-        { name: "transpose", size: "sm", sub: "semitones" },
-        // Lives here rather than in Oscillator: it is a voice-level choice,
-        // and a sixth control in Oscillator pushed the switch onto a line of
-        // its own under five knobs.
-        { name: "suboct", control: "segmented", label: "Sub Octave" },
+        // The strip is read-only and reflects this dropdown and nothing else
+        // (see ScaleKeys), so it belongs directly under it rather than across
+        // the top of the section where it read as the section's header.
+        {
+          stack: [{ name: "scale", control: "dropdown", label: "Quantize" }],
+          visual: "below",
+        },
+        {
+          stack: [
+            { name: "transpose", size: "sm", sub: "semitones" },
+            // Lives here rather than in Oscillator: it is a voice-level pitch
+            // choice, and it is the coarse end of the same axis TRANSPOSE
+            // covers finely.
+            {
+              name: "suboct",
+              control: "segmented",
+              label: "Fatness Sub Octave",
+            },
+          ],
+        },
       ],
     },
     {
@@ -149,23 +217,18 @@ const ALLOYFLUX: PanelLayout = {
           sub: "unison",
           icons: ["uni1", "uni2", "uni3"],
         },
-        // On its own line deliberately, not by wrapping: the five knobs above
-        // fill this section's width to within a few pixels, so a sixth spills
-        // to a second row whatever size it is. Placed there, it at least
-        // centres under them.
+        // Sixth on the line, which the stage is now wide enough to hold: the
+        // six come to 676px against 749px of section. It used to take a row of
+        // its own purely because they did not fit, which cost band 1 a full
+        // knob row to say one small thing.
         //
-        // Small, and separated from COLOR, because it is the one control here
-        // that is not about the internal voice: it scales the external FM IN
-        // jack. params.json says as much — "Not the same control as COLOR,
-        // which is the internal FM index" — and the two sitting side by side
-        // at the same weight is exactly the confusion that warns about.
-        {
-          name: "fmamt",
-          size: "sm",
-          label: "FM In",
-          sub: "depth",
-          breakBefore: true,
-        },
+        // Small, and last rather than beside COLOR, because it is the one
+        // control here that is not about the internal voice: it scales the
+        // external FM IN jack. params.json says as much — "Not the same
+        // control as COLOR, which is the internal FM index" — and the two
+        // sitting adjacent at the same weight is the confusion that warns
+        // about. FATNESS between them keeps that separation on one line.
+        { name: "fmamt", size: "sm", label: "FM In", sub: "depth" },
       ],
     },
     {
@@ -186,14 +249,25 @@ const ALLOYFLUX: PanelLayout = {
           icons: ["wave-slow", "wave-fast"],
         },
         { name: "glidetime", size: "sm", label: "Glide Time" },
-        // Off steps straight to the new note; on, it ramps there.
-        { name: "glide", control: "segmented", icons: ["step", "slide"] },
-        // Chorus lives here rather than in a section of its own. It is a
-        // single parameter, so its own outline was three quarters empty — and
-        // it belongs next to MOTION regardless: SynthEngine.cpp sets
-        // `chorusDepth = _sMotion`, so MOTION *is* the chorus depth and this
-        // selects which chorus that depth drives.
-        { name: "chorusmode", control: "ladder", label: "Chorus" },
+        // The two switches as one column rather than as two more entries in
+        // the knob row. Side by side they were the widest thing in the section
+        // and both sat short under the knob line; stacked, the column is as
+        // tall as the knobs beside it and the section stops looking like a row
+        // of controls with two odd ones tacked on the end.
+        //
+        // GLIDE stays adjacent to GLIDE TIME, which is the knob it enables.
+        {
+          stack: [
+            // Off steps straight to the new note; on, it ramps there.
+            { name: "glide", control: "segmented", icons: ["step", "slide"] },
+            // Chorus lives here rather than in a section of its own. It is a
+            // single parameter, so its own outline was three quarters empty —
+            // and it belongs next to MOTION regardless: SynthEngine.cpp sets
+            // `chorusDepth = _sMotion`, so MOTION *is* the chorus depth and
+            // this selects which chorus that depth drives.
+            { name: "chorusmode", control: "ladder", label: "Chorus" },
+          ],
+        },
       ],
     },
 
@@ -441,6 +515,29 @@ const LAYOUTS: Readonly<Record<string, PanelLayout>> = {
   alloycoil: ALLOYCOIL,
 };
 
+/** One control paired with the parameter behind it. */
+export interface ResolvedControl {
+  param: CCParam;
+  control: PanelControl;
+}
+
+/**
+ * One item in a section's row: a control, or a column of them.
+ *
+ * `key` is on both because the render loop keys on it, and a stack has no
+ * parameter to borrow an identity from.
+ */
+export type ResolvedEntry =
+  | ({ kind: "control"; key: string } & ResolvedControl)
+  | {
+      kind: "stack";
+      key: string;
+      /** Where the section's diagram goes in this column, if it claimed it. */
+      visual?: "above" | "below";
+      breakBefore: boolean;
+      items: ResolvedControl[];
+    };
+
 /** A section resolved against a parameter map, ready to render. */
 export interface ResolvedSection {
   /**
@@ -476,7 +573,12 @@ export interface ResolvedSection {
   /** Stretch to the tallest section in the band. */
   stretch: boolean;
   visual?: "fxchain" | "envelope" | "scale" | "filter";
-  items: { param: CCParam; control: PanelControl }[];
+  /**
+   * A stack has claimed the diagram, so the section must not also draw it
+   * across its top — otherwise it appears twice.
+   */
+  visualInStack: boolean;
+  items: ResolvedEntry[];
 }
 
 /**
@@ -499,7 +601,7 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
   const layout = LAYOUTS[moduleId];
 
   /** Largest dial in a set of controls; selects do not have one. */
-  const dialBoxFor = (items: { param: CCParam; control: PanelControl }[]) =>
+  const dialBoxFor = (items: ResolvedControl[]) =>
     items.reduce<number>(
       (max, { param, control }) =>
         param.type === "select"
@@ -508,33 +610,75 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
       SIZE_PX.sm,
     );
 
-  const sections: ResolvedSection[] = (layout?.sections ?? []).flatMap((s, i) => {
-    const items = s.controls.flatMap((control) => {
-      const param = byName.get(control.name);
-      if (!param) return [];
-      placed.add(control.name);
-      return [{ param, control }];
-    });
-    // A section whose parameters have all gone is not worth an empty outline,
-    // unless it exists to carry a diagram.
-    return items.length || s.visual
-      ? [
-          {
-            key: `${i}:${s.title}`,
-            title: s.title,
-            span: s.span,
-            dialBox: dialBoxFor(items),
-            iconRow: items.some(
-              (i) =>
-                i.param.type !== "select" && (i.control.icons?.length ?? 0) > 0,
-            ),
-            stretch: s.stretch ?? false,
-            visual: s.visual,
-            items,
-          },
-        ]
-      : [];
-  });
+  /** One authored control against the map; empty when the map has no such name. */
+  const resolve = (control: PanelControl): ResolvedControl[] => {
+    const param = byName.get(control.name);
+    if (!param) return [];
+    placed.add(control.name);
+    return [{ param, control }];
+  };
+
+  const sections: ResolvedSection[] = (layout?.sections ?? []).flatMap(
+    (s, i) => {
+      // The return annotation is load-bearing: without it the two branches infer
+      // as a union of two array types rather than as an array of ResolvedEntry,
+      // which flatMap will not accept.
+      const entries: ResolvedEntry[] = s.controls.flatMap(
+        (entry, j): ResolvedEntry[] => {
+          if (!isStack(entry)) {
+            return resolve(entry).map((r) => ({
+              kind: "control" as const,
+              key: `c${r.param.cc}`,
+              ...r,
+            }));
+          }
+          const items = entry.stack.flatMap(resolve);
+          // A column that has lost every control is dropped — unless it is the one
+          // carrying the diagram, which still has something to draw.
+          const visual = s.visual ? entry.visual : undefined;
+          if (!items.length && !visual) return [];
+          return [
+            {
+              kind: "stack" as const,
+              key: `s${j}`,
+              visual,
+              breakBefore: entry.breakBefore ?? false,
+              items,
+            },
+          ];
+        },
+      );
+
+      // Sizing walks into the columns: a knob stacked inside one shares the
+      // section's dial slot and glyph row with the knobs beside it, or the
+      // alignment those two exist for stops at the edge of the stack.
+      const flat = entries.flatMap((e) => (e.kind === "stack" ? e.items : [e]));
+
+      // A section whose parameters have all gone is not worth an empty outline,
+      // unless it exists to carry a diagram.
+      return entries.length || s.visual
+        ? [
+            {
+              key: `${i}:${s.title}`,
+              title: s.title,
+              span: s.span,
+              dialBox: dialBoxFor(flat),
+              iconRow: flat.some(
+                (i) =>
+                  i.param.type !== "select" &&
+                  (i.control.icons?.length ?? 0) > 0,
+              ),
+              stretch: s.stretch ?? false,
+              visual: s.visual,
+              visualInStack: entries.some(
+                (e) => e.kind === "stack" && e.visual !== undefined,
+              ),
+              items: entries,
+            },
+          ]
+        : [];
+    },
+  );
 
   const unplaced = map.filter((p) => !placed.has(p.name));
   if (unplaced.length === 0) return sections;
@@ -548,7 +692,7 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
     else byCategory.set(p.category, [p]);
   }
   for (const [category, ps] of byCategory) {
-    const items = ps.map((param) => ({
+    const items: ResolvedControl[] = ps.map((param) => ({
       param,
       control: { name: param.name } as PanelControl,
     }));
@@ -560,7 +704,13 @@ export function layoutFor(moduleId: string, map: CCParam[]): ResolvedSection[] {
       // Nothing auto-placed carries glyphs — those are authored per control.
       iconRow: false,
       stretch: false,
-      items,
+      // Nor does anything auto-placed stack or carry a diagram.
+      visualInStack: false,
+      items: items.map((r) => ({
+        kind: "control" as const,
+        key: `c${r.param.cc}`,
+        ...r,
+      })),
     });
   }
   return sections;

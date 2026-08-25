@@ -304,20 +304,31 @@
       // "a port exists".
       midi.probeUnanswered();
 
-      if (attempts === FAST_ATTEMPTS + 1) {
-        // One re-enumeration at the transition: no answer usually means a
-        // stale port Chrome kept after a re-flash, which still reports as
-        // connected so the store's auto-rescan never fires. If that turns up a
-        // different port the store bumps syncNonce and this effect restarts.
-        void midi.scan();
-      } else {
-        // Firmware older than the wildcard ignores a broadcast, so from here
-        // also ask each known module by name. Only in the slow phase: it is
-        // legacy discovery, it costs one message per module, and new firmware
-        // has already answered the broadcast long before this.
-        for (const m of Object.values(MODULES))
-          midi.sendSysEx(SysexCmd.REQUEST, [], m.sysexDev);
-      }
+      // Nothing has answered, and there are two different reasons that
+      // happens — the port is wrong, or the module is not listening yet. Both
+      // need asking again, so from here every slow cycle does both.
+
+      // Re-enumerate. No answer usually means a stale port Chrome kept after a
+      // re-flash, which still reports as connected — so the store's auto-rescan
+      // never fires, because that only runs when no port is present at all, and
+      // nothing else here would ever go looking for the returning port.
+      //
+      // This used to run once, at the fast/slow transition, and one look is not
+      // enough: the module re-enumerates a few seconds after the flash and
+      // routinely misses that single window. Past it the page sat sending into
+      // a dead port forever, which is why recovering needed a page reload. A
+      // rescan every 5 s costs nothing — the permission is already granted, so
+      // it neither prompts nor shows anything — and it only runs while nothing
+      // is answering. If it turns up a different port the store bumps
+      // syncNonce and this effect restarts.
+      void midi.scan();
+
+      // Firmware older than the wildcard ignores a broadcast, so from here
+      // also ask each known module by name. Only in the slow phase: it is
+      // legacy discovery, it costs one message per module, and new firmware
+      // has already answered the broadcast long before this.
+      for (const m of Object.values(MODULES))
+        midi.sendSysEx(SysexCmd.REQUEST, [], m.sysexDev);
 
       // Keep asking, slowly, for as long as the port is there. This is what
       // makes starting Rack, or flashing the module, recover on its own — the

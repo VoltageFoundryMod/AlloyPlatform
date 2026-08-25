@@ -307,11 +307,18 @@
     </div>
   </div>
 
-  <!-- Always rendered; its height is 0 unless the section reserves the row. -->
+  <!-- Always rendered; its height is 0 unless the section reserves the row.
+
+       The sizes are set by the worst case in the layout: SHAPE puts five
+       glyphs under a 118px `lg` knob, and the strip must not grow wider than
+       the dial it labels. Five at 20px plus four 3px gaps is 112 of those 118,
+       which is as large as they go without the row overhanging — the reason
+       the gap below is tighter than the type around it. 20px also lands them
+       on the same size as the glyphs inside a segmented switch. -->
   <div class="icons">
     {#each icons ?? [] as icon, i}
       <span class="icon" class:on={i === activeIcon}>
-        <Glyph name={icon} size={size === "sm" ? 15 : 18} />
+        <Glyph name={icon} size={size === "sm" ? 17 : 20} />
       </span>
     {/each}
   </div>
@@ -449,7 +456,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    /* Tight, and paying for the glyph size above — see the note on the strip.
+       The glyphs are drawn with slack inside their own 24x16 box, so they read
+       as separated at 3px even though the boxes nearly touch. */
+    gap: 3px;
     height: var(--icon-row, 0px);
   }
   .icon {

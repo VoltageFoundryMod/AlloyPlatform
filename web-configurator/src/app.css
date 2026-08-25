@@ -64,7 +64,19 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
+  /* The rem base for the entire app — every other size in the codebase is
+     expressed against it, so this one number sets the type size everywhere.
+     The exceptions are deliberate: the numbers inside EnvelopeGraph and
+     FilterResponse are px in their SVG's viewBox units, which is a coordinate
+     space rather than a screen size, so they scale with their own plot.
+
+     Raising it does *not* scale the panel proportionally. Knob diameters, the
+     twelve-column stage and every control's padding are fixed px, so bigger
+     type grows only the text-driven widths — a ladder's labels, a segmented
+     switch, the quantize dropdown. Those sit inside sections tuned to fit
+     them, so a further increase is not free: check the tight ones (VOICE has
+     roughly 25px of slack at this size) before going past 15. */
+  font-size: 15px;
   line-height: 1.5;
 }
 

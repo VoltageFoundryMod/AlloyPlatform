@@ -101,7 +101,7 @@ export const PARAM_MAP: CCParam[] = [
   {
     cc: 90,
     name: "suboct",
-    label: "Sub Octave",
+    label: "Fatness Sub Octave",
     category: "Oscillator",
     min: 0,
     max: 127,
