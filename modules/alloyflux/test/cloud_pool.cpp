@@ -109,6 +109,41 @@ static void render(const SynthParams &p, int ticks, float *rmsOut, float *maxSte
         *maxStepOut = maxStep;
 }
 
+// ---------------------------------------------------------------------------
+// How much of its level a released note still holds after `ticks` control
+// periods, as a fraction of where it was when the gate fell.
+//
+// A *fraction* rather than an absolute level, so the measurement does not have
+// to sit through a slow attack first: the release is one-pole, so level(t) /
+// level(0) is exp(-t/T) wherever the attack had got to. That is the whole
+// quantity of interest — T is what the envelope controls are supposed to set.
+//
+// Driven through eng.control()/eng.audio() rather than by poking an envelope
+// directly, because the bug this guards against was never in the envelope: it
+// was that nothing told CLOUD's envelopes what CURVE was.
+// ---------------------------------------------------------------------------
+static float releaseFraction(SynthParams p, int settle, int ticks)
+{
+    gGatePatched = true;
+    // Let any envelope-type or voice-mode change land *before* the note
+    // starts. Both reset the per-slot envelopes, which would silence a note
+    // gated on the tick before and leave nothing to measure.
+    render(p, 4, nullptr, nullptr);
+    allNotesOff();
+    noteOn(0, 220.0f, 60);
+    render(p, settle, nullptr, nullptr);
+
+    const float atRelease = eng.polyEnvs[0] ? eng.polyEnvs[0]->level() : 0.0f;
+    slots[0].midiNote     = kPolySlotFree;
+    if(eng.polyEnvs[0])
+        eng.polyEnvs[0]->setGate(false);
+    render(p, ticks, nullptr, nullptr);
+
+    if(atRelease <= 0.0f)
+        return -1.0f; // never attacked — the caller's check will fail loudly
+    return eng.polyEnvs[0]->level() / atRelease;
+}
+
 static void checkPlan(const char *label, int expectStacks, int expectWidth)
 {
     SynthEngine::CloudPoolState st;
@@ -240,13 +275,22 @@ int main()
 
     // ---- widening back --------------------------------------------------
     printf("\n== Releasing back to one note ==\n");
+    // Explicitly short envelopes, because how fast the pool widens back out is
+    // a function of CURVE: a released stack keeps its oscillators for as long
+    // as it is still audible (see _cloudSounding), and at the default CURVE a
+    // release tail runs for about three seconds. This check used to pass
+    // without saying so, back when CLOUD ignored CURVE entirely and every
+    // release was AREnvelope's default ~21 ms whatever the knob said.
+    SynthParams rel = mkParams(true, 12, 4);
+    rel.curveTime   = 0.05f;
+    render(rel, 60, nullptr, nullptr); // let the short release smooth in first
     for(int i = 1; i < 6; i++)
     {
         slots[i].midiNote = kPolySlotFree;
         if(eng.polyEnvs[i])
             eng.polyEnvs[i]->setGate(false);
     }
-    render(p1, 200, nullptr, nullptr);
+    render(rel, 200, nullptr, nullptr);
     checkPlan("back to 1 note", 1, 7);
 
     // ---- and back to the drone, at its original level -------------------
@@ -548,6 +592,99 @@ int main()
             }
         }
         check(!violated, "the buffer being rendered is never written by control()");
+    }
+
+    // ---- the envelope controls actually reach the stacks ----------------
+    //
+    // CLOUD became polyphonic at M78 by sounding the same per-slot envelopes
+    // POLY uses, but the call that tunes them from CURVE sat inside the mode
+    // switch's POLY case. So CLOUD gated those envelopes without ever setting
+    // them: it ran on AREnvelope's default member initialisers — a fixed
+    // ~21 ms attack, full sustain, ~21 ms release — and CURVE did nothing to
+    // the mode at any setting. Because the array is shared with POLY, passing
+    // through POLY first left CLOUD holding POLY's last CURVE, which made it
+    // look like the knob half-worked.
+    //
+    // Measured rather than asserted structurally: what matters is that the
+    // envelope the mode *renders with* follows the controls, and the number
+    // below is read back through control()/audio() for that reason. A frozen
+    // ~21 ms release is silent long before the window closes, so it reads 0
+    // and every one of these checks fails.
+    {
+        printf("\n== Envelope controls reach POLY and CLOUD ==\n");
+        const int kSettle = 64; // 0.5 s
+        const int kWindow = 64; // 0.5 s of release to measure across
+
+        struct
+        {
+            VoiceMode   mode;
+            const char *name;
+        } modes[] = {{VoiceMode::CLOUD, "CLOUD"}, {VoiceMode::POLY, "POLY"}};
+
+        for(auto &m : modes)
+        {
+            // --- AR: CURVE sets attack and release together ---------------
+            SynthParams ar  = mkParams(true, 12, 4);
+            ar.voiceMode    = m.mode;
+            ar.envelopeType = EnvelopeType::AR;
+
+            ar.curve         = 0.45f; // shortest CURVE that still sustains
+            const float arLo = releaseFraction(ar, kSettle, kWindow);
+            ar.curve         = 0.95f;
+            const float arHi = releaseFraction(ar, kSettle, kWindow);
+
+            printf("  %-5s AR   curve 0.45 -> %.3f held, 0.95 -> %.3f held\n",
+                   m.name,
+                   arLo,
+                   arHi);
+            // A ~21 ms release is gone (0.000) after half a second, so any
+            // value in this band proves CURVE was applied at all.
+            check(arLo > 0.10f && arLo < 0.60f, "AR: CURVE sets the release");
+            // And that it is the knob being followed, not one fixed value.
+            check(arHi > arLo * 1.5f, "AR: a longer CURVE rings longer");
+
+            // --- ADSR: RELEASE sets it, independently of CURVE ------------
+            SynthParams ad  = mkParams(true, 12, 4);
+            ad.voiceMode    = m.mode;
+            ad.envelopeType = EnvelopeType::ADSR;
+            ad.adsrAttack   = 0.01f;
+            ad.adsrDecay    = 0.01f;
+            ad.adsrSustain  = 1.0f;
+
+            ad.adsrRelease   = 0.20f;
+            const float adLo = releaseFraction(ad, kSettle, kWindow);
+            ad.adsrRelease   = 2.00f;
+            const float adHi = releaseFraction(ad, kSettle, kWindow);
+
+            printf("  %-5s ADSR rel 0.2s -> %.3f held, 2.0s -> %.3f held\n",
+                   m.name,
+                   adLo,
+                   adHi);
+            // exp(-0.5/0.2) = 0.082 and exp(-0.5/2.0) = 0.779 — wide bands,
+            // since what is under test is that the values arrive at all.
+            check(adLo > 0.02f && adLo < 0.30f, "ADSR: RELEASE sets the tail");
+            check(adHi > 0.55f, "ADSR: a long RELEASE holds the note up");
+            check(adHi > adLo * 2.0f, "ADSR: the two settings differ");
+        }
+
+        // --- arriving from a mono mode with the knobs untouched -----------
+        //
+        // The per-slot retune is cached against the values that drive it, and
+        // a mode change moves none of them: entering CLOUD from PAIR without
+        // touching a knob has to recompute anyway, or the slots keep whatever
+        // they last held. Same class of bug as the one above, one level down.
+        {
+            SynthParams mono = mkParams(true, 12, 4);
+            mono.voiceMode   = VoiceMode::PAIR;
+            mono.curve       = 0.95f;
+            render(mono, 80, nullptr, nullptr); // sit in PAIR a while
+
+            SynthParams intoCloud = mono;
+            intoCloud.voiceMode   = VoiceMode::CLOUD;
+            const float frac = releaseFraction(intoCloud, kSettle, kWindow);
+            printf("  PAIR -> CLOUD, knobs untouched: %.3f held\n", frac);
+            check(frac > 0.55f, "entering CLOUD tunes the slots from CURVE");
+        }
     }
 
     printf("\n%s (%d failure%s)\n",

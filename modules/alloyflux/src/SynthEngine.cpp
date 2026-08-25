@@ -84,13 +84,18 @@ void SynthEngine::init(uint32_t audioRate, uint32_t controlRate)
         _subVoices[i].setShape(0.75f);
     }
 
-    // Poly envelopes — six, one per POLY slot.
+    // Poly envelopes — six per flavour, one per slot, for POLY and CLOUD.
+    // The published pointers follow the AR/ADSR choice; they start on AR
+    // because that is SynthParams::envelopeType's default, and the type-switch
+    // block in control() repoints them if it ever changes.
     for(int i = 0; i < 6; i++)
     {
         _polyEnvArr[i].setSampleRate(audioRate);
+        _polyAdsrArr[i].setSampleRate(audioRate);
         polyEnvs[i]  = &_polyEnvArr[i];
         sPolyEnvs[i] = &_polyEnvArr[i];
     }
+    _polyEnvIsAdsr = false;
 
     // Envelope engines
     _arEnv.setSampleRate(audioRate);
@@ -145,9 +150,15 @@ void SynthEngine::setSampleRate(uint32_t audioRate)
         _subVoices[i].setSampleRate(audioRate);
     }
     for(int i = 0; i < 6; i++)
+    {
         _polyEnvArr[i].setSampleRate(audioRate);
+        _polyAdsrArr[i].setSampleRate(audioRate);
+    }
     _arEnv.setSampleRate(audioRate);
     _adsrEnv.setSampleRate(audioRate);
+    // Coefficients are derived from the rate, so every cached one is stale.
+    _envCacheCurve = _envCacheTime = _envCacheTScale = -1.0f;
+    _envCacheA = _envCacheD = _envCacheS = _envCacheR = -1.0f;
     _chorus.setSampleRate(audioRate);
     // Delay converts ms → samples, so it needs the rate too; control() re-issues
     // setParams() every tick, which re-derives the length from the new rate.
@@ -362,7 +373,7 @@ void SynthEngine::_cloudPlan(const SynthParams &p, PolySlot polySlots[6])
             // oscillators: a note-off frees the slot immediately
             // (moduleHook_noteOff) but the release tail is still audible.
             live = (polySlots[s].midiNote != kPolySlotFree)
-                   || (_polyEnvArr[s].level() > kCloudSilent);
+                   || (_polySlotLevel(s) > kCloudSilent);
         }
         _cloudSounding[s] = live;
         if(live)
@@ -515,6 +526,91 @@ void SynthEngine::_cloudClaimIfNeeded(uint8_t owner, uint8_t offIdx, uint8_t poo
 }
 
 // ---------------------------------------------------------------------------
+// SynthEngine::_updateEnvelopes()
+//
+// Retune every envelope that is currently live from the current params.
+//
+// **Not per-mode, on purpose.** The per-slot retune used to live inside
+// `case VoiceMode::POLY:` of the mode switch, so when CLOUD became polyphonic
+// at M78 and started sounding the same six envelopes, it inherited the gating
+// but not the tuning: CLOUD ran on AREnvelope's default member initialisers —
+// a fixed ~21 ms attack, full sustain, ~21 ms release — and the CURVE knob did
+// nothing to it at any setting. Worse, because the array is shared with POLY,
+// visiting POLY first left CLOUD holding POLY's last CURVE value, so the mode
+// looked like it half-worked. Anything driven by "which modes shape per slot"
+// belongs behind modeUsesPolySlots(), next to the mono update, not duplicated
+// into each mode's case where the next mode to join can miss it.
+//
+// Everything live is retuned under one cache guard, so the transcendentals are
+// paid once per actual knob movement rather than once per tick per slot.
+// ---------------------------------------------------------------------------
+void SynthEngine::_updateEnvelopes(const SynthParams &p)
+{
+    const bool perSlot = modeUsesPolySlots(p.voiceMode);
+    // Entering or leaving a per-slot mode has to recompute even when nothing
+    // else moved: arriving in CLOUD from PAIR with the knobs untouched would
+    // otherwise take the cache hit and leave the six slots at whatever they
+    // last held. This is the mono/poly half of the bug the header note
+    // describes, and it is why the flag is part of the key rather than a
+    // condition applied after it.
+    const bool modeSwitched = (perSlot != _envCachePerSlot);
+    _envCachePerSlot        = perSlot;
+
+    if(p.envelopeType == EnvelopeType::AR)
+    {
+        // CURVE and CURVETIME are the whole input. Both are smoothed, so they
+        // converge on a knob move and then stop moving — which is exactly when
+        // this should stop recomputing.
+        if(!modeSwitched && fabsf(_sCurve - _envCacheCurve) < 1e-4f
+           && fabsf(_sCurveTime - _envCacheTime) < 1e-4f)
+            return;
+        _envCacheCurve = _sCurve;
+        _envCacheTime  = _sCurveTime;
+
+        // The mono envelope and every slot take identical arguments, so the
+        // two expf() calls happen once here and everything else copies the
+        // result — see AREnvelope::copyCurveFrom. Valid because all of them
+        // are held at the same sample rate by init()/setSampleRate().
+        _arEnv.setCurve(_sCurve, _sCurveTime);
+        if(perSlot)
+            for(int i = 0; i < 6; i++)
+                _polyEnvArr[i].copyCurveFrom(_arEnv);
+        return;
+    }
+
+    // ADSR. CURVE is a global time scale for A, D and R (sustain is amplitude,
+    // not time, so it is unaffected):
+    //   curve 0.0 → ×0.25  (tight / percussive)
+    //   curve 0.5 → ×1.0   (knob values unchanged)
+    //   curve 1.0 → ×4.0   (slow / pad-like)
+    // powf costs the same ~90 µs as the exp2f in control(), so it is cached
+    // against CURVE separately: the A/D/S/R knobs move without it.
+    if(fabsf(_sCurve - _envCacheTScale) > 1e-4f)
+    {
+        _envTScale      = powf(4.0f, 2.0f * _sCurve - 1.0f);
+        _envCacheTScale = _sCurve;
+    }
+
+    const float a = p.adsrAttack * _envTScale;
+    const float d = p.adsrDecay * _envTScale;
+    const float r = p.adsrRelease * _envTScale;
+
+    if(!modeSwitched && a == _envCacheA && d == _envCacheD && r == _envCacheR
+       && p.adsrSustain == _envCacheS && p.adsrLoop == _envCacheLoop)
+        return;
+    _envCacheA    = a;
+    _envCacheD    = d;
+    _envCacheR    = r;
+    _envCacheS    = p.adsrSustain;
+    _envCacheLoop = p.adsrLoop;
+
+    _adsrEnv.setADSR(a, d, p.adsrSustain, r, p.adsrLoop);
+    if(perSlot)
+        for(int i = 0; i < 6; i++)
+            _polyAdsrArr[i].copyAdsrFrom(_adsrEnv);
+}
+
+// ---------------------------------------------------------------------------
 // SynthEngine::control()
 // ---------------------------------------------------------------------------
 void SynthEngine::control(const SynthParams  &p,
@@ -537,28 +633,49 @@ void SynthEngine::control(const SynthParams  &p,
     _sColor += (p.color - _sColor) * 0.2f;
 
     // ------------------------------------------------------------------
-    // Envelope update — AR or ADSR
+    // Envelope type switch, then the parameter update.
+    //
+    // The switch runs *first*. It used to sit near the bottom of control(),
+    // below this point, which meant that on the tick the type changed the
+    // update below cast the still-old curveEng to the new concrete type and
+    // wrote one envelope's coefficients over the other's layout — a tick of
+    // garbage attack and release on every AR↔ADSR change.
     // ------------------------------------------------------------------
-    if(p.envelopeType == EnvelopeType::AR)
+    if(p.envelopeType != _prevEnvType)
     {
-        static_cast<AREnvelope<48000u> *>(curveEng)->setCurve(_sCurve,
-                                                              _sCurveTime);
+        const bool toAdsr = (p.envelopeType == EnvelopeType::ADSR);
+
+        curveEng->reset();
+        curveEng  = toAdsr ? static_cast<EnvelopeEngine *>(&_adsrEnv)
+                           : static_cast<EnvelopeEngine *>(&_arEnv);
+        gCurveEng = curveEng;
+
+        // POLY and CLOUD shape per slot and follow the same choice. Both
+        // arrays are reset before the selector moves, so whichever one audio()
+        // reads across the flip is silent rather than resuming a note at some
+        // level the other array happened to be holding.
+        for(int i = 0; i < 6; i++)
+        {
+            _polyEnvArr[i].reset();
+            _polyAdsrArr[i].reset();
+            polyEnvs[i] = toAdsr
+                              ? static_cast<EnvelopeEngine *>(&_polyAdsrArr[i])
+                              : static_cast<EnvelopeEngine *>(&_polyEnvArr[i]);
+            sPolyEnvs[i] = polyEnvs[i];
+        }
+        _polyEnvIsAdsr = toAdsr;
+
+        // The incoming flavour has never been tuned, or was tuned before the
+        // knobs moved. Force the recompute below rather than letting the cache
+        // report a hit against the outgoing one's values.
+        _envCacheCurve = _envCacheTime = _envCacheTScale = -1.0f;
+        _envCacheA = _envCacheD = _envCacheS = _envCacheR = -1.0f;
+
+        _envType     = p.envelopeType;
+        _prevEnvType = p.envelopeType;
     }
-    else
-    {
-        // In ADSR mode, CURVE is a global time scale for A, D, R (sustain is
-        // amplitude, not time, so it is unaffected).
-        //   curve 0.0 → ×0.25  (tight / percussive)
-        //   curve 0.5 → ×1.0   (knob values unchanged)
-        //   curve 1.0 → ×4.0   (slow / pad-like)
-        const float tScale = powf(4.0f, 2.0f * _sCurve - 1.0f);
-        static_cast<ADSREnvelope<48000u> *>(curveEng)->setADSR(
-            p.adsrAttack * tScale,
-            p.adsrDecay * tScale,
-            p.adsrSustain,
-            p.adsrRelease * tScale,
-            p.adsrLoop);
-    }
+
+    _updateEnvelopes(p);
 
     // ------------------------------------------------------------------
     // Gate edge detection → envelope + phase reset
@@ -1223,7 +1340,9 @@ void SynthEngine::control(const SynthParams  &p,
                 _voices[i].setFreq(f);
                 _voices[i].setShape(
                     _shapeSpread(_sShape, shapeSpread, kColorOff[i]));
-                _polyEnvArr[i].setCurve(_sCurve, p.curveTime);
+                // Envelope tuning is not here any more — _updateEnvelopes()
+                // does it for POLY and CLOUD alike, once for all six slots
+                // rather than once per slot per tick.
                 _subVoices[i].setFreq((f * subMult < 20.0f) ? 20.0f
                                                             : f * subMult);
                 _subVoices[i].setShape(0.75f);
@@ -1310,7 +1429,10 @@ void SynthEngine::control(const SynthParams  &p,
     {
         for(int i = 0; i < 6; i++)
         {
+            // Both flavours: the idle one should not still be holding a level
+            // from the last time it was selected.
             _polyEnvArr[i].reset();
+            _polyAdsrArr[i].reset();
             sPolySlots[i].midiNote = kPolySlotFree;
         }
         sPolyRR = 0;
@@ -1406,20 +1528,6 @@ void SynthEngine::control(const SynthParams  &p,
     }
 
     // ------------------------------------------------------------------
-    // Envelope type switch
-    // ------------------------------------------------------------------
-    if(p.envelopeType != _prevEnvType)
-    {
-        curveEng->reset();
-        curveEng     = (p.envelopeType == EnvelopeType::AR)
-                           ? static_cast<EnvelopeEngine *>(&_arEnv)
-                           : static_cast<EnvelopeEngine *>(&_adsrEnv);
-        gCurveEng    = curveEng;
-        _envType     = p.envelopeType;
-        _prevEnvType = p.envelopeType;
-    }
-
-    // ------------------------------------------------------------------
     // Fx ordering
     // ------------------------------------------------------------------
     _fxOrder = p.fxOrder;
@@ -1475,8 +1583,14 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
 {
     if(slot >= 6)
         return;
+    // The selected flavour, via the published pointer. Note events are a Core 0
+    // path at note rate, so the virtual call costs nothing worth avoiding here —
+    // unlike audio(), which reaches the arrays directly.
+    EnvelopeEngine *env = polyEnvs[slot];
+    if(!env)
+        return;
     // 1. Hard-silence the envelope so the attack always starts from 0.
-    _polyEnvArr[slot].reset();
+    env->reset();
 
     // CLOUD stops here. Its slots do not own oscillator `slot` — they own
     // whatever the pool hands them, several at a time — so steps 2 and 3 would
@@ -1487,7 +1601,7 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
     // the whole point of _cloudRandomisePhases().
     if(_voiceMode == VoiceMode::CLOUD)
     {
-        _polyEnvArr[slot].setGate(true);
+        env->setGate(true);
         return;
     }
 
@@ -1500,7 +1614,7 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
     const float subFreq = freq * subMult;
     _subVoices[slot].setFreq(subFreq < 20.0f ? 20.0f : subFreq);
     // 4. Arm the attack.
-    _polyEnvArr[slot].setGate(true);
+    env->setGate(true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1518,6 +1632,13 @@ void SynthEngine::audio(int32_t  revWetL,
     const bool isPolyMode   = (_voiceMode == VoiceMode::POLY);
     const bool isCloudMode  = (_voiceMode == VoiceMode::CLOUD);
     const bool isPlasmaMode = (_voiceMode == VoiceMode::PLASMA);
+    // Which per-slot envelope array POLY and CLOUD are sounding. Read once,
+    // for the same reason as _cloudListIdx below: control() runs on the other
+    // core, and a flip landing mid-frame must not advance one array for some
+    // slots and the other for the rest — that would leave the untouched
+    // envelopes a sample behind and stall a release. The local also lets the
+    // compiler hoist the branch out of the per-slot loops.
+    const bool polyAdsr = _polyEnvIsAdsr;
     const bool isFmMode
         = (_voiceMode == VoiceMode::CASCADE || _voiceMode == VoiceMode::PAIR);
 
@@ -1656,8 +1777,12 @@ void SynthEngine::audio(int32_t  revWetL,
         // like, or a stack that briefly holds no oscillators would stall its
         // own release.
         float slotEnv[kCloudMaxNotes + 1];
-        for(uint8_t s = 0; s < kCloudMaxNotes; s++)
-            slotEnv[s] = _polyEnvArr[s].next();
+        if(polyAdsr)
+            for(uint8_t s = 0; s < kCloudMaxNotes; s++)
+                slotEnv[s] = _polyAdsrArr[s].next();
+        else
+            for(uint8_t s = 0; s < kCloudMaxNotes; s++)
+                slotEnv[s] = _polyEnvArr[s].next();
         // The drone has no envelope; what it has instead is this gain, ramped
         // here at audio rate rather than at 128 Hz. It is the whole output
         // when it moves, and a control-rate staircase on the whole output is a
@@ -1720,8 +1845,10 @@ void SynthEngine::audio(int32_t  revWetL,
         const bool hasSub = _sSubWf > 0.001f;
         for(uint8_t i = 0; i < 6; i++)
         {
+            // Direct calls on both arms — no virtual dispatch. polyAdsr is
+            // loop-invariant, so this is one predicted branch at worst.
             const float env
-                = _polyEnvArr[i].next(); // direct call, no virtual dispatch
+                = polyAdsr ? _polyAdsrArr[i].next() : _polyEnvArr[i].next();
             const int32_t s = _voices[i].nextPM(fmPm); // always advance phase
             if(env < 0.001f)
                 continue; // skip expensive work only

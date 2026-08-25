@@ -651,8 +651,60 @@ class SynthEngine
     EnvelopeType         _envType     = EnvelopeType::AR;
     EnvelopeType         _prevEnvType = EnvelopeType::AR;
 
-    // POLY mode — 6 independent per-voice envelopes.
-    AREnvelope<48000u> _polyEnvArr[6];
+    // POLY and CLOUD — 6 independent per-slot envelopes, in both flavours.
+    //
+    // Two arrays rather than one array of pointers because audio() calls
+    // next() on these six times a sample: a virtual call there is 288k
+    // indirect branches a second for something that changes at most when the
+    // user picks a different envelope type. _polyEnvIsAdsr selects between
+    // them, is read once per frame, and both arms stay direct calls.
+    //
+    // Only the selected array is ever gated or advanced; the other sits idle
+    // at zero. Switching type resets both, so whichever arm audio() picks
+    // across the flip is silent either way.
+    AREnvelope<48000u>   _polyEnvArr[6];
+    ADSREnvelope<48000u> _polyAdsrArr[6];
+
+    /// Which of the two poly arrays is live. Volatile for the same cross-core
+    /// reason as _cloudListIdx: control() on Core 0 writes it, audio() on
+    /// Core 1 reads it.
+    volatile bool _polyEnvIsAdsr = false;
+
+    // -----------------------------------------------------------------------
+    // Envelope coefficient cache.
+    //
+    // setCurve() is two expf() calls and setADSR() is three, at ~90 µs each on
+    // the RP2350 — the same cost the exp2f guard in control() exists for. The
+    // previous code called setCurve() unguarded on all six poly slots every
+    // tick (12 expf ≈ 1.1 ms of a 7.8 ms control period, for coefficients that
+    // were identical across the six and usually unchanged from last tick).
+    // Now one envelope is computed when a driving value actually moves and the
+    // rest copy it. Same idiom as _cachedRelPlasma and friends.
+    // -----------------------------------------------------------------------
+    float _envCacheCurve = -1.0f; // _sCurve at last recompute
+    float _envCacheTime  = -1.0f; // _sCurveTime at last recompute
+    float _envCacheA = -1.0f, _envCacheD = -1.0f;
+    float _envCacheS = -1.0f, _envCacheR = -1.0f;
+    bool  _envCacheLoop = false;
+    /// Whether the last recompute targeted the per-slot envelopes. Part of the
+    /// cache key: entering CLOUD/POLY with the knobs untouched must still tune
+    /// the slots. See _updateEnvelopes().
+    bool _envCachePerSlot = false;
+    /// ADSR's CURVE-driven time scale, powf-derived — cached against _sCurve.
+    float _envTScale      = 1.0f;
+    float _envCacheTScale = -1.0f;
+
+    /// Retune the mono and (when the mode uses them) per-slot envelopes from
+    /// the current params. One guard, one recompute, applied to everything
+    /// live — see the note on the cache above, and _updateEnvelopes() in the
+    /// .cpp for why it is not per-mode.
+    void _updateEnvelopes(const SynthParams &p);
+
+    /// Current level of poly slot `s`, whichever flavour is selected.
+    float _polySlotLevel(uint8_t s) const
+    {
+        return _polyEnvIsAdsr ? _polyAdsrArr[s].level() : _polyEnvArr[s].level();
+    }
 
     // -----------------------------------------------------------------------
     // Effect engines

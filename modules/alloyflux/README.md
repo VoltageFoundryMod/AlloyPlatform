@@ -94,6 +94,27 @@ before it would be erased on the way into POLY. Ordering it after costs nothing:
 immediately, which is the same path a MIDI note takes when it lands between two
 control ticks.
 
+**The per-slot envelopes are tuned in one place, not per mode.** POLY and CLOUD
+sound the same six envelope slots, in an AR and an ADSR flavour selected by
+`envelopeType` — `_polyEnvIsAdsr` picks the array and `audio()` reads it once a
+frame, so both arms stay direct calls rather than virtual ones. What tunes them
+is `_updateEnvelopes()`, called from `control()` behind `modeUsesPolySlots()`.
+It lives there rather than inside the mode switch because it used to live inside
+`case VoiceMode::POLY:`: when CLOUD became polyphonic at M78 it inherited the
+gating but not the tuning, so it ran on `AREnvelope`'s default member
+initialisers — a fixed ~21 ms attack, full sustain, ~21 ms release — and CURVE
+did nothing to the mode at any setting. Anything keyed on *which modes shape per
+slot* belongs behind that predicate, next to the mono update.
+
+Coefficients are computed once and copied, not recomputed per slot. Every slot
+takes the same CURVE, and `setCurve()` is two `expf()` calls at ~90 µs each on
+the RP2350 — six of them was 1.1 ms of a 7.8 ms control period, every tick, for
+six identical results. Now one envelope is computed when a driving value
+actually moves and the rest take it via `copyCurveFrom()` / `copyAdsrFrom()`,
+which deliberately copy tuning without touching run state, since the slots are
+at different points of their own notes. `make flux-cloud` measures the release
+the modes actually render with, in both flavours, for exactly this reason.
+
 **SPACE is a mid/side width stage on the summed bus**, not a per-voice panner.
 It can only widen what the voice stage already placed off-centre, so every mode
 has to produce side content of its own or SPACE does nothing there.

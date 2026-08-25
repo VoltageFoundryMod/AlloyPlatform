@@ -86,6 +86,28 @@ class AREnvelope : public EnvelopeEngine
         _sustain          = (s < 0.0f) ? 0.0f : (s > 1.0f ? 1.0f : s);
     }
 
+    /**
+     * Adopt another envelope's tuning without disturbing this one's state.
+     *
+     * The poly modes give every slot the same CURVE, so setCurve()'s two
+     * expf() calls only have to happen once per tick however many slots there
+     * are — POLY and CLOUD set slot 0 and copy it across the rest. expf is
+     * ~90 µs on the RP2350 (see the exp2f note in SynthEngine::control), so
+     * six independent setCurve() calls cost about an eighth of the whole
+     * control period; four copies of four floats cost nothing.
+     *
+     * Deliberately does *not* touch _state, _env or _gateHigh: the slots are
+     * at different points of their own notes, and this is retuning a running
+     * envelope, not restarting it.
+     */
+    void copyCurveFrom(const AREnvelope &o)
+    {
+        _attCoeff = o._attCoeff;
+        _relDecay = o._relDecay;
+        _decCoeff = o._decCoeff;
+        _sustain  = o._sustain;
+    }
+
     void setGate(bool high) override
     {
         if(high && !_gateHigh)
@@ -203,6 +225,20 @@ class ADSREnvelope : public EnvelopeEngine
         _decCoeff
             = 1.0f - _coeff(decayTime, sr);  // additive step toward sustain
         _relCoeff = _coeff(releaseTime, sr); // multiplicative: env *= coeff
+    }
+
+    /**
+     * Adopt another envelope's tuning without disturbing this one's state.
+     * See AREnvelope::copyCurveFrom — same reason, and setADSR() is the more
+     * expensive of the two at three expf() calls rather than two.
+     */
+    void copyAdsrFrom(const ADSREnvelope &o)
+    {
+        _sustain  = o._sustain;
+        _attCoeff = o._attCoeff;
+        _decCoeff = o._decCoeff;
+        _relCoeff = o._relCoeff;
+        _loop     = o._loop;
     }
 
     void setGate(bool high) override

@@ -210,6 +210,7 @@ Everything about that is a fade rather than a switch. Adding a note narrows the 
 | RELATION | **DETUNE** — spread of the seven oscillators, 0 = unison to ±1.8 semitones at full CW |
 | COLOR    | **MIX** — level of the six outer oscillators against the centre one                   |
 | SHAPE    | Applies to all seven. Saw is the classic, but the whole morph works — see below       |
+| CURVE    | Envelope shape, per held note — the whole stack shares one envelope                   |
 | MOTION   | Slow drift on top. Deliberately restrained here; the detune supplies the width        |
 | SPACE    | Width of the stereo image — CCW collapses to mono, CW throws the stack wider          |
 | FATNESS  | One sub oscillator, tuned to the lowest note held (the root when droning)             |
@@ -217,6 +218,8 @@ Everything about that is a fade rather than a switch. Adding a note narrows the 
 **SHAPE is not locked to saw.** The detune pattern and the mix balance are about how the stack is _tuned_, not what it is made of, so the whole SHAPE morph works: a super-sine is a gorgeous shimmering pad, a super-pulse is enormous and hollow, and sweeping SHAPE across the stack while it plays is a sound the original never made.
 
 A high-pass filter tracks the played note, which is what keeps seven detuned oscillators from turning to mud in the bass.
+
+**CURVE shapes each held note, not the drone.** Every stack gets its own envelope, the same way POLY's voices do, and it follows whichever generator is selected — AR from the CURVE knob, or the full ADSR if you have switched to it (CC 81). The drone is the exception and always has been: with nothing held there is no note to shape, so it simply sounds, and CURVE does nothing until you play something. One consequence worth knowing when the pool feels narrow: a released stack keeps its oscillators for as long as it is still audible, so at long CURVE settings the notes you just let go are still holding their share of the pool.
 
 **Tips:**
 
@@ -427,7 +430,7 @@ When the gate falls the voice is released but keeps sounding through its tail, a
 | RELATION | Detune spread across the voice slots — 0 = dead in tune, full CW = ±15¢ |
 | COLOR    | **TIMBRE SPREAD** — fans the slots apart across the SHAPE morph         |
 | MOTION   | Per-voice drift, scaled by how many voices are held — see below         |
-| CURVE    | Envelope shape applies per-voice — each note has its own AR             |
+| CURVE    | Envelope shape applies per-voice — each note has its own envelope       |
 | SPACE    | Width of the voice spread — CCW collapses to mono, CW throws it wider   |
 | SHAPE    | Waveform morph — the centre of the spread COLOR fans out from           |
 
