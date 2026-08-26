@@ -42,7 +42,8 @@ static void check(bool ok, const char *what)
         failures++;
 }
 
-static double db(double x) { return 20.0 * log10(x < 1e-12 ? 1e-12 : x); }
+static double db(double x)
+{ return 20.0 * log10(x < 1e-12 ? 1e-12 : x); }
 
 // Steady-state gain at one frequency, by correlating the output against the
 // drive.  Warm-up has to outlast the ringing of a high-Q setting, so it is
@@ -111,7 +112,8 @@ int main()
         }
     }
 
-    printf("\nOTALadder — response must not depend on input level while linear\n");
+    printf(
+        "\nOTALadder — response must not depend on input level while linear\n");
     {
         // The piecewise tanh is exactly x for |x| <= 0.75, so everything below
         // that has to be strictly linear.  Past self-oscillation it is not: the
@@ -193,7 +195,8 @@ int main()
         check(mono, "resonance rises monotonically with the knob");
     }
 
-    printf("\nOTALadder — res 1.0 self-oscillates, on pitch, at every cutoff\n");
+    printf(
+        "\nOTALadder — res 1.0 self-oscillates, on pitch, at every cutoff\n");
     {
         const double oscFc[3] = {200.0, 1000.0, 4000.0};
         for(int i = 0; i < 3; i++)
@@ -221,7 +224,8 @@ int main()
             const double freq = zc * kSR / 48000.0;
             printf("  fc=%6.0f  amp %.3f FS  pitch %.0f Hz\n", fc, amp, freq);
             check(amp > 0.1, "oscillation sustains rather than dying out");
-            check(amp < 0.95, "it stays a sine instead of squaring on the rail");
+            check(amp < 0.95,
+                  "it stays a sine instead of squaring on the rail");
             check(fabs(freq - fc) < fc * 0.05, "it oscillates at the cutoff");
         }
     }
@@ -239,17 +243,18 @@ int main()
         {
             OTALadder l;
             l.setParams(2000.0f, (float)resSet[i], FilterMode::LP4, kSR);
-            double ph = 0;
-            const double inc = 110.0 / kSR;
-            int    clipped = 0, counted = 0;
-            double pk = 0;
+            double       ph      = 0;
+            const double inc     = 110.0 / kSR;
+            int          clipped = 0, counted = 0;
+            double       pk = 0;
             for(int n = 0; n < 80000; n++)
             {
                 ph += inc;
                 if(ph >= 1.0)
                     ph -= 1.0;
-                const int32_t in = (int32_t)lrint((2.0 * ph - 1.0) * 0.5 * 32512.0);
-                int32_t       o1, o2;
+                const int32_t in
+                    = (int32_t)lrint((2.0 * ph - 1.0) * 0.5 * 32512.0);
+                int32_t o1, o2;
                 l.process(in, in, &o1, &o2);
                 if(n < 20000)
                     continue;
@@ -260,11 +265,12 @@ int main()
                     clipped++;
             }
             const double pct = 100.0 * clipped / counted;
-            printf("  res=%.2f  110 Hz saw at 0.5 FS -> peak %.3f FS, "
-                   "clamp hits %.2f%%\n",
-                   resSet[i],
-                   pk / 32512.0,
-                   pct);
+            printf(
+                "  res=%.2f  110 Hz saw at 0.5 FS -> peak %.3f FS, "
+                "clamp hits %.2f%%\n",
+                resSet[i],
+                pk / 32512.0,
+                pct);
             check(pct < 0.05, "a loud saw does not reach the clamp");
         }
     }
@@ -301,12 +307,13 @@ int main()
         const double hpNy = db(gainAt(&s, 20000.0, 0.05));
         s.setParams(1000.0f, 0.0f, FilterMode::NOTCH, kSR);
         const double nFc = db(gainAt(&s, 1000.0, 0.05));
-        printf("  LP DC %.2f dB, LP at fc %.2f dB, HP at 20k %.2f dB, "
-               "notch null %.0f dB\n",
-               lpDC,
-               lpFc,
-               hpNy,
-               nFc);
+        printf(
+            "  LP DC %.2f dB, LP at fc %.2f dB, HP at 20k %.2f dB, "
+            "notch null %.0f dB\n",
+            lpDC,
+            lpFc,
+            hpNy,
+            nFc);
         check(fabs(lpDC) < 0.1, "LP passes DC at unity");
         check(fabs(hpNy) < 0.1, "HP passes Nyquist at unity");
         check(fabs(lpFc + 6.02) < 0.3, "res=0 gives k=2, so -6 dB at cutoff");

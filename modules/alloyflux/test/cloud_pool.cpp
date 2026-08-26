@@ -81,7 +81,8 @@ static SynthParams mkParams(bool gatePatched, uint8_t pool, uint8_t notes)
 // Render `ticks` control periods. RMS is averaged over the whole span — a
 // detuned supersaw beats by several Hz, so a short window swings ±35% and says
 // nothing about level. maxStep is the click detector.
-static void render(const SynthParams &p, int ticks, float *rmsOut, float *maxStepOut)
+static void
+render(const SynthParams &p, int ticks, float *rmsOut, float *maxStepOut)
 {
     SynthControlOutput co;
     double             sum     = 0.0;
@@ -177,9 +178,8 @@ static void checkPlan(const char *label, int expectStacks, int expectWidth)
            (int)st.droning);
     for(int s = 0; s <= kCloudMaxNotes; s++)
         if(perStack[s])
-            printf(" %s=%d",
-                   s == kCloudDroneSlot ? "drone" : "note",
-                   perStack[s]);
+            printf(
+                " %s=%d", s == kCloudDroneSlot ? "drone" : "note", perStack[s]);
     printf("\n");
 
     check(!dupe, "no detune assigned twice within a stack");
@@ -312,9 +312,9 @@ int main()
     // ---- nothing steps --------------------------------------------------
     printf("\n== Transitions are fades, not steps ==\n");
     // Slow envelopes so a note attack cannot be mistaken for a pool click.
-    SynthParams t = mkParams(true, 12, 4);
-    t.curve       = 0.95f;
-    t.curveTime   = 6.0f;
+    SynthParams t         = mkParams(true, 12, 4);
+    t.curve               = 0.95f;
+    t.curveTime           = 6.0f;
     SynthParams slowDrone = back;
     slowDrone.curve       = 0.95f;
     slowDrone.curveTime   = 6.0f;
@@ -392,8 +392,8 @@ int main()
             render(h, 90, nullptr, nullptr);
 
             SynthControlOutput co;
-            long  railed = 0, shaped = 0, total = 0;
-            float peak = 0.0f;
+            long               railed = 0, shaped = 0, total = 0;
+            float              peak = 0.0f;
             for(int t = 0; t < 128; t++)
             {
                 eng.control(h, slots, co);
@@ -403,18 +403,29 @@ int main()
                     eng.audio(0, 0, 0.0f, false, &l, &r, &dl, &dr);
                     total += 2;
                     const float al = fabsf((float)l), ar = fabsf((float)r);
-                    if(al > peak) peak = al;
-                    if(ar > peak) peak = ar;
-                    if(al > kSatKnee) shaped++;
-                    if(ar > kSatKnee) shaped++;
-                    if(l >= 32767 || l <= -32767) railed++;
-                    if(r >= 32767 || r <= -32767) railed++;
+                    if(al > peak)
+                        peak = al;
+                    if(ar > peak)
+                        peak = ar;
+                    if(al > kSatKnee)
+                        shaped++;
+                    if(ar > kSatKnee)
+                        shaped++;
+                    if(l >= 32767 || l <= -32767)
+                        railed++;
+                    if(r >= 32767 || r <= -32767)
+                        railed++;
                 }
             }
             const float pctShaped = 100.0f * (float)shaped / (float)total;
-            printf("  %-8s peak %5.0f (%3.0f%% FS)  railed %.2f%%  shaped %.2f%%\n",
-                   label, peak, 100.0f * peak / 32767.0f,
-                   100.0f * (float)railed / (float)total, pctShaped);
+            printf(
+                "  %-8s peak %5.0f (%3.0f%% FS)  railed %.2f%%  shaped "
+                "%.2f%%\n",
+                label,
+                peak,
+                100.0f * peak / 32767.0f,
+                100.0f * (float)railed / (float)total,
+                pctShaped);
             check(railed == 0, "never reaches the rail");
             if(maxShaped >= 0.0f)
                 check(pctShaped <= maxShaped, "stays inside the linear region");
@@ -482,8 +493,8 @@ int main()
             render(p, 80, nullptr, nullptr); // settle the smoothers
 
             SynthControlOutput co;
-            float lo = 1e30f, hi = 0.0f, mean = 0.0f;
-            const int kWindows = 256;
+            float              lo = 1e30f, hi = 0.0f, mean = 0.0f;
+            const int          kWindows = 256;
             for(int t = 0; t < kWindows; t++)
             {
                 eng.control(p, slots, co);
@@ -495,8 +506,10 @@ int main()
                     sum += (double)l * l;
                 }
                 const float rms = (float)sqrt(sum / 375.0);
-                if(rms < lo) lo = rms;
-                if(rms > hi) hi = rms;
+                if(rms < lo)
+                    lo = rms;
+                if(rms > hi)
+                    hi = rms;
                 mean += rms;
             }
             mean /= (float)kWindows;
@@ -510,7 +523,10 @@ int main()
             const float wide  = beatDepth(c, 24.0f);
             const float swing = wide - flat;
             printf("  COLOR %.2f  beat depth %.2f -> %.2f  (swing %.2f)\n",
-                   c, flat, wide, swing);
+                   c,
+                   flat,
+                   wide,
+                   swing);
             check(swing > 0.20f, "sweeping RELATION changes the sound");
         }
     }
@@ -536,8 +552,14 @@ int main()
             int  slot;
             bool on;
         } script[] = {
-            {0, true}, {1, true}, {2, true}, {3, true},
-            {3, false}, {2, false}, {1, false}, {0, false},
+            {0, true},
+            {1, true},
+            {2, true},
+            {3, true},
+            {3, false},
+            {2, false},
+            {1, false},
+            {0, false},
         };
         gGatePatched = true;
         allNotesOff();
@@ -546,7 +568,8 @@ int main()
         for(auto &ev : script)
         {
             if(ev.on)
-                noteOn((uint8_t)ev.slot, freqs[ev.slot], (uint8_t)(60 + ev.slot));
+                noteOn(
+                    (uint8_t)ev.slot, freqs[ev.slot], (uint8_t)(60 + ev.slot));
             else
             {
                 slots[ev.slot].midiNote = kPolySlotFree;
@@ -591,7 +614,8 @@ int main()
                         violated = true;
             }
         }
-        check(!violated, "the buffer being rendered is never written by control()");
+        check(!violated,
+              "the buffer being rendered is never written by control()");
     }
 
     // ---- the envelope controls actually reach the stacks ----------------
@@ -736,13 +760,14 @@ int main()
             render(p, 2, nullptr, &step);
 
             const float ratio = steady > 0.0f ? step / steady : 999.0f;
-            printf("  %-5s tail at re-press %.3f, step %5.0f vs steady %5.0f"
-                   "  (%.1fx)\n",
-                   m.name,
-                   lvl,
-                   step,
-                   steady,
-                   ratio);
+            printf(
+                "  %-5s tail at re-press %.3f, step %5.0f vs steady %5.0f"
+                "  (%.1fx)\n",
+                m.name,
+                lvl,
+                step,
+                steady,
+                ratio);
             // The tail has to actually still be up, or the check below passes
             // for the wrong reason — that is exactly how this went unnoticed
             // in CLOUD while its releases were frozen at ~21 ms.

@@ -2,6 +2,13 @@
 # Host-build scratch (make coil-host)
 .build/
 
+# A literal "~" directory: what a tool writes when it expands ~/.platformio
+# itself instead of letting the shell do it. The global ~/.gitignore hides it
+# from Git for Windows via the "*~" editor-backup rule, but msys2's git resolves
+# HOME elsewhere, never reads that file, and then sees a 2 GB toolchain tree as
+# untracked project source. Ignore it here so it stays invisible in every shell.
+~/
+
 # Vendored third-party sources are part of the build, not a dependency-manager
 # artifact. Un-ignore them explicitly: a global ~/.gitignore carrying the
 # Go/PHP-era "vendor/" rule would otherwise drop the whole DaisySP subset from

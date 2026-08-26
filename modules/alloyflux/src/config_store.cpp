@@ -132,9 +132,9 @@ void applyAlloyConfig(const AlloyConfig &cfg)
 
 void applyAlloyDefaults()
 {
-    AlloyConfig d        = {};
-    d.baseFreq           = 440.0f;
-    d.color              = 0.0f;
+    AlloyConfig d = {};
+    d.baseFreq    = 440.0f;
+    d.color       = 0.0f;
     // Full depth — at 1.0 the slow half of FM IN is exactly the pre-M77 law,
     // so a preset that used the jack for vibrato recalls unchanged.
     d.fmAmount           = 1.0f;

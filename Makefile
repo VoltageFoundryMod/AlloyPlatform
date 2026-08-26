@@ -760,9 +760,14 @@ CLANG_FORMAT ?= $(firstword \
 # and are expected to be re-vendored against a newer one; restyling them would
 # turn every future diff against upstream into noise and bury the handful of
 # lines we actually changed. Their own style is upstream's business.
+#
+# ":(exclude)~/" is not paranoia. A tool that expands ~/... itself leaves a
+# literal "~" directory in the repo root, and an in-place format of a stray
+# toolchain checkout is not something to discover afterwards. .gitignore covers
+# it too; this makes the sweep safe even in a tree whose ignores are stale.
 FORMAT_FILES = git ls-files --cached --others --exclude-standard \
     "*.h" "*.hpp" "*.c" "*.cc" "*.cpp" \
-    ":(exclude)vendor/" ":(exclude)modules/alloycoil/"
+    ":(exclude)vendor/" ":(exclude)modules/alloycoil/" ":(exclude)~/"
 
 .PHONY: format format-check
 

@@ -186,8 +186,8 @@ class HardwarePicoIO : public IHardwareIO
             case Pot::DELAYTIME:
                 // gDelayTime is in ms over [10, DELAY_MAX_MS]; normalise to 0–1
                 return (gDelayTime - 10.0f) / ((float)DELAY_MAX_MS - 10.0f);
-            case Pot::REVERBSIZE: return gRevSize;  // already 0–1
-            case Pot::FMAMOUNT: return gFmAmount;   // already 0–1
+            case Pot::REVERBSIZE: return gRevSize; // already 0–1
+            case Pot::FMAMOUNT: return gFmAmount;  // already 0–1
             default: return 0.5f;
         }
     }

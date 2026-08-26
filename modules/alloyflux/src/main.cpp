@@ -97,23 +97,23 @@ float gColor
 // law, so a patch that used the jack for vibrato sounds the same as it did.
 float          gFmAmount  = 1.0f;
 volatile float gFmInVolts = 0.0f; // written by the GP27 ADC — see params.h
-float   gShape   = 0.0f;
-float   gFatness = 0.4f; // default: sub audible but not boomy
-uint8_t gSubOctave
+float          gShape     = 0.0f;
+float          gFatness   = 0.4f; // default: sub audible but not boomy
+uint8_t        gSubOctave
     = 1; // 1 = one octave below (×0.5), 2 = two octaves below (×0.25)
 float     gMotion     = 0.0f;           // 0.0 = static  …  1.0 = full drift
 float     gDriftSpeed = 0.04f;          // one-pole glide coeff: 0.001–0.10
 VoiceMode gVoiceMode = VoiceMode::PAIR; // synthesis personality (default: PAIR)
-float     gRelation  = 0.0f;       // 0.0 = unison, 1.0 = +2 octaves (PAIR mode)
-float     gCurve     = 0.5f;       // 0.0 = pluck, 0.5 = natural, 1.0 = swell
-float     gCurveTime = 1.0f;       // overall envelope time scale (0.25–4.0)
-float     gGateLength      = 0.0f; // GATE note length ms; 0 = follow the gate
+float     gRelation  = 0.0f;  // 0.0 = unison, 1.0 = +2 octaves (PAIR mode)
+float     gCurve     = 0.5f;  // 0.0 = pluck, 0.5 = natural, 1.0 = swell
+float     gCurveTime = 1.0f;  // overall envelope time scale (0.25–4.0)
+float     gGateLength = 0.0f; // GATE note length ms; 0 = follow the gate
 // CLOUD's oscillator pool (M78) — see params.h for why these are runtime.
-uint8_t gCloudPool     = kCloudPoolDefault;
-uint8_t gCloudMaxNotes = kCloudMaxNotes;
-volatile bool gGateHigh    = false; // true while gate is asserted
-volatile bool gGatePatched = false; // false = drone (bypass VCA)
-float         gVolume      = 1.0f;
+uint8_t       gCloudPool     = kCloudPoolDefault;
+uint8_t       gCloudMaxNotes = kCloudMaxNotes;
+volatile bool gGateHigh      = false; // true while gate is asserted
+volatile bool gGatePatched   = false; // false = drone (bypass VCA)
+float         gVolume        = 1.0f;
 float         gMidiVelocity
     = 1.0f; // set by MIDI Note On; 1.0 for CV / drone / button sources
 bool gVelocitySensitive
@@ -628,7 +628,7 @@ void updateControl()
                 if(gateNow && !sPrevCvGate)
                 {
                     const float   subMult = (p.subOctave == 2) ? 0.25f : 0.5f;
-                    const uint8_t slot    = polyNoteOn(p.baseFreq,
+                    const uint8_t slot = polyNoteOn(p.baseFreq,
                                                     1.0f,
                                                     subMult,
                                                     kPolySlotCvHeld,

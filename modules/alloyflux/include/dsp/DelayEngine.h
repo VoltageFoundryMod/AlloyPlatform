@@ -172,10 +172,10 @@ class DelayEngine
         // full scale over the top on its own.
         int32_t oL = (int32_t)((float)inL * _dryGain + (float)delayedL * _mix);
         int32_t oR = (int32_t)((float)inR * _dryGain + (float)delayedR * _mix);
-        oL = softSaturate(oL);
-        oR = softSaturate(oR);
-        *outL = oL;
-        *outR = oR;
+        oL         = softSaturate(oL);
+        oR         = softSaturate(oR);
+        *outL      = oL;
+        *outR      = oR;
     }
 
   private:

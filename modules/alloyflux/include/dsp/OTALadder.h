@@ -68,11 +68,8 @@
 class OTALadder : public FilterEngine
 {
   public:
-    OTALadder()
-    : _G(0.5f), _k(0.0f), _makeup(2.0f), _mode(FilterMode::LP4)
-    {
-        _reset();
-    }
+    OTALadder() : _G(0.5f), _k(0.0f), _makeup(2.0f), _mode(FilterMode::LP4)
+    { _reset(); }
 
     void setParams(float      cutoff_hz,
                    float      resonance,
@@ -188,8 +185,8 @@ class OTALadder : public FilterEngine
     // holding it flat.  Guarded by ladder_response.cpp.
     inline int32_t _chan(float in, float *z)
     {
-        const float G2    = _G * _G;
-        const float G3    = G2 * _G;
+        const float G2 = _G * _G;
+        const float G3 = G2 * _G;
         const float sigma
             = (1.0f - _G) * (G3 * z[0] + G2 * z[1] + _G * z[2] + z[3]);
         const float gamma
@@ -238,10 +235,10 @@ class OTALadder : public FilterEngine
         }
     }
 
-    float      _G;     // per-stage integrator gain (from cutoff)
+    float      _G;      // per-stage integrator gain (from cutoff)
     float      _k;      // resonance feedback gain (0–4.5)
     float      _makeup; // output makeup: 2 * (1+k)^0.25, see setParams()
-    float      _zL[4]; // left channel integrator states
-    float      _zR[4]; // right channel integrator states
+    float      _zL[4];  // left channel integrator states
+    float      _zR[4];  // right channel integrator states
     FilterMode _mode;
 };

@@ -33,7 +33,9 @@ int main()
 
     printf("\n  Same patch every mode: ROOT 220 Hz, SHAPE saw, RELATION 7,\n");
     printf("  COLOR 0.5, MOTION 0, FATNESS 0, VOLUME 1, no effects.\n");
-    printf("  'V' assumes full scale (32767) = 4.4 V peak, as measured on the jacks.\n\n");
+    printf(
+        "  'V' assumes full scale (32767) = 4.4 V peak, as measured on the "
+        "jacks.\n\n");
     printf("  mode      RMS    peak   %%FS   ~V peak   dB vs PAIR\n");
 
     float pairRms = 0.0f;
@@ -92,14 +94,20 @@ int main()
                 eng.audio(0, 0, 0.0f, false, &l, &r, &dl, &dr);
                 sum += (double)l * l + (double)r * r;
                 n += 2;
-                if(fabsf((float)l) > pk) pk = fabsf((float)l);
-                if(fabsf((float)r) > pk) pk = fabsf((float)r);
+                if(fabsf((float)l) > pk)
+                    pk = fabsf((float)l);
+                if(fabsf((float)r) > pk)
+                    pk = fabsf((float)r);
             }
         }
         const float rms = (float)sqrt(sum / (double)n);
-        if(m == 0) pairRms = rms;
+        if(m == 0)
+            pairRms = rms;
         printf("  %-8s %6.0f  %6.0f  %3.0f%%   %5.2f V   %+5.1f dB\n",
-               kNames[m], rms, pk, 100.0f * pk / 32767.0f,
+               kNames[m],
+               rms,
+               pk,
+               100.0f * pk / 32767.0f,
                4.4f * pk / 32767.0f,
                20.0f * log10f(rms / pairRms));
     }

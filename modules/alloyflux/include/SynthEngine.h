@@ -709,7 +709,8 @@ class SynthEngine
     /// Current level of poly slot `s`, whichever flavour is selected.
     float _polySlotLevel(uint8_t s) const
     {
-        return _polyEnvIsAdsr ? _polyAdsrArr[s].level() : _polyEnvArr[s].level();
+        return _polyEnvIsAdsr ? _polyAdsrArr[s].level()
+                              : _polyEnvArr[s].level();
     }
 
     // -----------------------------------------------------------------------
@@ -1020,7 +1021,7 @@ class SynthEngine
     /// the envelope and the sound it shapes begin on the same sample. Also
     /// tells _cloudClaimOsc() the stack is silent, so its saws open at full
     /// gate instead of fading in under an envelope that is already moving.
-    bool _cloudPendingAttack[kCloudMaxNotes] = {};
+    bool  _cloudPendingAttack[kCloudMaxNotes] = {};
     float _cloudOscGateTgt[kCloudOscMax];
     /// Set by _cloudPlan(): this oscillator still belongs in the plan. A false
     /// here is a *retiring* oscillator — it keeps its owner and keeps

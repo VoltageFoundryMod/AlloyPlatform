@@ -323,9 +323,9 @@ void SynthEngine::_cloudClaimOsc(uint8_t osc, uint8_t owner, uint8_t offIdx)
 // ---------------------------------------------------------------------------
 void SynthEngine::cloudPoolState(CloudPoolState &s) const
 {
-    s.pool    = _cloudPool;
-    s.width   = _cloudWidth;
-    s.notes   = _cloudNotes;
+    s.pool       = _cloudPool;
+    s.width      = _cloudWidth;
+    s.notes      = _cloudNotes;
     s.droning    = _cloudDroning;
     s.activeList = _cloudListIdx;
     for(uint8_t b = 0; b < 2; b++)
@@ -401,10 +401,9 @@ void SynthEngine::_cloudPlan(const SynthParams &p, PolySlot polySlots[6])
             nSounding++;
     }
 
-    _cloudWidth
-        = _cloudDroning
-              ? _cloudWidthFor(pool, 1u)
-              : _cloudWidthFor(pool, nSounding ? nSounding : 1u);
+    _cloudWidth = _cloudDroning
+                      ? _cloudWidthFor(pool, 1u)
+                      : _cloudWidthFor(pool, nSounding ? nSounding : 1u);
     const uint8_t *widthSet = kCloudWidthIdx[(_cloudWidth - 1u) / 2u];
 
     // --- Retire ---------------------------------------------------------
@@ -527,7 +526,9 @@ void SynthEngine::_cloudPlan(const SynthParams &p, PolySlot polySlots[6])
 // from wherever its level had fallen to, which is both cheaper than claiming a
 // fresh one and smoother, because no phase is disturbed.
 // ---------------------------------------------------------------------------
-void SynthEngine::_cloudClaimIfNeeded(uint8_t owner, uint8_t offIdx, uint8_t pool)
+void SynthEngine::_cloudClaimIfNeeded(uint8_t owner,
+                                      uint8_t offIdx,
+                                      uint8_t pool)
 {
     for(uint8_t i = 0; i < pool; i++)
         if(_cloudOscOwner[i] == owner && _cloudOscOff[i] == offIdx)
@@ -679,9 +680,9 @@ void SynthEngine::control(const SynthParams  &p,
         {
             _polyEnvArr[i].reset();
             _polyAdsrArr[i].reset();
-            polyEnvs[i] = toAdsr
-                              ? static_cast<EnvelopeEngine *>(&_polyAdsrArr[i])
-                              : static_cast<EnvelopeEngine *>(&_polyEnvArr[i]);
+            polyEnvs[i]  = toAdsr
+                               ? static_cast<EnvelopeEngine *>(&_polyAdsrArr[i])
+                               : static_cast<EnvelopeEngine *>(&_polyEnvArr[i]);
             sPolyEnvs[i] = polyEnvs[i];
         }
         _polyEnvIsAdsr = toAdsr;
@@ -785,9 +786,9 @@ void SynthEngine::control(const SynthParams  &p,
     // ⚠ Not smoothed with the other knobs: FM AMOUNT is a depth, and running it
     // through _sXxx one-pole smoothing would put a 128 Hz staircase on the PM
     // scale that the per-sample path would then hear as its own modulation.
-    _sFmAmount = (p.fmAmount < 0.0f) ? 0.0f
-                 : (p.fmAmount > 1.0f) ? 1.0f
-                                       : p.fmAmount;
+    _sFmAmount   = (p.fmAmount < 0.0f)   ? 0.0f
+                   : (p.fmAmount > 1.0f) ? 1.0f
+                                         : p.fmAmount;
     _fmInPmScale = kFmInPmScale * _sFmAmount;
 
     const float fmSlowV = _fmInFed ? _fmInSlowV : p.fmIn;
@@ -991,8 +992,7 @@ void SynthEngine::control(const SynthParams  &p,
                 else if(mix > 1.0f)
                     mix = 1.0f;
                 _cloudCentreLvl = -0.55366f * mix + 0.99785f;
-                float side
-                    = -0.73764f * mix * mix + 1.2841f * mix + 0.044372f;
+                float side = -0.73764f * mix * mix + 1.2841f * mix + 0.044372f;
 
                 // Floor the sides so RELATION is audible with COLOR closed —
                 // see kCloudSideFloor. Scaled by the *detune amount*, so the
@@ -1054,9 +1054,9 @@ void SynthEngine::control(const SynthParams  &p,
             // arithmetic sum would make COLOR read as a volume cut rather than
             // as the density control it is. (_cloudWidth − 1) sides, because
             // exactly one voice in any width is the centre.
-            float sumSq = _cloudCentreLvl * _cloudCentreLvl
-                          + (float)(_cloudWidth - 1u) * _cloudSideLvl
-                                * _cloudSideLvl;
+            float sumSq
+                = _cloudCentreLvl * _cloudCentreLvl
+                  + (float)(_cloudWidth - 1u) * _cloudSideLvl * _cloudSideLvl;
             if(sumSq < 1e-6f)
                 sumSq = 1e-6f;
             const float norm = 1.0f / sqrtf(sumSq);
@@ -1086,8 +1086,8 @@ void SynthEngine::control(const SynthParams  &p,
                     }
                 }
                 // Same gain as the stack it sits under — see _cloudSubGain.
-                _cloudSubGain = found ? _cloudNoteGain * polySlots[subS].velocity
-                                      : 0.0f;
+                _cloudSubGain
+                    = found ? _cloudNoteGain * polySlots[subS].velocity : 0.0f;
                 _cloudSubSlot = subS;
             }
             if(subRoot < 20.0f)
@@ -1186,15 +1186,14 @@ void SynthEngine::control(const SynthParams  &p,
             // under every note of a chord is mud. FATNESS still does something
             // useful. Rendered from _subVoices[0] regardless of which pool
             // oscillators are in play.
-            _subVoices[0].setFreq(subRoot * smCloud < 20.0f
-                                      ? 20.0f
-                                      : subRoot * smCloud);
+            _subVoices[0].setFreq(
+                subRoot * smCloud < 20.0f ? 20.0f : subRoot * smCloud);
 
             // Track the HPF to the lowest sounding note — see _cloudHpA.
             {
-                const float w0 = 6.2831853f * kCloudHpTrack * subRoot
-                                 / (float)_audioRate;
-                _cloudHpA      = 1.0f / (1.0f + w0);
+                const float w0
+                    = 6.2831853f * kCloudHpTrack * subRoot / (float)_audioRate;
+                _cloudHpA = 1.0f / (1.0f + w0);
             }
 
             voiceFreqs[0] = subRoot;
@@ -1685,8 +1684,8 @@ void SynthEngine::polyRetrigger(uint8_t slot, float freq, float subMult)
     // stack it shapes start together. Arming here instead let the envelope run
     // ahead of its own sound. A *re-press* does not wait: that stack is
     // already rendering, so there is nothing to wait for.
-    const bool deferToPlanner = (_voiceMode == VoiceMode::CLOUD) && !ringing
-                                && slot < kCloudMaxNotes;
+    const bool deferToPlanner
+        = (_voiceMode == VoiceMode::CLOUD) && !ringing && slot < kCloudMaxNotes;
     if(deferToPlanner)
     {
         _cloudPendingAttack[slot] = true;
@@ -1909,7 +1908,7 @@ void SynthEngine::audio(int32_t  revWetL,
             const uint8_t n = _cloudListN[li][s];
             if(n == 0u)
                 continue;
-            const CloudEntry *e = _cloudList[li][s];
+            const CloudEntry *e  = _cloudList[li][s];
             int32_t           sl = 0, sr = 0;
             for(uint8_t k = 0; k < n; k++)
             {
@@ -1928,7 +1927,7 @@ void SynthEngine::audio(int32_t  revWetL,
         {
             const int32_t sub = _subVoices[0].next();
             const int32_t sm  = (int32_t)((float)sub * _sSubWf * _cloudSubGain
-                                         * slotEnv[_cloudSubSlot]);
+                                          * slotEnv[_cloudSubSlot]);
             left += sm >> 1; // centred
             right += sm >> 1;
         }
@@ -2017,9 +2016,9 @@ void SynthEngine::audio(int32_t  revWetL,
     // per stack now, and CLOUD's drone is the *reason* the bypass exists —
     // unpatched gate has always meant gain 1.0 here. Leaving CLOUD on the mono
     // envelope would put it in series with the per-note ones.
-    const float envLevel = (!modeUsesPolySlots(_voiceMode) && gGatePatched)
-                               ? curveEng->next()
-                               : 1.0f;
+    const float envLevel   = (!modeUsesPolySlots(_voiceMode) && gGatePatched)
+                                 ? curveEng->next()
+                                 : 1.0f;
     const float gainTarget = _sVolume * _sMidiVel * envLevel;
     if(gainTarget < _sGainSmooth)
         _sGainSmooth += (gainTarget - _sGainSmooth) * 0.2f;
