@@ -93,6 +93,12 @@ extern EnvelopeEngine *gCurveEng;
 // effect running, but the only way to find out whether fifteen also fits is to
 // set it on real hardware and watch `slow-blk` and `overruns` for a while.
 // `cloud pool <n>` and `cloud notes <n>` on the console.
+//
+// Firmware storage only — one board, one engine, one pool. The VCV module keeps
+// its own pair (_cloudPool/_cloudMaxNotes) so two AlloyFluxes in a rack can be
+// budgeted separately and each patch remembers what it was set to; it passes
+// them to polySlotLimit()'s two-argument overload below rather than touching
+// these. Nothing in the Rack build defines them.
 extern uint8_t gCloudPool;     // oscillators CLOUD may sound at once, 1–16
 extern uint8_t gCloudMaxNotes; // simultaneous held notes in CLOUD, 1–4
 
@@ -266,15 +272,24 @@ uint8_t polyNoteOn(float   freq,
  * How many poly slots the given mode may allocate. One line, but it is the
  * difference between CLOUD stealing its own notes correctly and CLOUD
  * allocating a fifth note into a pool sized for four.
+ *
+ * Two overloads because the two targets store the ceiling in different places
+ * and neither should have to know the other's. The firmware has one engine and
+ * keeps it in gCloudMaxNotes; VCV has one per module and keeps it in the
+ * module, so it passes its own. The clamp lives here either way — a caller that
+ * reached for the global directly is a caller that can forget to clamp.
  */
-inline uint8_t polySlotLimit(VoiceMode m)
+inline uint8_t polySlotLimit(VoiceMode m, uint8_t cloudMaxNotes)
 {
     if(m != VoiceMode::CLOUD)
         return 6u;
-    return (gCloudMaxNotes < 1u) ? 1u
-           : (gCloudMaxNotes > 6u) ? 6u
-                                   : gCloudMaxNotes;
+    return (cloudMaxNotes < 1u)   ? 1u
+           : (cloudMaxNotes > 6u) ? 6u
+                                  : cloudMaxNotes;
 }
+
+inline uint8_t polySlotLimit(VoiceMode m)
+{ return polySlotLimit(m, gCloudMaxNotes); }
 
 /**
  * Hand the module back to the drone: clear the gate latch, release every poly

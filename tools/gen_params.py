@@ -11,9 +11,17 @@ Usage:  python tools/gen_params.py modules/alloyflux
         python tools/gen_params.py modules/alloyflux --list-outputs
 Outputs (committed, so a normal build never needs Python):
     <module>/include/param_manifest.generated.h
+    <module>/include/param_struct.generated.h    (only with "struct_output")
     <module>/include/param_globals.generated.h   (only with "globals_output")
     the path named by "ts_output"
     the path named by "md_output"  (spliced between markers, not overwritten)
+
+A module chooses where its parameters live by how it writes `target`. A bare
+identifier (`gMotion`) is a free-standing global, which is what a firmware-only
+module wants. A member expression (`gCoilParams.echoTime`) says the parameters
+are fields of a struct, and "struct_output" then generates that struct's type —
+so a host that needs more than one copy of the module, which is every host that
+is not the board, can give each instance its own set instead of sharing one.
 """
 
 import json
@@ -170,21 +178,113 @@ def gen_cpp(spec, src):
     return "".join(out)
 
 
-def gen_globals(spec, src):
-    """Emit the definitions of the parameter globals, initialised to `default`.
+def split_target(name, target):
+    """`target` as (owner, field). owner is "" for a free-standing global.
 
-    The manifest's `target` column already names the lvalue every transport
-    writes; this makes params.json own its *starting* value too. Without it the
-    same twelve numbers are typed out once per binary that links the globals —
-    firmware, VCV module, host test — and editing params.json moves the CC
-    range and the web slider while leaving all three boot values behind.
+    The whole distinction between a module whose parameters are shared and one
+    whose parameters are per-instance is carried in this one column, so a
+    malformed target is worth stopping on rather than emitting code that will
+    fail somewhere less obvious.
     """
+    owner, _, field = target.rpartition(".")
+    if not field.isidentifier() or (owner and not all(
+        part.isidentifier() for part in owner.split(".")
+    )):
+        sys.exit(
+            f"{name}: target {target!r} must be an identifier or a chain of "
+            "them (`gCoilParams.echoTime`)"
+        )
+    return owner, field
+
+
+def ctype_of(p):
+    """The C++ type a parameter's storage is declared with."""
+    if p["kind"] == "float":
+        return "volatile float" if p.get("volatile") else "float"
+    return p.get("ctype", "uint8_t")
+
+
+def value_of(p):
+    """The parameter's `default` as a C++ initialiser."""
+    return fmt_float(p["default"]) if p["kind"] == "float" else p["default"]
+
+
+def gen_struct(spec, src):
+    """Emit the struct that holds one instance's worth of parameters.
+
+    Only the type — the object itself is gen_globals()' job, because a type is
+    safe in every translation unit and an object is not.
+
+    Members are initialised to the `default` column, so a freshly constructed
+    instance is already a valid patch: a host that creates one per voice, per
+    module or per test does not have to remember to seed it, and cannot seed it
+    with a copy of the numbers that has drifted from params.json.
+    """
+    cfg = spec["struct_output"]
+    name = cfg["name"]
+    fields = []
+    for p in spec["params"]:
+        owner, field = split_target(p["name"], p["target"])
+        if not owner:
+            sys.exit(
+                f"struct_output: {p['name']}'s target {p['target']!r} is a bare "
+                "global, so it cannot be a member of " + name
+            )
+        fields.append((ctype_of(p), field, value_of(p), p["name"]))
+
+    tw = max(len(f[0]) for f in fields)
+    nw = max(len(f[1]) for f in fields)
     lines = [
         BANNER.format(src=src),
         "#pragma once\n\n",
         "#include <stdint.h>\n\n",
         "// ---------------------------------------------------------------------------\n"
-        "// Definitions for the parameter globals declared in params.h, initialised to\n"
+        f"// {name} — the `default` column of params.json, as a type.\n"
+        "//\n"
+        "// One of these is one instance's parameters. The firmware has exactly one and\n"
+        "// reaches it through the global in param_globals.generated.h; a host that can\n"
+        "// run several copies of the module gives each its own, which is the whole\n"
+        "// reason this is a struct and not a pile of globals.\n"
+        "//\n"
+        "// Declaring a type is safe anywhere, so unlike param_globals.generated.h this\n"
+        "// header may be included as widely as it likes.\n"
+        "// ---------------------------------------------------------------------------\n\n",
+        "// clang-format off\n",
+        f"struct {name}\n{{\n",
+    ]
+    for ctype, field, value, _ in fields:
+        lines.append(f"    {ctype:<{tw}} {field:<{nw}} = {value};\n")
+    lines.append("};\n")
+    lines.append("// clang-format on\n")
+    return "".join(lines)
+
+
+def gen_globals(spec, src):
+    """Emit the definition of the module's parameter storage.
+
+    The manifest's `target` column already names the lvalue every transport
+    writes; this makes params.json own its *starting* value too. Without it the
+    same twelve numbers are typed out once per binary that links them —
+    firmware, VCV module, host test — and editing params.json moves the CC
+    range and the web slider while leaving all three boot values behind.
+
+    With "struct_output" this is one object of that struct; without it, one
+    global per row, which is the older shape and still what a firmware-only
+    module wants.
+    """
+    lines = [
+        BANNER.format(src=src),
+        "#pragma once\n\n",
+    ]
+    struct = spec.get("struct_output")
+    if struct:
+        lines.append(f'#include "{struct["header"]}"\n')
+        lines.append('#include "params.h"\n\n')
+    else:
+        lines.append("#include <stdint.h>\n\n")
+    lines.append(
+        "// ---------------------------------------------------------------------------\n"
+        "// Definitions for the parameter storage declared in params.h, initialised to\n"
         "// the `default` column of params.json.\n"
         "//\n"
         "// This header DEFINES objects, so include it in exactly one translation unit\n"
@@ -192,24 +292,33 @@ def gen_globals(spec, src):
         "// are static-initialised, so the values are already right before any code runs\n"
         "// and no boot path has to remember to call applyParamDefaults(); that one is\n"
         "// for factory reset, where the same table is applied at runtime.\n"
-        "// ---------------------------------------------------------------------------\n\n",
-        "// clang-format off\n",
-    ]
+        "// ---------------------------------------------------------------------------\n\n"
+    )
+
+    if struct:
+        owners = {split_target(p["name"], p["target"])[0] for p in spec["params"]}
+        if owners != {struct["instance"]}:
+            sys.exit(
+                "struct_output: every target must be a member of "
+                f"{struct['instance']}, found {sorted(owners)}"
+            )
+        lines.append(
+            f"/// The firmware's one instance. Hosts that run several copies of the\n"
+            f"/// module own theirs instead and never touch this.\n"
+            f"{struct['type']} {struct['instance']};\n"
+        )
+        return "".join(lines)
+
+    lines.append("// clang-format off\n")
     width = max(len(p["target"]) for p in spec["params"])
     for p in spec["params"]:
-        target = p["target"]
-        if not target.isidentifier():
+        owner, _ = split_target(p["name"], p["target"])
+        if owner:
             sys.exit(
-                f"globals_output: {p['name']}'s target {target!r} is not a plain "
-                "identifier, so its definition cannot be generated"
+                f"globals_output: {p['name']}'s target {p['target']!r} names a "
+                "member, which needs \"struct_output\" to declare its type"
             )
-        if p["kind"] == "float":
-            ctype = "volatile float" if p.get("volatile") else "float"
-            value = fmt_float(p["default"])
-        else:
-            ctype = p.get("ctype", "uint8_t")
-            value = p["default"]
-        lines.append(f"{ctype} {target:<{width}} = {value};\n")
+        lines.append(f"{ctype_of(p)} {p['target']:<{width}} = {value_of(p)};\n")
     lines.append("// clang-format on\n")
     return "".join(lines)
 
@@ -496,6 +605,8 @@ def gen_md(spec, src, existing):
 def outputs(module, spec):
     """Every path this module's params.json generates, in write order."""
     paths = [module / "include" / "param_manifest.generated.h"]
+    if spec.get("struct_output"):
+        paths.append(module / "include" / spec["struct_output"]["header"])
     if spec.get("globals_output"):
         paths.append(module / "include" / "param_globals.generated.h")
     if spec.get("ts_output"):
@@ -534,6 +645,13 @@ def main():
     dst = module / "include" / "param_manifest.generated.h"
     dst.write_text(gen_cpp(spec, src.as_posix()), encoding="utf-8", newline="\n")
 
+    struct_dst = None
+    if spec.get("struct_output"):
+        struct_dst = module / "include" / spec["struct_output"]["header"]
+        struct_dst.write_text(
+            gen_struct(spec, src.as_posix()), encoding="utf-8", newline="\n"
+        )
+
     globals_dst = None
     if spec.get("globals_output"):
         globals_dst = module / "include" / "param_globals.generated.h"
@@ -560,8 +678,16 @@ def main():
     for p in spec["params"]:
         kinds[p["kind"]] = kinds.get(p["kind"], 0) + 1
     print(f"{dst}: " + ", ".join(f"{v} {k}" for k, v in sorted(kinds.items())))
+    if struct_dst:
+        print(
+            f"{struct_dst}: {spec['struct_output']['name']}, "
+            f"{len(spec['params'])} fields"
+        )
     if globals_dst:
-        print(f"{globals_dst}: {len(spec['params'])} globals")
+        if spec.get("struct_output"):
+            print(f"{globals_dst}: {spec['struct_output']['instance']}")
+        else:
+            print(f"{globals_dst}: {len(spec['params'])} globals")
     if ts:
         print(f"{tsdst}: {len(spec['params'])} params")
     if md:

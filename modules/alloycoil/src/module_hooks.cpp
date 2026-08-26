@@ -32,7 +32,7 @@ const uint8_t kSysExDevId1 = 'C';
 void moduleHook_noteOn(uint8_t note, uint8_t /*velocity*/)
 {
     if(note >= 16 && note <= 72)
-        gStringPitch = (float)note;
+        gCoilParams.stringPitch = (float)note;
 }
 
 void moduleHook_noteOff(uint8_t /*note*/)
@@ -46,8 +46,8 @@ bool moduleHook_controlChange(uint8_t cc, uint8_t value)
     {
         case 123: // All Notes Off / panic — collapse the feedback loop, which
                   // is the only thing here that can run away.
-            gFeedbackGain = -60.0f;
-            gEchoFeedback = 0.0f;
+            gCoilParams.feedbackGain = -60.0f;
+            gCoilParams.echoFeedback = 0.0f;
             // Without this the collapse would glide over the feedback gain's
             // 50 ms t60. That is not long, but a panic is the one gesture whose
             // whole point is to be immediate.

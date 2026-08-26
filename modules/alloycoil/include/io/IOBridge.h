@@ -10,9 +10,14 @@
 // fillCoilParams — the single hardware-IO → parameter translation, shared by
 // the firmware and the VCV module exactly as AlloyFlux's IOBridge is.
 //
-// Writes the gXxx goal values directly rather than a params struct: Alloy Coil has
-// no smoothing layer of its own to feed, and updateControl() pushes these into
-// the engine on the very next line. A struct in between would be ceremony.
+// Writes into the caller's CoilParams. It used to write the gXxx globals
+// directly, on the argument that Alloy Coil has no smoothing layer of its own
+// to feed and a struct in between would be ceremony. The smoothing layer
+// arrived (ControlSmoother, M63i) and so did the second module in a rack: with
+// one shared set of goals, two Alloy Coils wrote each other's parameters, and
+// because the control divider and the smoother divider are different periods
+// the damage was not even consistent from block to block. Which instance's
+// knobs these are is now in the signature.
 //
 // Every knob range here must match the corresponding row in params.json — the
 // manifest and the panel are two views of the same parameter, and if they
@@ -26,13 +31,11 @@ static inline float alloycoilClampf(float v, float lo, float hi)
  * Panel button levels as of the previous call, owned by whoever is driving the
  * panel — the firmware has one, each VCV module instance has its own.
  *
- * Deliberately not a static inside fillCoilButtons(). The VCV plugin's
- * parameter globals are already one set per process rather than per Module
- * (see the note at the top of vcv/AlloyCoil.cpp), and the thing that keeps two
- * Alloy Coils in one rack from tearing each other apart is that every tick
- * overwrites every global from that instance's own controls. Edge state hidden
- * in a header would be shared, so the second module would see no edges and
- * inherit the first one's warp.
+ * Deliberately not a static inside fillCoilButtons(). This was already true
+ * back when the parameters themselves were shared globals — edge state hidden
+ * in a header would have meant the second module saw no edges and inherited the
+ * first one's warp — and it is the same rule the parameters now follow: what
+ * belongs to one panel is passed in, not reached for.
  */
 struct CoilButtonState
 {
@@ -57,8 +60,8 @@ struct CoilButtonState
  * gesture the engine has.
  *
  * The button writes the parameter; the parameter does the halving, in
- * ControlSmoother::Step(). It used to scale gEchoTime in place, which made warp
- * a thing only a panel could do — and gEchoTime is what packCoilConfig() saves,
+ * ControlSmoother::Step(). It used to scale echoTime in place, which made warp
+ * a thing only a panel could do — and echoTime is what packCoilConfig() saves,
  * so a preset taken with the button down came back half as long. Now the panel
  * and CC 20 are two ways to set one flag.
  *
@@ -69,7 +72,7 @@ struct CoilButtonState
  * Engine::Init), and that glide is the sweep — nothing here has to implement it.
  *
  * ⚠ On the **edges**, not the level, and the difference is the whole reason
- * this needs state. gWarp has two writers — this button and CC 20 — and a level
+ * this needs state. warp has two writers — this button and CC 20 — and a level
  * assignment means the one that runs every control tick wins every control
  * tick: an un-pressed button would hold warp at zero 128 times a second and the
  * CC could never take. Writing only when the button *changes* is the same rule
@@ -88,17 +91,17 @@ struct CoilButtonState
  * is read where it is used: by the ADC driver, when that lands, and by
  * io/CoilLeds.h, which turns the reverb LED white while it is held.
  */
-inline void fillCoilButtons(IHardwareIO &io, CoilButtonState &st)
+inline void fillCoilButtons(IHardwareIO &io, CoilButtonState &st, CoilParams &p)
 {
     const bool warpDown = io.readButton(Btn::WARP);
     if(warpDown != st.warpPrev)
     {
         st.warpPrev = warpDown;
-        gWarp       = warpDown ? 1 : 0;
+        p.warp      = warpDown ? 1 : 0;
     }
 }
 
-inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
+inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn, CoilParams &p)
 {
     // -----------------------------------------------------------------------
     // Resonator pitch. Knob is 0–1 over MIDI notes 16–72; the V/Oct jack adds
@@ -106,7 +109,7 @@ inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
     float note = 16.0f + io.readPot(Pot::PITCH) * (72.0f - 16.0f);
     if(io.isPatched(Cv::VOCT))
         note += io.readCV(Cv::VOCT) * 12.0f;
-    gStringPitch = alloycoilClampf(note, 16.0f, 72.0f);
+    p.stringPitch = alloycoilClampf(note, 16.0f, 72.0f);
 
     // -----------------------------------------------------------------------
     // Feedback loop.  Gain takes the most performative CV on the module —
@@ -116,7 +119,7 @@ inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
         gain = alloycoilClampf(gain + io.readCV(Cv::FBGAIN) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
-    gFeedbackGain = -30.0f + gain * (12.0f - -30.0f);
+    p.feedbackGain = -30.0f + gain * (12.0f - -30.0f);
 
     // Body is a square-law taper (params.json `skew: 2.0`), which is upstream's
     // Mapping::EXP. CV is summed *before* the squaring, not after, so a volt
@@ -127,13 +130,13 @@ inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
         body = alloycoilClampf(body + io.readCV(Cv::FBBODY) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
-    gFeedbackDelay = 0.001f + body * body * (0.1f - 0.001f);
+    p.feedbackDelay = 0.001f + body * body * (0.1f - 0.001f);
 
     // Log knobs, matching params.json's `scale: "log"`, so the knob and the CC
     // agree end to end. These two are frequencies, where a constant ratio per
     // unit of travel is what the ear actually hears.
-    gFeedbackLPF = 100.0f * powf(18000.0f / 100.0f, io.readPot(Pot::FBLPF));
-    gFeedbackHPF = 10.0f * powf(4000.0f / 10.0f, io.readPot(Pot::FBHPF));
+    p.feedbackLPF = 100.0f * powf(18000.0f / 100.0f, io.readPot(Pot::FBLPF));
+    p.feedbackHPF = 10.0f * powf(4000.0f / 10.0f, io.readPot(Pot::FBHPF));
 
     // -----------------------------------------------------------------------
     // Echo.  Send is a square-law taper (params.json `skew: 2.0`) — squaring
@@ -143,21 +146,21 @@ inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
         send = alloycoilClampf(send + io.readCV(Cv::ECHOSEND) * CvRange::kModToUnit,
                             0.0f,
                             1.0f);
-    gEchoSend = send * send;
+    p.echoSend = send * send;
 
     // Square-law too (`skew: 2.0`), matching upstream's Mapping::EXP.
     {
         const float t = io.readPot(Pot::ECHOTIME);
-        gEchoTime     = 0.05f + t * t * ((float)COIL_ECHO_MAX_S - 0.05f);
+        p.echoTime = 0.05f + t * t * ((float)COIL_ECHO_MAX_S - 0.05f);
     }
 
     // WARP and SHIFT — see fillCoilButtons() above, which the firmware also
     // calls on its own while it has buttons but no ADC.
-    fillCoilButtons(io, btn);
+    fillCoilButtons(io, btn, p);
 
     // Echo feedback is knob-only. It had a CV and lost it when the panel spent
     // its four generic jacks elsewhere; MIDI CC 87 still reaches it.
-    gEchoFeedback = io.readPot(Pot::ECHOFB) * 1.2f;
+    p.echoFeedback = io.readPot(Pot::ECHOFB) * 1.2f;
 
     // -----------------------------------------------------------------------
     // Reverb.
@@ -166,21 +169,21 @@ inline void fillCoilParams(IHardwareIO &io, CoilButtonState &btn)
         mix = alloycoilClampf(mix + io.readCV(Cv::REVMIX) * CvRange::kModToUnit,
                            0.0f,
                            1.0f);
-    gReverbMix = mix;
+    p.reverbMix = mix;
 
     // Decay carries `skew: 0.5`, i.e. a square root. Knob-only for the same
     // reason as echo feedback above; CC 92 still reaches it.
-    gReverbDecay = 0.2f + sqrtf(io.readPot(Pot::REVDECAY)) * (1.0f - 0.2f);
+    p.reverbDecay = 0.2f + sqrtf(io.readPot(Pot::REVDECAY)) * (1.0f - 0.2f);
 
     // -----------------------------------------------------------------------
     // Output.  Square-law audio taper, `skew: 2.0`.
     const float vol = io.readPot(Pot::VOL);
-    gOutputLevel    = vol * vol;
+    p.outputLevel = vol * vol;
 
     // -----------------------------------------------------------------------
     // Exciter level, 0–2 with the same square-law taper (`skew: 2.0`). Only
-    // the gain lives here; the sample itself is gExciterIn, written per frame
+    // the gain lives here; the sample itself is p.exciterIn, written per frame
     // in VCV and at the control tick on hardware.
     const float exc = io.readPot(Pot::EXCITE);
-    gExciterLevel   = exc * exc * 2.0f;
+    p.exciterLevel = exc * exc * 2.0f;
 }

@@ -86,9 +86,6 @@ static constexpr uint8_t kPinI2sData = 18u;
 // ---------------------------------------------------------------------------
 #include "param_globals.generated.h"
 
-// External excitation — see params.h. Control-rate on this platform.
-volatile float gExciterIn = 0.0f;
-
 // ---------------------------------------------------------------------------
 // Audio-path cost switches — runtime, not compile-time, so the two things M63i
 // added to the block can be turned off on a live board with `cpu` running
@@ -137,7 +134,7 @@ static AudioDriver sAudioDriver;
 static ButtonEngine   gBtnWarp(PIN_BUTTON_WARP);   // SW2 — doppler warp, held
 static ButtonEngine   gBtnShift(PIN_BUTTON_SHIFT); // SW3 — knob secondaries
 static HardwarePicoIO sHardwareIO(gBtnWarp, gBtnShift);
-// Last button levels the bridge acted on. It writes gWarp on the edges only, so
+// Last button levels the bridge acted on. It writes gCoilParams.warp on the edges only, so
 // that CC 20 can own the flag between presses — see io/IOBridge.h.
 static CoilButtonState sBtnState;
 
@@ -242,10 +239,10 @@ void updateControl()
     // it will then be doing. See io/HardwarePicoIO.h.
     gBtnWarp.poll();
     gBtnShift.poll();
-    fillCoilButtons(sHardwareIO, sBtnState);
+    fillCoilButtons(sHardwareIO, sBtnState, gCoilParams);
 
     // Nothing else here talks to the engine. This tick's job is to bring
-    // the gXxx *goal* values up to date from MIDI, SysEx and the console; the
+    // the *goal* values up to date from MIDI, SysEx and the console; the
     // glide onto them, and the engine writes it produces, belong to
     // sSmoother.Step() in renderAudio(). Splitting the two is what lets the
     // goals be read at a sensible I/O rate while the interpolation runs fast
@@ -328,12 +325,12 @@ renderAudio(float *pOutL, float *pOutR)
     if(smoothFrames != 0u && ++sSmoothPhase >= smoothFrames)
     {
         sSmoothPhase = 0;
-        sSmoother.Step(gEngine);
+        sSmoother.Step(gEngine, gCoilParams);
     }
 
-    // gExciterIn is whatever the EXCITER jack last read; 0 when unpatched, in
+    // exciterIn is whatever the EXCITER jack last read; 0 when unpatched, in
     // which case the resonator self-excites from its own noise floor as before.
-    gEngine.Process(gExciterIn, *pOutL, *pOutR);
+    gEngine.Process(gCoilParams.exciterIn, *pOutL, *pOutR);
 
     // The module's output edge — upstream's peak limiter, which the port
     // originally replaced with a bare SoftClip. That was ~6 dB hot and

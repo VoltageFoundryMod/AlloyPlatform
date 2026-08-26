@@ -2,7 +2,7 @@
 
 #include "io/HardwareIO.h"
 #include "io/PanelMap.h" // Led:: — Alloy Coil's LED roles
-#include "params.h"      // gFeedbackGain, gEchoSend, gEchoTime, …
+#include "params.h"      // CoilParams — feedbackGain, echoSend, echoTime, …
 
 #include <stdint.h>
 
@@ -10,14 +10,14 @@
 // CoilLeds — the LED language for Alloy Coil, implemented once for both
 // targets exactly as fillCoilParams() is.
 //
-// Platform-independent: no Arduino, no Rack, no libm. update() reads the gXxx
-// goal values directly and produces seven normalised RGB colours; writeTo()
+// Platform-independent: no Arduino, no Rack, no libm. update() reads a module's
+// goal values and produces seven normalised RGB colours; writeTo()
 // pushes them through IHardwareIO, so a Dotstar chain and a Rack light widget
 // get the same picture.
 //
-// It reads the globals rather than taking a params struct for the same reason
-// io/IOBridge.h writes them directly: Alloy Coil has no smoothing layer in between,
-// and a struct would be ceremony.
+// It takes the params struct for the same reason io/IOBridge.h writes into one:
+// a rack may hold more than one Alloy Coil, and a panel must be lit from the
+// parameters of the module it is bolted to.
 //
 // What each LED says
 // ------------------
@@ -39,7 +39,7 @@
 //
 // Not wired on hardware yet: Alloy Coil's firmware has no IHardwareIO implementation
 // at all (no ADC, no button engine — see modules/alloycoil/src/main.cpp). When it
-// gets one, `leds.update(sig, dt); leds.writeTo(io);` in updateControl() is the
+// gets one, `leds.update(sig, dt, p); leds.writeTo(io);` in updateControl() is the
 // whole integration, and the colours will match the plugin by construction.
 // ---------------------------------------------------------------------------
 
@@ -92,7 +92,7 @@ static inline float wave01(float phase)
 }
 
 /**
- * Per-tick state that is not in the gXxx globals.
+ * Per-tick state that is not in CoilParams.
  *
  * peakL/peakR/exciter are peak absolute values *since the last update()*,
  * normalised to 0–1. The caller accumulates them in its audio path; the
@@ -131,17 +131,20 @@ class Engine
      * Recompute all seven colours. Call once per control tick.
      * @param s   peaks and button state since the previous call
      * @param dt  seconds since the previous call
+     * @param p   the goal values this module is playing. Passed rather than
+     *            reached for, so a host running several Alloy Coils lights
+     *            each panel from its own parameters.
      */
-    void update(const Signals &s, float dt)
+    void update(const Signals &s, float dt, const CoilParams &p)
     {
         if(dt <= 0.0f)
             dt = 1.0f / 128.0f;
 
-        _advance(s, dt);
+        _advance(s, dt, p);
         _renderLevel();
-        _renderLoop();
-        _renderEcho(s);
-        _renderSpace(s);
+        _renderLoop(p);
+        _renderEcho(s, p);
+        _renderSpace(s, p);
         _renderCentre(s);
 
         if(_master < 0.999f)
@@ -171,7 +174,7 @@ class Engine
     static float _follow(float cur, float target, float dt, float tau)
     { return cur + (target - cur) * (dt / (tau + dt)); }
 
-    void _advance(const Signals &s, float dt)
+    void _advance(const Signals &s, float dt, const CoilParams &p)
     {
         const float pk = clamp01(s.peakL) > clamp01(s.peakR) ? clamp01(s.peakL)
                                                              : clamp01(s.peakR);
@@ -197,7 +200,7 @@ class Engine
 
         // Echo pulse runs at one cycle per repeat, so the LED *shows the delay
         // time* — a knob whose effect is otherwise inaudible until you play.
-        const float echoHz = gEchoTime > 0.001f ? 1.0f / gEchoTime : 1.0f;
+        const float echoHz = p.echoTime > 0.001f ? 1.0f / p.echoTime : 1.0f;
         _echoPhase += echoHz * dt;
         _echoPhase -= (float)(int)_echoPhase;
 
@@ -206,10 +209,10 @@ class Engine
     }
 
     /** Loop danger, 0 (decaying) … 1 (running away). */
-    float _danger() const
+    float _danger(const CoilParams &p) const
     {
         // Where the knob is, over its full range.
-        float d = clamp01((gFeedbackGain - kGainMinDb)
+        float d = clamp01((p.feedbackGain - kGainMinDb)
                           / (kGainMaxDb - kGainMinDb));
 
         // Where the sound actually is. A sustained rise of the fast follower
@@ -235,9 +238,9 @@ class Engine
 
     // LED2 / LED6 — the loop-danger meter, mirrored so it reads as the whole
     // ring heating up rather than as two separate indicators.
-    void _renderLoop()
+    void _renderLoop(const CoilParams &p)
     {
-        const float d = _danger();
+        const float d = _danger(p);
 
         // Unity gain sits at 0 dB, which is not the middle of the knob's range.
         // The green→amber knee is put there rather than at 0.5 so that "amber"
@@ -268,9 +271,9 @@ class Engine
     // here rather than on the centre LED, because what it does is halve the
     // echo time — and the flash rate doubling under your finger is the clearest
     // possible readout of that.
-    void _renderEcho(const Signals &s)
+    void _renderEcho(const Signals &s, const CoilParams &p)
     {
-        const float send = clamp01(gEchoSend);
+        const float send = clamp01(p.echoSend);
         if(send <= 0.001f)
         {
             // Still acknowledge the button when the echo is silent, or holding
@@ -281,7 +284,7 @@ class Engine
         // Short flash rather than a sine: a repeat is an event, not a swell.
         const float ph    = _echoPhase;
         const float flash = ph < 0.18f ? wave01(ph * (0.5f / 0.18f)) : 0.0f;
-        const float fb    = clamp01(gEchoFeedback / 1.2f);
+        const float fb    = clamp01(p.echoFeedback / 1.2f);
         const float b     = send * (0.18f + 0.82f * flash);
 
         // Feedback pushes the hue toward the loop colours: a long echo tail is
@@ -294,15 +297,15 @@ class Engine
 
     // LED5 — reverb presence, and SHIFT while it is held. SHIFT wins: knowing
     // which parameter layer the knobs address matters more than the reverb.
-    void _renderSpace(const Signals &s)
+    void _renderSpace(const Signals &s, const CoilParams &p)
     {
         if(s.shiftHeld)
         {
             _led[(int)Led::SPACE] = scale(kWhite, 0.85f);
             return;
         }
-        const float mix   = clamp01(gReverbMix);
-        const float decay = clamp01((gReverbDecay - 0.2f) / 0.8f);
+        const float mix   = clamp01(p.reverbMix);
+        const float decay = clamp01((p.reverbDecay - 0.2f) / 0.8f);
         _led[(int)Led::SPACE]
             = scale(kBlue, clamp01(mix * (0.25f + 0.75f * decay)));
     }

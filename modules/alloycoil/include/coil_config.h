@@ -46,11 +46,11 @@ static_assert(sizeof(CoilConfig) <= kSlotBlobBytes,
               "CoilConfig outgrew the platform slot blob — raise "
               "kSlotBlobBytes in platform/include/ConfigSlot.h");
 
-/** Serialise the current gXxx globals into a config struct. */
+/** Serialise the firmware's current parameters (gCoilParams) into a config struct. */
 void packCoilConfig(CoilConfig &cfg);
 
-/** Write a config struct back into the gXxx globals. */
+/** Write a config struct back into gCoilParams. */
 void applyCoilConfig(const CoilConfig &cfg);
 
-/** Reset every gXxx global to its compile-time default. Touches no flash. */
+/** Reset every parameter to its compile-time default. Touches no flash. */
 void applyCoilDefaults();

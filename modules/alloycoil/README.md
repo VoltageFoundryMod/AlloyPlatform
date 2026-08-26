@@ -212,8 +212,8 @@ factory-reset table in `src/config_store.cpp`. Four copies of twelve numbers,
 and editing `params.json` moved none of them, so a changed default reached the
 CC range and the web slider while every boot value stayed behind. All four are
 generated now: `"globals_output": true` emits
-`include/param_globals.generated.h`, which *defines* the globals initialised to
-`default` (include it in one TU per binary), and `applyParamDefaults()` in the
+`include/param_struct.generated.h` (the `CoilParamGoals` type, every field initialised to
+`default`) plus `include/param_globals.generated.h`, which *defines* the firmware's one `gCoilParams` (include it in one TU per binary), and `applyParamDefaults()` in the
 manifest applies the same column at runtime for factory reset. Changing a
 default is a one-line `params.json` edit plus `make params`.
 
@@ -387,14 +387,14 @@ than being needed. What remains is hardware, not DSP:
   unpatched, which leaves the knob path alone instead of summing a fabricated
   0 V into it.
 
-  WARP is fully playable now. It is CC 20 (`gWarp`), applied in
+  WARP is fully playable now. It is CC 20 (`CoilParams::warp`), applied in
   `ControlSmoother::Step()` rather than in `IOBridge`, and the button writes it
   on its edges so the panel and the wire can share one flag — press for the
   dive, release for the rise, and CC 20 latches in between.
 
   `status` prints live button state, which on a board with no LEDs is the only
   way to tell a miswired switch from a dead one.
-- **Audio-rate exciter on hardware.** `gExciterIn` is written at the 128 Hz
+- **Audio-rate exciter on hardware.** `CoilParams::exciterIn` is written at the 128 Hz
   control tick, so the jack is a control voltage there and a true audio input in
   Rack. FM IN is on a dedicated direct ADC pin for exactly this, so it is a
   firmware job rather than a board change.

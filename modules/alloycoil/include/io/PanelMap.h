@@ -208,7 +208,7 @@ constexpr PotId   kShiftPairs[kShiftPairCount][2]
  * port once per sample, so it is a genuine audio-rate exciter. The firmware
  * reads it from the 128 Hz control tick, so on hardware it is a control voltage
  * that pokes and swells the string but cannot excite it with audio. See
- * gExciterIn in params.h.
+ * CoilParams::exciterIn in params.h.
  *
  * GATE (CV_2) is deliberately unassigned — reserved for the VCA/envelope
  * option rather than quietly given another meaning now.

@@ -32,19 +32,19 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
-// Globals declared extern in params.h. main.cpp is not compiled into the
-// plugin, so the definitions live here.
+// gCoilParams, declared extern in params.h. main.cpp is not compiled into the
+// plugin, so the definition lives here.
 //
-// One set per process, not per Module — a second AlloyCoil in the same rack
-// shares them. That is a real limitation and it is the same one AlloyFlux has;
-// the engine instance itself is per-Module, so only the goal values collide,
-// and they are overwritten from this module's own knobs every process() call.
+// Nothing in the plugin reads it. Each AlloyCoil owns a CoilParams member and
+// plays from that — the parameters were one shared set per process until the
+// struct landed, which meant a second AlloyCoil in a rack wrote the first
+// one's knobs. What still needs this object to exist is the generated
+// manifest: its `target` column holds the *address* of each parameter, so the
+// table will not link without one. On the board those addresses are how CC,
+// SysEx and the console reach a parameter; here those transports are Rack's
+// and write Rack params instead, so the object is linked and never touched.
 // ---------------------------------------------------------------------------
-// Same generated definitions the firmware links, so the boot values here and
-// on hardware cannot drift apart.
 #include "param_globals.generated.h"
-
-volatile float gExciterIn = 0.0f;
 
 // ---------------------------------------------------------------------------
 // The manifest row for a parameter, by params.json name.
@@ -226,7 +226,7 @@ struct AlloyCoil : Module
     // Built from the generated manifest, so params.json stays the one place a
     // CC number is written down. What this file adds is the half the manifest
     // cannot know: which *Rack param* owns each parameter. The manifest's
-    // `target` is the gXxx goal value, and writing that here would be useless —
+    // `target` is the goal value, and writing that here would be useless —
     // fillCoilParams() overwrites every one of them from the knobs on the next
     // control tick. A CC has to move the knob.
     //
@@ -264,7 +264,7 @@ struct AlloyCoil : Module
             {"vol", VOL_PARAM},
             {"excite", EXCITE_PARAM},
             // Not a knob, and here for a different reason than the rest: a CC
-            // that only wrote gWarp would leave the panel button lit or dark at
+            // that only wrote warp would leave the panel button lit or dark at
             // random relative to the parameter. Routing it through the widget
             // keeps the two agreeing, and the bridge picks the change up as an
             // edge on the next control tick.
@@ -475,8 +475,12 @@ struct AlloyCoil : Module
     void onReset(const ResetEvent &e) override
     {
         Module::onReset(e);
-        // Every knob is back at its default; tell the page rather than leaving
-        // it showing the patch that was there a moment ago.
+        // Every knob is back at its default; warp has no knob to be reset by,
+        // so clear the latch here or Initialize would leave the echo halved.
+        _params.warp = 0;
+        _btnState    = CoilButtonState{};
+        // Tell the page rather than leaving it showing the patch that was there
+        // a moment ago.
         _dumpPending.store(true);
     }
 
@@ -516,7 +520,7 @@ struct AlloyCoil : Module
     /// The current patch as raw (cc, value) pairs — the payload of a PATCH_DUMP
     /// and what a preset slot stores.
     ///
-    /// Knob positions, not the gXxx goal values: unlike the firmware, whose
+    /// Knob positions, not the goal values: unlike the firmware, whose
     /// dump reads the post-CV goal, this deliberately reports what the panel
     /// says. A CV-modulated parameter would otherwise stream a changed CC on
     /// every feedback tick and drag the configurator's slider around with the
@@ -747,7 +751,7 @@ struct AlloyCoil : Module
         if(_controlPhase++ >= kControlDiv)
         {
             _controlPhase = 0;
-            fillCoilParams(_io, _btnState);
+            fillCoilParams(_io, _btnState, _params);
 
             // LEDs, from the peaks accumulated since the previous tick. Same
             // call the firmware will make once AlloyCoil has an IHardwareIO.
@@ -758,7 +762,9 @@ struct AlloyCoil : Module
             sig.exciterPatched = inputs[EXCITER_INPUT].isConnected();
             sig.shiftHeld      = _io.readButton(Btn::SHIFT);
             sig.warpHeld       = _io.readButton(Btn::WARP);
-            _leds.update(sig, (float)(kControlDiv + 1) * args.sampleTime);
+            _leds.update(sig,
+                         (float)(kControlDiv + 1) * args.sampleTime,
+                         _params);
             _leds.writeTo(_io);
             _peakL = _peakR = _peakExc = 0.f;
         }
@@ -778,7 +784,7 @@ struct AlloyCoil : Module
         if(++_smoothPhase >= kSmoothFrames)
         {
             _smoothPhase = 0;
-            _smoother.Step(_engine);
+            _smoother.Step(_engine, _params);
         }
 
         // Exciter, per sample — this is the part the firmware cannot do yet.
@@ -816,16 +822,24 @@ struct AlloyCoil : Module
     }
 
     // -----------------------------------------------------------------------
-    // Persist the MIDI port choice and the preset slots with the patch. The
-    // firmware's equivalents live in flash; here they belong to the module
-    // instance, so a saved rack comes back talking to the same port with the
-    // same nine slots in it.
+    // Persist the MIDI port choice, the preset slots and the warp latch with
+    // the patch. The firmware's equivalents live in flash; here they belong to
+    // the module instance, so a saved rack comes back talking to the same port
+    // with the same nine slots in it.
+    //
+    // Every knob is a Rack param and Rack saves those itself, so warp is the
+    // only goal value listed here — it is the one parameter with no knob. The
+    // panel button is momentary and its state is deliberately not saved (a held
+    // gesture is not part of a patch, which is also why packCoilConfig() leaves
+    // it out), but CC 20 and SysEx *latch* it, and a rack is a session rather
+    // than a preset: whatever the module was left set to should come back.
     // -----------------------------------------------------------------------
     json_t *dataToJson() override
     {
         json_t *rootJ = json_object();
         json_object_set_new(rootJ, "midiInput", midiInput.toJson());
         json_object_set_new(rootJ, "midiOutput", midiOutput.toJson());
+        json_object_set_new(rootJ, "warp", json_boolean(_params.warp != 0));
         json_t *presetsJ = json_array();
         for(int s = 0; s < 9; s++)
         {
@@ -849,6 +863,21 @@ struct AlloyCoil : Module
             midiInput.fromJson(midiJ);
         if(json_t *midiOutJ = json_object_get(rootJ, "midiOutput"))
             midiOutput.fromJson(midiOutJ);
+
+        // Only the parameter. _btnState.warpPrev stays false, which is what the
+        // constructor left it at and what it must be: fillCoilButtons() writes
+        // warp on button *edges*, so seeding warpPrev true to "match" a restored
+        // latch would make the very first tick — button up, warpPrev true — read
+        // as a release and clear the thing that was just restored.
+        //
+        // Leaving it false means the first press after loading a warped patch is
+        // a no-op (it writes the 1 already there) and the release clears it.
+        // That is the same thing that happens on the board when CC 20 latches
+        // warp on and you then tap the button, and it is the behaviour the
+        // momentary-button-over-a-latching-flag design has always had.
+        if(json_t *warpJ = json_object_get(rootJ, "warp"))
+            _params.warp = json_is_true(warpJ) ? 1 : 0;
+
         json_t *presetsJ = json_object_get(rootJ, "presets");
         if(presetsJ && json_is_array(presetsJ))
         {
@@ -893,9 +922,17 @@ struct AlloyCoil : Module
     infrasonic::FeedbackSynth::ControlSmoother _smoother;
     infrasonic::FeedbackSynth::OutputStage     _output;
     VCVRackIO                                  _io;
-    /// Per-Module, unlike the parameter globals above: the bridge writes gWarp
-    /// only when the button *changes*, and shared edge state would mean a
-    /// second Alloy Coil in the rack never saw an edge. See io/IOBridge.h.
+
+    /// This module's goal values — what the knobs write and what the smoother
+    /// glides onto. Per-Module, like everything around it: the firmware's one
+    /// engine can keep its parameters in a global (gCoilParams above), a rack
+    /// that may hold four Alloy Coils cannot. See params.h.
+    CoilParams _params;
+
+    /// Per-Module for the same reason, and it was per-Module first: the bridge
+    /// writes warp only when the button *changes*, and shared edge state would
+    /// mean a second Alloy Coil in the rack never saw an edge. See
+    /// io/IOBridge.h.
     CoilButtonState _btnState;
     CoilLed::Engine _leds;
     int             _controlPhase = 0;

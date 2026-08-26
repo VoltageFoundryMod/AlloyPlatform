@@ -12,13 +12,21 @@
     "Generated consumers (run `make params MODULE=alloycoil` after editing, and",
     "commit the output so a normal build never needs Python):",
     "  include/param_manifest.generated.h  — C++ descriptor table",
-    "  include/param_globals.generated.h   — the globals, initialised to `default`",
+    "  include/param_struct.generated.h    — CoilParamGoals, one instance's worth",
+    "  include/param_globals.generated.h   — the firmware's one instance",
     "  ../../web-configurator/src/lib/paramMapAlloyCoil.ts",
     "",
     "`default` therefore lands in one place and reaches all four consumers of",
-    "it: the boot value of the global (via param_globals), factory reset (via",
+    "it: the boot value of every instance (via param_struct), factory reset (via",
     "applyParamDefaults), the VCV knob's boot position (via toPos()) and the",
     "web slider. Changing a default here needs no C++ edit anywhere.",
+    "",
+    "Targets are members of gCoilParams rather than bare globals. The board has",
+    "one engine and one set of parameters; VCV can have any number of Alloy",
+    "Coils in a rack, and while they shared one set the second module to run in",
+    "a block overwrote the first one's knobs. The struct is what lets a host own",
+    "as many independent copies as it has instances — see the note on",
+    "fillCoilParams() in include/io/IOBridge.h.",
     "",
     "CC numbers are chosen to line up with AlloyFlux where the meaning matches",
     "(7 volume, 91 reverb mix, 93 echo send, 95 echo mix-ish, 74/75 filters) so",
@@ -26,6 +34,12 @@
   ],
   "ts_output": "../../web-configurator/src/lib/paramMapAlloyCoil.ts",
   "md_output": "MANUAL.md",
+  "struct_output": {
+    "header": "param_struct.generated.h",
+    "name": "CoilParamGoals",
+    "type": "CoilParams",
+    "instance": "gCoilParams"
+  },
   "globals_output": true,
   "cpp_includes": ["params.h"],
   "categories": ["Resonator", "Feedback", "Echo", "Reverb", "Output"],
@@ -42,7 +56,7 @@
       "default": 40.0,
       "scale": "linear",
       "unit": "note",
-      "target": "gStringPitch"
+      "target": "gCoilParams.stringPitch"
     },
     {
       "cc": 17,
@@ -56,7 +70,7 @@
       "default": -30.0,
       "scale": "linear",
       "unit": "dB",
-      "target": "gFeedbackGain",
+      "target": "gCoilParams.feedbackGain",
       "$comment": [
         "Upstream's min is -60 dB. Narrowed to -30, deliberately keeping the",
         "taper LINEAR — a skew was tried here and reverted, so this fixes the",
@@ -84,7 +98,7 @@
       "skew": 2.0,
       "unit": "dB",
       "displayTransform": "gain-db",
-      "target": "gExciterLevel",
+      "target": "gCoilParams.exciterLevel",
       "$comment_display": [
         "Stored as the multiplier the engine wants, shown as dB. 0-2 with the",
         "default at 1.0 reads as 'already half up' to anyone who has met a",
@@ -126,7 +140,7 @@
       "default": 0.001,
       "scale": "linear",
       "skew": 2.0,
-      "target": "gFeedbackDelay",
+      "target": "gCoilParams.feedbackDelay",
       "unit": "s",
       "display": { "min": 1, "max": 100, "unit": "ms" },
       "$comment_display": [
@@ -170,7 +184,7 @@
       "default": 18000.0,
       "scale": "log",
       "unit": "Hz",
-      "target": "gFeedbackLPF"
+      "target": "gCoilParams.feedbackLPF"
     },
     {
       "cc": 75,
@@ -184,7 +198,7 @@
       "default": 250.0,
       "scale": "log",
       "unit": "Hz",
-      "target": "gFeedbackHPF"
+      "target": "gCoilParams.feedbackHPF"
     },
     {
       "cc": 93,
@@ -198,7 +212,7 @@
       "default": 0.0,
       "scale": "linear",
       "skew": 2.0,
-      "target": "gEchoSend",
+      "target": "gCoilParams.echoSend",
       "$comment": [
         "Audio taper, same reasoning as vol: this is a send level and linear",
         "leaves no useful resolution in the subtle range. skew 2 puts -20 dB",
@@ -221,7 +235,7 @@
       "scale": "linear",
       "skew": 2.0,
       "unit": "s",
-      "target": "gEchoTime",
+      "target": "gCoilParams.echoTime",
       "$comment": [
         "Square-law, matching upstream's Mapping::EXP — see fbbody above for",
         "why skew 2.0 on a linear range is the same thing.",
@@ -247,7 +261,7 @@
       "max": 1.2,
       "default": 0.0,
       "scale": "linear",
-      "target": "gEchoFeedback",
+      "target": "gCoilParams.echoFeedback",
       "$comment": [
         "Upstream's max is 1.5. Trimmed to 1.2 because everything above unity",
         "blooms to the SoftClip ceiling and sounds much the same — only the",
@@ -269,7 +283,7 @@
       "doc": "Doppler warp — halves the echo time, pitching the tail up as it settles",
       "category": "Echo",
       "kind": "enum",
-      "target": "gWarp",
+      "target": "gCoilParams.warp",
       "default": 0,
       "options": [
         { "label": "Off", "ccMin": 0, "ccMax": 63, "value": 0 },
@@ -291,7 +305,7 @@
         "",
         "The scaling is applied in ControlSmoother::Step(), not in IOBridge:",
         "that is the one point both front ends and every transport pass through",
-        "on the way to the engine, and it leaves gEchoTime holding the *knob's*",
+        "on the way to the engine, and it leaves echoTime holding the *knob's*",
         "time, so a preset saved with warp on does not come back half as long.",
         "",
         "Latching on the wire, momentary on the panel. A CC is a value, not a",
@@ -313,7 +327,7 @@
       "max": 1.0,
       "default": 0.0,
       "scale": "linear",
-      "target": "gReverbMix"
+      "target": "gCoilParams.reverbMix"
     },
     {
       "cc": 92,
@@ -327,7 +341,7 @@
       "default": 0.2,
       "scale": "linear",
       "skew": 0.5,
-      "target": "gReverbDecay",
+      "target": "gCoilParams.reverbDecay",
       "$comment": [
         "This is a tank feedback coefficient, and reverb time goes as",
         "1/ln(fb) — so it runs away near 1.0 and barely moves below 0.7.",
@@ -354,7 +368,7 @@
       "default": 1.0,
       "scale": "linear",
       "skew": 2.0,
-      "target": "gOutputLevel",
+      "target": "gCoilParams.outputLevel",
       "$comment": [
         "Square-law audio taper. Linear-in-amplitude spends its whole top half",
         "on 6 dB (0.9 dB per 10% of travel by the end) while the bottom 10%",

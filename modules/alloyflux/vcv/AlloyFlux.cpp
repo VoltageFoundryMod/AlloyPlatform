@@ -22,12 +22,12 @@
 volatile bool gGatePatched = false;
 volatile bool gGateHigh    = false;
 
-// CLOUD's oscillator pool (M78). Process-wide here rather than per-module, the
-// same compromise gGatePatched already makes — the pool size is a CPU-budget
-// setting, not a musical one, so two AlloyFluxes in a rack wanting different
-// values is not a case worth the plumbing. Both are set from the context menu.
-uint8_t gCloudPool     = kCloudPoolDefault;
-uint8_t gCloudMaxNotes = kCloudMaxNotes;
+// CLOUD's oscillator pool (M78) used to be process-wide here, on the argument
+// that a CPU-budget setting is not a musical one and two AlloyFluxes wanting
+// different values was not a case worth the plumbing. Both halves of that turned
+// out to be wrong: the pool is audibly the width of the mode, and sharing it
+// meant the second module in a rack silently retuned the first. It lives in the
+// module now (_cloudPool/_cloudMaxNotes) and saves with the patch.
 
 // The firmware's drone-return path. In VCV each module owns its own drone
 // state (_droneMode) and there is no global to clear, so this exists only to
@@ -205,6 +205,10 @@ struct AlloyFlux : Module
     SynthParams _params;
     int         _controlCounter = 0;
     int         _controlDiv     = 344; // ~128 Hz at 44100
+
+    // CLOUD's oscillator pool, per module — see the note at the top of the file.
+    uint8_t _cloudPool     = kCloudPoolDefault;
+    uint8_t _cloudMaxNotes = kCloudMaxNotes;
 
     // Button state — edge detection at full sample rate
     VoiceMode _voiceMode    = VoiceMode::PAIR;
@@ -483,8 +487,10 @@ struct AlloyFlux : Module
     void onReset(const ResetEvent &e) override
     {
         Module::onReset(e);
-        _voiceMode = VoiceMode::PAIR;
-        _droneMode = true;
+        _voiceMode     = VoiceMode::PAIR;
+        _droneMode     = true;
+        _cloudPool     = kCloudPoolDefault;
+        _cloudMaxNotes = kCloudMaxNotes;
         _dumpPending.store(true);
     }
 
@@ -959,10 +965,11 @@ struct AlloyFlux : Module
                         // Search for a free slot starting at _polyRR so voices
                         // are assigned in rotation (same as CV/gate path).
                         // Steal round-robin if all busy. CLOUD is bounded by
-                        // gCloudMaxNotes rather than the full six — every note
+                        // _cloudMaxNotes rather than the full six — every note
                         // there costs a whole stack out of the oscillator pool.
-                        const uint8_t lim  = polySlotLimit(_voiceMode);
-                        uint8_t       slot = 255;
+                        const uint8_t lim
+                            = polySlotLimit(_voiceMode, _cloudMaxNotes);
+                        uint8_t slot = 255;
                         for(uint8_t i = 0; i < lim; i++)
                         {
                             uint8_t idx = (_polyRR + i) % lim;
@@ -1172,8 +1179,8 @@ struct AlloyFlux : Module
         // ---------------------------------------------------------------
         fillSynthParams(_io, _params);
         _params.voiceMode     = _voiceMode;
-        _params.cloudPool     = gCloudPool;
-        _params.cloudMaxNotes = gCloudMaxNotes;
+        _params.cloudPool     = _cloudPool;
+        _params.cloudMaxNotes = _cloudMaxNotes;
         // VCV Rack V/Oct convention: 0 V = C4 (261.626 Hz).
         // Internally, 0 V on the V/Oct path = A4 (440 Hz) — 9 semitones = 0.75 V higher.
         // Correct only when a cable is patched; free-running / ROOT-knob tuning is unaffected.
@@ -1247,8 +1254,8 @@ struct AlloyFlux : Module
         // Rising edge  → allocate round-robin; prefer free (255) then releasing (129).
         // Falling edge → call setGate(false) but keep slot as 129 so tail rings out.
         // Control tick → scan 129 slots; free when envelope level drops to silence.
-        const float gateLenMs = params[GATE_LENGTH_PARAM].getValue();
-        const uint8_t cvSlotLim = polySlotLimit(_voiceMode);
+        const float   gateLenMs = params[GATE_LENGTH_PARAM].getValue();
+        const uint8_t cvSlotLim = polySlotLimit(_voiceMode, _cloudMaxNotes);
         if(modeUsesPolySlots(_voiceMode) && inputs[GATE_INPUT].isConnected())
         {
             if(gateRising)
@@ -1480,12 +1487,24 @@ struct AlloyFlux : Module
             _ledPeakR = aR;
     }
 
-    // M37i: persist MIDI port config; M37l: persist preset slots 1–9
+    // M37i: persist MIDI port config; M37l: persist preset slots 1–9.
+    //
+    // Everything else a player sets is a Rack param, which Rack saves on its
+    // own — the four below are the exceptions, and they were being lost. Voice
+    // mode and drone are the module's two largest settings and live outside the
+    // param system because the hardware drives them from a button rather than a
+    // pot; the CLOUD pool pair moved into the module in the same pass that made
+    // them per-instance. Anything added to those members wants a line here too.
     json_t *dataToJson() override
     {
         json_t *rootJ = json_object();
         json_object_set_new(rootJ, "midiInput", midiInput.toJson());
         json_object_set_new(rootJ, "midiOutput", midiOutput.toJson());
+        json_object_set_new(rootJ, "voiceMode", json_integer((int)_voiceMode));
+        json_object_set_new(rootJ, "droneMode", json_boolean(_droneMode));
+        json_object_set_new(rootJ, "cloudPool", json_integer(_cloudPool));
+        json_object_set_new(
+            rootJ, "cloudMaxNotes", json_integer(_cloudMaxNotes));
         json_t *presetsJ = json_array();
         for(int s = 0; s < 9; s++)
         {
@@ -1511,6 +1530,37 @@ struct AlloyFlux : Module
         json_t *midiOutJ = json_object_get(rootJ, "midiOutput");
         if(midiOutJ)
             midiOutput.fromJson(midiOutJ);
+
+        // Clamped rather than trusted: these come off disk, and a patch saved by
+        // a build with a different mode list or pool ceiling must not index the
+        // engine past its arrays. Absent keys keep the constructor's defaults,
+        // which is what a pre-M37 patch should load as.
+        if(json_t *vmJ = json_object_get(rootJ, "voiceMode"))
+        {
+            int vm = (int)json_integer_value(vmJ);
+            if(vm >= 0 && vm <= (int)VoiceMode::POLY)
+                _voiceMode = (VoiceMode)vm;
+            // Restoring a mode is not changing one. Without this the first
+            // control tick sees _voiceMode != _ledPrevMode and counts the mode
+            // out on the LEDs, so every patch load would open with an animation
+            // nobody asked for.
+            _ledPrevMode = _voiceMode;
+        }
+        if(json_t *dmJ = json_object_get(rootJ, "droneMode"))
+            _droneMode = json_is_true(dmJ);
+        if(json_t *cpJ = json_object_get(rootJ, "cloudPool"))
+        {
+            int cp = (int)json_integer_value(cpJ);
+            if(cp >= 1 && cp <= (int)kCloudOscMax)
+                _cloudPool = (uint8_t)cp;
+        }
+        if(json_t *cnJ = json_object_get(rootJ, "cloudMaxNotes"))
+        {
+            int cn = (int)json_integer_value(cnJ);
+            if(cn >= 1 && cn <= (int)kCloudMaxNotes)
+                _cloudMaxNotes = (uint8_t)cn;
+        }
+
         json_t *presetsJ = json_object_get(rootJ, "presets");
         if(presetsJ && json_is_array(presetsJ))
         {
@@ -1765,10 +1815,9 @@ struct AlloyFluxWidget : ModuleWidget
         ctSlider->quantity = m->getParamQuantity(AlloyFlux::CURVETIME_PARAM);
         menu->addChild(ctSlider);
 
-        auto *fmAmtSlider = new SubMenuSlider;
-        fmAmtSlider->text = "FM amount";
-        fmAmtSlider->quantity
-            = m->getParamQuantity(AlloyFlux::FM_AMOUNT_PARAM);
+        auto *fmAmtSlider     = new SubMenuSlider;
+        fmAmtSlider->text     = "FM amount";
+        fmAmtSlider->quantity = m->getParamQuantity(AlloyFlux::FM_AMOUNT_PARAM);
         menu->addChild(fmAmtSlider);
 
         menu->addChild(rack::createMenuLabel("Additional Controls"));
@@ -2126,7 +2175,7 @@ struct AlloyFluxWidget : ModuleWidget
             };
             menu->addChild(rack::createSubmenuItem(
                 "CLOUD supersaw pool",
-                sawLadder(gCloudPool, gCloudMaxNotes) + " saws",
+                sawLadder(m->_cloudPool, m->_cloudMaxNotes) + " saws",
                 [=](rack::ui::Menu *submenu)
                 {
                     submenu->addChild(
@@ -2137,18 +2186,18 @@ struct AlloyFluxWidget : ModuleWidget
                     for(int pool = 10; pool <= (int)kCloudOscMax; pool += 2)
                         submenu->addChild(rack::createCheckMenuItem(
                             std::to_string(pool) + "  ("
-                                + sawLadder((uint8_t)pool, gCloudMaxNotes)
+                                + sawLadder((uint8_t)pool, m->_cloudMaxNotes)
                                 + ")",
                             "",
-                            [=]() { return gCloudPool == (uint8_t)pool; },
-                            [=]() { gCloudPool = (uint8_t)pool; }));
+                            [=]() { return m->_cloudPool == (uint8_t)pool; },
+                            [=]() { m->_cloudPool = (uint8_t)pool; }));
                     submenu->addChild(rack::createMenuLabel("Max held notes"));
                     for(int n = 1; n <= (int)kCloudMaxNotes; n++)
                         submenu->addChild(rack::createCheckMenuItem(
                             std::to_string(n),
                             "",
-                            [=]() { return gCloudMaxNotes == (uint8_t)n; },
-                            [=]() { gCloudMaxNotes = (uint8_t)n; }));
+                            [=]() { return m->_cloudMaxNotes == (uint8_t)n; },
+                            [=]() { m->_cloudMaxNotes = (uint8_t)n; }));
                 }));
         }
 

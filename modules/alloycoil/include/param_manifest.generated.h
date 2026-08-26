@@ -6,18 +6,18 @@
 
 // clang-format off
 static const ParamDescriptor kParamManifest[] = {
-    {   7, "vol"           , "Volume"                  , "Output"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, &gOutputLevel, 2.0f, ParamDisplay::Direct },
-    {  16, "pitch"         , "String Pitch"            , "Resonator"   ,                  16.0f,                      72.0f,      40.0f, ParamScale::Linear, "note", &gStringPitch, 1.0f, ParamDisplay::Direct },
-    {  17, "fbgain"        , "Feedback Gain"           , "Feedback"    ,                 -30.0f,                      12.0f,     -30.0f, ParamScale::Linear, "dB"  , &gFeedbackGain, 1.0f, ParamDisplay::Direct },
-    {  18, "fbbody"        , "Body"                    , "Feedback"    ,                 0.001f,                       0.1f,     0.001f, ParamScale::Linear, "s"   , &gFeedbackDelay, 2.0f, ParamDisplay::Direct },
-    {  19, "excite"        , "Exciter Level"           , "Resonator"   ,                   0.0f,                       2.0f,       1.0f, ParamScale::Linear, "dB"  , &gExciterLevel, 2.0f, ParamDisplay::GainDb },
-    {  74, "fblpf"         , "Feedback LPF"            , "Feedback"    ,                 100.0f,                   18000.0f,   18000.0f, ParamScale::Log , "Hz"  , &gFeedbackLPF, 1.0f, ParamDisplay::Direct },
-    {  75, "fbhpf"         , "Feedback HPF"            , "Feedback"    ,                  10.0f,                    4000.0f,     250.0f, ParamScale::Log , "Hz"  , &gFeedbackHPF, 1.0f, ParamDisplay::Direct },
-    {  86, "echotime"      , "Time"                    , "Echo"        ,                  0.05f,     (float)COIL_ECHO_MAX_S,       0.5f, ParamScale::Linear, "s"   , &gEchoTime, 2.0f, ParamDisplay::Direct },
-    {  87, "echofb"        , "Feedback"                , "Echo"        ,                   0.0f,                       1.2f,       0.0f, ParamScale::Linear, nullptr, &gEchoFeedback, 1.0f, ParamDisplay::Direct },
-    {  91, "revmix"        , "Dry/Wet"                 , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gReverbMix, 1.0f, ParamDisplay::Direct },
-    {  92, "revdecay"      , "Decay"                   , "Reverb"      ,                   0.2f,                       1.0f,       0.2f, ParamScale::Linear, nullptr, &gReverbDecay, 0.5f, ParamDisplay::Direct },
-    {  93, "echosend"      , "Send"                    , "Echo"        ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gEchoSend, 2.0f, ParamDisplay::Direct },
+    {   7, "vol"           , "Volume"                  , "Output"      ,                   0.0f,                       1.0f,       1.0f, ParamScale::Linear, nullptr, &gCoilParams.outputLevel, 2.0f, ParamDisplay::Direct },
+    {  16, "pitch"         , "String Pitch"            , "Resonator"   ,                  16.0f,                      72.0f,      40.0f, ParamScale::Linear, "note", &gCoilParams.stringPitch, 1.0f, ParamDisplay::Direct },
+    {  17, "fbgain"        , "Feedback Gain"           , "Feedback"    ,                 -30.0f,                      12.0f,     -30.0f, ParamScale::Linear, "dB"  , &gCoilParams.feedbackGain, 1.0f, ParamDisplay::Direct },
+    {  18, "fbbody"        , "Body"                    , "Feedback"    ,                 0.001f,                       0.1f,     0.001f, ParamScale::Linear, "s"   , &gCoilParams.feedbackDelay, 2.0f, ParamDisplay::Direct },
+    {  19, "excite"        , "Exciter Level"           , "Resonator"   ,                   0.0f,                       2.0f,       1.0f, ParamScale::Linear, "dB"  , &gCoilParams.exciterLevel, 2.0f, ParamDisplay::GainDb },
+    {  74, "fblpf"         , "Feedback LPF"            , "Feedback"    ,                 100.0f,                   18000.0f,   18000.0f, ParamScale::Log , "Hz"  , &gCoilParams.feedbackLPF, 1.0f, ParamDisplay::Direct },
+    {  75, "fbhpf"         , "Feedback HPF"            , "Feedback"    ,                  10.0f,                    4000.0f,     250.0f, ParamScale::Log , "Hz"  , &gCoilParams.feedbackHPF, 1.0f, ParamDisplay::Direct },
+    {  86, "echotime"      , "Time"                    , "Echo"        ,                  0.05f,     (float)COIL_ECHO_MAX_S,       0.5f, ParamScale::Linear, "s"   , &gCoilParams.echoTime, 2.0f, ParamDisplay::Direct },
+    {  87, "echofb"        , "Feedback"                , "Echo"        ,                   0.0f,                       1.2f,       0.0f, ParamScale::Linear, nullptr, &gCoilParams.echoFeedback, 1.0f, ParamDisplay::Direct },
+    {  91, "revmix"        , "Dry/Wet"                 , "Reverb"      ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gCoilParams.reverbMix, 1.0f, ParamDisplay::Direct },
+    {  92, "revdecay"      , "Decay"                   , "Reverb"      ,                   0.2f,                       1.0f,       0.2f, ParamScale::Linear, nullptr, &gCoilParams.reverbDecay, 0.5f, ParamDisplay::Direct },
+    {  93, "echosend"      , "Send"                    , "Echo"        ,                   0.0f,                       1.0f,       0.0f, ParamScale::Linear, nullptr, &gCoilParams.echoSend, 2.0f, ParamDisplay::Direct },
 };
 // clang-format on
 
@@ -32,7 +32,7 @@ static const ParamOption kOpts_warp[] = {
 };
 
 static const EnumParamDescriptor kEnumManifest[] = {
-    {  20, "warp"        , "Warp"                    , "Echo"        , (uint8_t *)&gWarp, kOpts_warp, sizeof(kOpts_warp) / sizeof(kOpts_warp[0]),   0, nullptr },
+    {  20, "warp"        , "Warp"                    , "Echo"        , (uint8_t *)&gCoilParams.warp, kOpts_warp, sizeof(kOpts_warp) / sizeof(kOpts_warp[0]),   0, nullptr },
 };
 // clang-format on
 

@@ -10,35 +10,35 @@
 void packCoilConfig(CoilConfig &cfg)
 {
     memset(&cfg, 0, sizeof(cfg));
-    cfg.stringPitch   = gStringPitch;
-    cfg.feedbackGain  = gFeedbackGain;
-    cfg.feedbackDelay = gFeedbackDelay;
-    cfg.feedbackLPF   = gFeedbackLPF;
-    cfg.feedbackHPF   = gFeedbackHPF;
-    cfg.echoSend      = gEchoSend;
-    cfg.echoTime      = gEchoTime;
-    cfg.echoFeedback  = gEchoFeedback;
-    cfg.reverbMix     = gReverbMix;
-    cfg.reverbDecay   = gReverbDecay;
-    cfg.outputLevel   = gOutputLevel;
-    cfg.exciterLevel  = gExciterLevel;
+    cfg.stringPitch   = gCoilParams.stringPitch;
+    cfg.feedbackGain  = gCoilParams.feedbackGain;
+    cfg.feedbackDelay = gCoilParams.feedbackDelay;
+    cfg.feedbackLPF   = gCoilParams.feedbackLPF;
+    cfg.feedbackHPF   = gCoilParams.feedbackHPF;
+    cfg.echoSend      = gCoilParams.echoSend;
+    cfg.echoTime      = gCoilParams.echoTime;
+    cfg.echoFeedback  = gCoilParams.echoFeedback;
+    cfg.reverbMix     = gCoilParams.reverbMix;
+    cfg.reverbDecay   = gCoilParams.reverbDecay;
+    cfg.outputLevel   = gCoilParams.outputLevel;
+    cfg.exciterLevel  = gCoilParams.exciterLevel;
     cfg.midiChannel   = gMidiChannel;
 }
 
 void applyCoilConfig(const CoilConfig &cfg)
 {
-    gStringPitch   = cfg.stringPitch;
-    gFeedbackGain  = cfg.feedbackGain;
-    gFeedbackDelay = cfg.feedbackDelay;
-    gFeedbackLPF   = cfg.feedbackLPF;
-    gFeedbackHPF   = cfg.feedbackHPF;
-    gEchoSend      = cfg.echoSend;
-    gEchoTime      = cfg.echoTime;
-    gEchoFeedback  = cfg.echoFeedback;
-    gReverbMix     = cfg.reverbMix;
-    gReverbDecay   = cfg.reverbDecay;
-    gOutputLevel   = cfg.outputLevel;
-    gExciterLevel  = cfg.exciterLevel;
+    gCoilParams.stringPitch   = cfg.stringPitch;
+    gCoilParams.feedbackGain  = cfg.feedbackGain;
+    gCoilParams.feedbackDelay = cfg.feedbackDelay;
+    gCoilParams.feedbackLPF   = cfg.feedbackLPF;
+    gCoilParams.feedbackHPF   = cfg.feedbackHPF;
+    gCoilParams.echoSend      = cfg.echoSend;
+    gCoilParams.echoTime      = cfg.echoTime;
+    gCoilParams.echoFeedback  = cfg.echoFeedback;
+    gCoilParams.reverbMix     = cfg.reverbMix;
+    gCoilParams.reverbDecay   = cfg.reverbDecay;
+    gCoilParams.outputLevel   = cfg.outputLevel;
+    gCoilParams.exciterLevel  = cfg.exciterLevel;
     gMidiChannel   = (cfg.midiChannel <= 16) ? cfg.midiChannel : 0;
 }
 

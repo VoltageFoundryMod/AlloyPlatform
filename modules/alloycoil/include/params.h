@@ -2,79 +2,94 @@
 
 #include <stdint.h>
 
-#include "FeedbackSynthEngine.h" // COIL_ECHO_MAX_S
+#include "FeedbackSynthEngine.h"    // COIL_ECHO_MAX_S
+#include "param_struct.generated.h" // CoilParamGoals — one row per params.json
 
 /**
  * Alloy Coil — externally-controllable parameter state.
  *
  * The engine keeps its own smoothed internals; these are the *goal* values,
  * written by MIDI CC, SysEx, the serial console and preset recall, and pushed
- * into the engine once per control tick by updateControl(). One global per
- * row in params.json, and nothing else writes them.
+ * into the engine once per control tick by updateControl().
  *
- * Ranges and defaults come from upstream's registerParams(); see params.json.
+ * Ranges and defaults come from upstream's registerParams() and live in
+ * params.json, which generates CoilParamGoals — so a range is written down
+ * once and the generated header shows every default at a glance. They were
+ * repeated here as trailing comments until one of them (feedback gain, still
+ * claiming −60 dB after params.json narrowed it to −30) proved the obvious
+ * point about hand-kept copies.
+ *
+ * ---- Why a struct ------------------------------------------------------
+ *
+ * These were thirteen free-standing globals, which is the right shape for the
+ * board: one panel, one engine, one set of parameters, and the cheapest
+ * possible access from an interrupt. It is the wrong shape for VCV, where a
+ * rack may hold any number of Alloy Coils. Sharing one set did not merely mean
+ * the modules tracked each other — fillCoilParams() runs on the control
+ * divider and ControlSmoother::Step() on the smoother divider, which are
+ * different periods, so the second module's knobs reached the first module's
+ * engine on whichever blocks the two phases happened to interleave.
+ *
+ * So the storage is a struct and every consumer takes one by reference. The
+ * firmware passes gCoilParams below and is otherwise unchanged; each VCV module
+ * owns a CoilParams member and passes that.
  */
-
-// Resonator
-extern float gStringPitch; // MIDI note number, 16–72
-
-// Feedback loop
-extern float gFeedbackGain;  // dBFS, −60…+12
-extern float gFeedbackDelay; // seconds, 0.001–0.1 ("body")
-extern float gFeedbackLPF;   // Hz, 100–18000
-extern float gFeedbackHPF;   // Hz, 10–4000
-
-// Echo
-extern float gEchoSend;     // 0–1
-extern float gEchoTime;     // seconds, 0.05–COIL_ECHO_MAX_S
-extern float gEchoFeedback; // 0–1.5 — deliberately allowed past unity
+struct CoilParams : CoilParamGoals
+{
+    /**
+     * External excitation, ±1.0. Summed into both resonator channels before the
+     * string, so patching anything here drives it instead of leaving it to
+     * self-excite from its own −90 dBFS noise floor.
+     *
+     * Hand-written rather than generated because it is not a parameter: it
+     * carries a *sample*, not a goal value, so it has no CC, no range and no
+     * place in a preset. It belongs to the instance for the same reason the
+     * goals do, which is why it sits in the same struct.
+     *
+     * volatile because the audio core reads it every frame while the control
+     * core writes it — a single aligned float, so atomic on the M33.
+     *
+     * ⚠ Its bandwidth is a property of the platform, not of the engine. VCV
+     * writes it once per sample from the EXCITER port, which is genuine
+     * audio-rate excitation. The firmware writes it from `readCV()` at the
+     * 128 Hz control tick, so on hardware it is a control voltage that pokes
+     * and swells the string rather than an audio input. Giving it audio
+     * bandwidth means a dedicated ADC path on the audio core; the seam is here
+     * and ready for it.
+     */
+    volatile float exciterIn = 0.0f;
+};
 
 /**
- * Doppler warp — non-zero halves the echo time. Upstream Audrey II's one panel
- * switch (`kDelaySwitchPin`), and the only performance gesture the engine has.
+ * The firmware's single instance, defined by param_globals.generated.h.
  *
- * Deliberately *not* folded into gEchoTime. This stays the time the knob or CC
+ * Also what the generated manifest's `target` column points into, so the CC,
+ * SysEx and console transports all reach it without knowing it is a member of
+ * anything. That is exactly right on the board and irrelevant in VCV, where
+ * those transports are Rack's and write Rack params instead — nothing in the
+ * plugin dereferences a manifest target, so nothing in the plugin touches this.
+ */
+extern CoilParams gCoilParams;
+
+/**
+ * Doppler warp (CoilParams::warp) — non-zero halves the echo time. Upstream
+ * Audrey II's one panel switch (`kDelaySwitchPin`), and the only performance
+ * gesture the engine has.
+ *
+ * Deliberately *not* folded into echoTime. That stays the time the knob or CC
  * asked for; the halving is applied where the goal is read, in
  * ControlSmoother::Step(). Two reasons: the echo's read head is what produces
  * the pitch sweep, so the scaling belongs on the path into the engine rather
- * than on the stored value, and packCoilConfig() saves gEchoTime — a preset
+ * than on the stored value, and packCoilConfig() saves echoTime — a preset
  * captured with warp on would otherwise come back half as long.
  *
- * Latching here, momentary on the panel: Btn::WARP writes it from the button's
- * live state each control tick (io/IOBridge.h), while CC 20 and SysEx set it
- * and leave it. Not in CoilConfig for the same reason — a held gesture is not
- * part of a patch.
+ * Latching in the struct, momentary on the panel: Btn::WARP writes it from the
+ * button's live state each control tick (io/IOBridge.h), while CC 20 and SysEx
+ * set it and leave it. Not in CoilConfig for the same reason — a held gesture
+ * is not part of a patch. The VCV module persists it with the rack anyway,
+ * because a Rack patch is a session and not a preset: what you left the module
+ * set to is what should come back.
  */
-extern uint8_t gWarp;
-
-// Reverb
-extern float gReverbMix;   // 0–1
-extern float gReverbDecay; // 0.2–1.0
-
-// Output
-extern float gOutputLevel; // 0–1
-
-/// Gain on the exciter jack before it enters the loop, 0–2. Not volatile: this
-/// is a control-rate goal value like the rest, written by the knob/CC/preset
-/// and read by updateControl(). Only gExciterIn below is touched per frame.
-extern float gExciterLevel;
-
-/**
- * External excitation, ±1.0. Summed into both resonator channels before the
- * string, so patching anything here drives it instead of leaving it to
- * self-excite from its own −90 dBFS noise floor.
- *
- * volatile because the audio core reads it every frame while the control core
- * writes it — a single aligned float, so atomic on the M33.
- *
- * ⚠ Its bandwidth is a property of the platform, not of the engine. VCV writes
- * it once per sample from the EXCITER port, which is genuine audio-rate
- * excitation. The firmware writes it from `readCV()` at the 128 Hz control
- * tick, so on hardware it is a control voltage that pokes and swells the
- * string rather than an audio input. Giving it audio bandwidth means a
- * dedicated ADC path on the audio core; the seam is here and ready for it.
- */
-extern volatile float gExciterIn;
 
 /**
  * Audio-path cost switches, defined in main.cpp and read on the audio core.
@@ -130,7 +145,7 @@ bool audioRunning();
  * Drop the parameter glide and take the goal values as they stand on the next
  * audio block.
  *
- * The gXxx values above reach the engine through a one-pole per parameter, with
+ * A CoilParams' goal values reach the engine through a one-pole per parameter, with
  * upstream's per-parameter glide times — up to 1 s for the feedback body. That
  * is right when a knob or a CC moves and wrong when a whole patch changes at
  * once, so preset recall, factory reset and MIDI panic call this first.

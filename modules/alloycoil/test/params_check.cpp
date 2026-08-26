@@ -30,7 +30,7 @@
 #include <cstdio>
 #include <cstring>
 
-// params.h globals — IOBridge writes these.
+// gCoilParams — the instance IOBridge writes into and d.target points at.
 #include "param_globals.generated.h"
 
 /// Every pot at the same position, nothing patched, no button held — so one
@@ -62,7 +62,7 @@ int main()
 {
     FlatIO io;
     // FlatIO holds every button up, so this never sees an edge and the bridge
-    // never touches gWarp — which is what the sweep below needs, since warp
+    // never touches warp — which is what the sweep below needs, since warp
     // would otherwise halve the echo time out from under the comparison.
     CoilButtonState btn;
     int             failures = 0;
@@ -82,7 +82,7 @@ int main()
         for(int k = 0; k <= 64; k++)
         {
             io.pos = (float)k / 64.0f;
-            fillCoilParams(io, btn);
+            fillCoilParams(io, btn, gCoilParams);
 
             const float want = d.fromPos(io.pos);
             const float got  = *d.target;
@@ -118,7 +118,7 @@ int main()
             std::printf("      worst at knob %.4f: IOBridge gives %.6g, "
                         "params.json says %.6g\n",
                         worstPos,
-                        (io.pos = worstPos, fillCoilParams(io, btn), *d.target),
+                        (io.pos = worstPos, fillCoilParams(io, btn, gCoilParams), *d.target),
                         d.fromPos(worstPos));
     }
 

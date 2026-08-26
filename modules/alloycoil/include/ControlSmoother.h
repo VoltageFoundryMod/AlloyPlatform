@@ -150,33 +150,41 @@ class ControlSmoother {
          */
         void Snap() { primed_ = false; }
 
-        /// One interpolation step, then push the result into the engine.
-        inline void Step(Engine &engine)
+        /**
+         * One interpolation step, then push the result into the engine.
+         *
+         * @param p the goal values to glide toward — the instance's own. The
+         *        smoother holds no pointer to them between calls, so a host
+         *        with several modules can hand each Step() a different set and
+         *        nothing leaks across; the interpolator state in value_/pushed_
+         *        belongs to the smoother, which is already per-instance.
+         */
+        inline void Step(Engine &engine, const CoilParams &p)
         {
             const float goal[kCount] = {
-                readGoal(gStringPitch),
-                readGoal(gFeedbackGain),
-                readGoal(gFeedbackDelay),
-                readGoal(gFeedbackLPF),
-                readGoal(gFeedbackHPF),
-                readGoal(gReverbMix),
-                readGoal(gReverbDecay),
-                readGoal(gEchoSend),
+                readGoal(p.stringPitch),
+                readGoal(p.feedbackGain),
+                readGoal(p.feedbackDelay),
+                readGoal(p.feedbackLPF),
+                readGoal(p.feedbackHPF),
+                readGoal(p.reverbMix),
+                readGoal(p.reverbDecay),
+                readGoal(p.echoSend),
                 // The one goal that is not read straight through. Warp halves
                 // the echo time here rather than at any of the places that
-                // *write* gEchoTime, because those are three (knob, CC, preset)
+                // *write* echoTime, because those are three (knob, CC, preset)
                 // and this is one — and because the stored time should stay the
-                // time that was asked for. See gWarp in params.h.
+                // time that was asked for. See CoilParams::warp in params.h.
                 //
                 // The sweep is not implemented anywhere: this goal steps, the
                 // one-pole below glides onto it over its 0.10 s t60, and
                 // EchoDelay lags that by another 0.5 s. Dropping the time while
                 // the line is full drags the read head toward the write head,
                 // and everything already in the buffer comes back faster.
-                readGoal(gEchoTime) * (readFlag(gWarp) ? 0.5f : 1.0f),
-                readGoal(gEchoFeedback),
-                readGoal(gOutputLevel),
-                readGoal(gExciterLevel),
+                readGoal(p.echoTime) * (readFlag(p.warp) ? 0.5f : 1.0f),
+                readGoal(p.echoFeedback),
+                readGoal(p.outputLevel),
+                readGoal(p.exciterLevel),
             };
 
             // `force` on the first step after Init() or Snap(): land on the
@@ -282,13 +290,13 @@ class ControlSmoother {
         /**
          * Volatile load of a goal value.
          *
-         * On hardware Step() runs on the audio core and the gXxx globals are
+         * On hardware Step() runs on the audio core and the goal values are
          * written by the control core, so each read must actually happen rather
-         * than being folded away — the same requirement gExciterIn carries, and
-         * for the same reason. They cannot simply be declared volatile: the
-         * platform's ParamDescriptor holds them as plain `float *`, so the
-         * qualifier is applied at the read instead. A single aligned float is
-         * atomic on the M33, so there is nothing to tear.
+         * than being folded away — the same requirement CoilParams::exciterIn
+         * carries, and for the same reason. They cannot simply be declared
+         * volatile: the platform's ParamDescriptor holds them as plain
+         * `float *`, so the qualifier is applied at the read instead. A single
+         * aligned float is atomic on the M33, so there is nothing to tear.
          */
         static inline float readGoal(const float &g)
         {
@@ -296,7 +304,7 @@ class ControlSmoother {
         }
 
         /// The same volatile load for a discrete parameter's uint8_t target —
-        /// gWarp is written by the control core and read here on the audio one.
+        /// warp is written by the control core and read here on the audio one.
         static inline bool readFlag(const uint8_t &g)
         {
             return *static_cast<const volatile uint8_t *>(&g) != 0;
