@@ -200,6 +200,7 @@ help:
 	@echo ""
 	@echo "  Tests (host builds, no board needed — 'make test' runs them all)"
 	@echo "    flux-cloud      Alloy Flux: CLOUD oscillator pool + levels"
+	@echo "    flux-filter     Alloy Flux: SVF + OTA ladder response"
 	@echo "    coil-params     Alloy Coil: IOBridge knobs match params.json"
 	@echo "    coil-host       Alloy Coil: run the engine, print its footprint"
 	@echo ""
@@ -293,10 +294,10 @@ firmware-clean:
 # separate cores on hardware but sequentially here, so anything that depends on
 # the two interleaving has to be tested through its *structure* instead — see
 # the buffer-ownership check in cloud_pool.cpp for what that looks like.
-.PHONY: test flux-cloud coil-host coil-host-clean coil-params
+.PHONY: test flux-cloud flux-filter coil-host coil-host-clean coil-params
 
 # Suites, in ascending order of runtime so a failure surfaces fast.
-HOST_TESTS := coil-params flux-cloud coil-host
+HOST_TESTS := coil-params flux-filter flux-cloud coil-host
 
 # `pio test` fails outright ("Nothing to build. Please put your test suites to
 # the 'test' folder") when test/ holds only its README, which is the case
@@ -312,6 +313,27 @@ ifeq ($(TEST_SUITES),)
 else
 	$(PIO) test -e $(MODULE)
 endif
+
+# --- Alloy Flux: filter response --------------------------------------------
+# The OTA ladder shipped with the (1-G) stage factor missing from its ZDF
+# feedback predictor, which tied resonance to cutoff: at res 0.8 the peak ran
+# -0.5 dB at 100 Hz and +14.4 dB at 4 kHz, past self-oscillation over the top
+# half of the cutoff range. Every single setting still sounded like a filter,
+# so only a property held *across* settings catches it. That is what this
+# asserts: the response shape must not move with cutoff, or with input level
+# while the tanh is still linear.
+#
+# Header-only -- no engine to link, so it is the cheapest suite here and runs
+# first. Worth running on any edit to OTALadder.h or SVFFilter.h.
+FLUX_FILTER_BIN := $(BUILD_TMP)/flux_filter$(EXE)
+
+flux-filter:
+	@mkdir -p $(BUILD_TMP)
+	@$(HOST_CXX) -std=c++14 -O2 -Wall -Wextra -Wno-unused-parameter \
+	  -Imodules/alloyflux/include -Iplatform/include $(HOST_EXTRA) \
+	  modules/alloyflux/test/ladder_response.cpp \
+	  -o $(FLUX_FILTER_BIN)
+	@$(FLUX_FILTER_BIN)
 
 # --- Alloy Flux: CLOUD oscillator pool ---------------------------------------
 # M78 made CLOUD polyphonic by sharing one oscillator pool across held notes,
