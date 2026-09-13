@@ -203,9 +203,24 @@ static void cmd_reset(const char *args, Print &out)
 }
 
 #ifdef CPU_PROFILE
+// Bare `perf` toggles; `perf on` / `perf off` set it explicitly. The old test
+// compared one char against the multi-character literal 'off', which can never
+// match — so `perf off` left the 5 s report running.
 static void cmd_perf(const char *args, Print &out)
 {
-    gPerformancePrintEnabled = (*args != 'off');
+    while(*args == ' ')
+        args++;
+    if(*args == '\0')
+        gPerformancePrintEnabled = !gPerformancePrintEnabled;
+    else if(strncasecmp(args, "off", 3) == 0)
+        gPerformancePrintEnabled = false;
+    else if(strncasecmp(args, "on", 2) == 0)
+        gPerformancePrintEnabled = true;
+    else
+    {
+        out.println(F("usage: perf [on|off]   (bare perf toggles)"));
+        return;
+    }
     out.println(gPerformancePrintEnabled ? F("perf on") : F("perf off"));
 }
 
@@ -288,7 +303,7 @@ const CommandEntry kCommands[] = {
     {"smooth", "[n] - smoother interval in frames (0 = off)", cmd_smooth},
     {"limiter", "[0|1] - output limiter on/off", cmd_limiter},
 #ifdef CPU_PROFILE
-    {"perf", "<on|off> - periodic CPU report", cmd_perf},
+    {"perf", "[on|off] - periodic CPU report (bare toggles)", cmd_perf},
     {"cpu", "- one CPU report now", cmd_cpu},
 #endif
     {"ble", "[pair|off|poll 0|1]  BLE state; poll 0 = cost bisect", cmd_ble},

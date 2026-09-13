@@ -210,6 +210,7 @@ Slot 0 is the auto-save live state (rate-limited to once every 10 seconds). Slot
 status               → print all current parameter values (two lines: voice + fx chain)
 cpu                  → print CPU headroom report (ISR time used / available)
 perf [on|off]        → enable/disable detailed CPU report printout every 5 seconds
+                       (bare `perf` toggles the current state)
 ```
 
 ---

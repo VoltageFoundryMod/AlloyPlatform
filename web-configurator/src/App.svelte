@@ -350,11 +350,15 @@
       // This used to run once, at the fast/slow transition, and one look is not
       // enough: the module re-enumerates a few seconds after the flash and
       // routinely misses that single window. Past it the page sat sending into
-      // a dead port forever, which is why recovering needed a page reload. A
-      // rescan every 5 s costs nothing — the permission is already granted, so
-      // it neither prompts nor shows anything — and it only runs while nothing
-      // is answering. If it turns up a different port the store bumps
-      // syncNonce and this effect restarts.
+      // a dead port forever, which is why recovering needed a page reload. It
+      // only runs while nothing is answering, and if it turns up a different
+      // port the store bumps syncNonce and this effect restarts.
+      //
+      // The permission is already granted so nothing is prompted, but this is
+      // not free the way it was once assumed to be: most calls re-enumerate the
+      // access the store already holds, and only occasionally does one ask the
+      // browser for a fresh MIDIAccess. midi.ts owns that rate limit — see the
+      // note on kFreshAccessMinMs for what asking too often did to the link.
       //
       // Not over Bluetooth: there is one peer, chosen by hand in the browser's
       // own chooser, and no port to go stale or come back under a new name. A
@@ -703,16 +707,30 @@
     }
   }
 
+  /* Follow new output only while the view is already parked at the bottom.
+     Once the user scrolls up to read something, a `perf` report landing every
+     5 s must not yank them back down. The slack absorbs fractional line
+     heights and the browser's sub-pixel scroll rounding. */
+  const kStickSlackPx = 24;
+  function consoleAtBottom(el: HTMLElement) {
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= kStickSlackPx;
+  }
+  function scrollConsoleToBottom() {
+    if (consoleBodyEl) consoleBodyEl.scrollTop = consoleBodyEl.scrollHeight;
+  }
+
+  // Opening the drawer starts pinned to the newest line.
+  $effect(() => {
+    if (consoleOpen && consoleBodyEl) setTimeout(scrollConsoleToBottom, 0);
+  });
+
   $effect(() => {
     return serial.onLine((line: string) => {
+      // Decide before the line lands — afterwards the grown scrollHeight makes
+      // every position look scrolled up.
+      const follow = !consoleBodyEl || consoleAtBottom(consoleBodyEl);
       serialLines = [...serialLines.slice(-499), line];
-      // Auto-scroll to bottom when open
-      if (consoleBodyEl) {
-        setTimeout(() => {
-          if (consoleBodyEl)
-            consoleBodyEl.scrollTop = consoleBodyEl.scrollHeight;
-        }, 0);
-      }
+      if (follow) setTimeout(scrollConsoleToBottom, 0);
     });
   });
 
@@ -726,6 +744,9 @@
     }
     historyIdx = -1;
     consoleInput = "";
+    // Sending is a deliberate act: re-pin so the reply is visible even if the
+    // user had scrolled up to type.
+    setTimeout(scrollConsoleToBottom, 0);
   }
 </script>
 

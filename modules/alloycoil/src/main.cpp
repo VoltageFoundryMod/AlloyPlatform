@@ -270,19 +270,18 @@ void updateControl()
     //
     // It moved here from SHIFT once WARP became a toggle. While WARP was
     // momentary, holding it *was* the warp effect and a pairing gesture would
-    // have fired in the middle of a performance; now the toggle lands on the
-    // press edge and the button is free to be held.
+    // have fired in the middle of a performance; now the toggle is an edge and
+    // the button is free to be held.
     //
-    // ⚠ That press edge has already flipped warp by the time this fires, so
-    // undo it — the same job AlloyFlux's `sModeConsumed` does, except that a
-    // toggle cannot be suppressed in advance, only reverted. The audible cost
-    // is up to three seconds of warp before it returns, which is honest enough
-    // for a deliberate gesture and much better than silently leaving the echo
-    // half-length afterwards.
+    // The toggle lands on the *release* edge (io/IOBridge.h), which has not
+    // happened yet while the button is still down — so marking the press
+    // consumed here suppresses it outright, exactly as AlloyFlux's
+    // `sModeConsumed` suppresses the mode cycle. Pairing no longer flips warp
+    // on the way in and back three seconds later; it simply does not flip it.
+    // fillCoilButtons() clears the flag on the release it suppressed.
     if(gBtnWarp.heldLong())
     {
-        gCoilParams.warp = gCoilParams.warp ? 0 : 1;
-        sBtnState.warpPrev = true; // stay in sync; the button is still down
+        sBtnState.warpConsumed = true;
         if(bleMidi_state() != BleMidiState::Unavailable)
             bleMidi_startPairing();
 #ifdef SERIAL_CONTROL

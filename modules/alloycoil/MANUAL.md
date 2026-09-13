@@ -108,7 +108,7 @@ the feedback delay, the echo's repeats, the filter inside the loop.
 echo line is already full when it engages, the read head is dragged toward the
 write head and everything in the delay is re-read faster: the whole tail
 pitches up over about half a second and settles, then falls back the same way
-when you release it. It is the module's one real performance gesture, and it is
+when you tap it off. It is the module's one real performance gesture, and it is
 at its best with the echo feedback high and the send up.
 
 This is the same control as the toggle switch on the original Synthux Audrey II
@@ -118,9 +118,9 @@ switch, so all four agree about what warp is.
 **WARP held 3 seconds** on a wireless model opens the Bluetooth pairing window
 for 60 seconds; there is no PIN and nothing to confirm. It is the same physical
 switch Alloy Flux uses for the same gesture, so the two modules pair the same
-way. Warp toggles on the way in and toggles back when the hold registers, so
-you will hear the echo shorten and return — that is the gesture working, not a
-fault. Alloy Coil's LEDs are not driven by the firmware, so the confirmation is
+way. Warp itself does not move: the toggle happens when you let the button go,
+and a press that opened the pairing window does not count as a tap. Alloy
+Coil's LEDs are not driven by the firmware, so the confirmation is
 the module appearing in your phone's or the Alloy Controller's Bluetooth
 chooser.
 
@@ -130,8 +130,8 @@ behaves the way the original toggle did — it latches and stays where you put i
 because a CC carries a value and not a gesture.
 
 The two share one flag, and the button only writes it when you actually move it:
-press takes warp on, release takes it off, and between gestures whatever the CC
-last said stands. So you can latch warp from the Alloy Controller and leave it,
+each tap flips it as you let go, and between taps whatever the CC last said
+stands. So you can latch warp from the Alloy Controller and leave it,
 and the first time you touch the panel button the panel has it back.
 
 ### LEDs

@@ -54,7 +54,7 @@
   });
 
   async function scanMidi() {
-    await midi.scan();
+    await midi.scan({ force: true });
   }
 
   /**
@@ -81,7 +81,9 @@
     if (refreshing) return;
     refreshing = true;
     try {
-      await midi.scan();
+      // The one caller allowed past the fresh-access rate limit: a click is
+      // deliberate and rare, where the automatic callers are on timers.
+      await midi.scan({ force: true });
       midi.resync();
       // A flash drops both links at once, so the serial side gets a nudge from
       // the same click. It reuses the already-granted port, so there is no
@@ -123,6 +125,16 @@
   const insecureOrigin =
     typeof window !== "undefined" && !window.isSecureContext;
 
+  /**
+   * One Refresh button, one explanation of it.
+   *
+   * It appears in two different branches of the MIDI section — with ports and
+   * without — and they had drifted into two different tooltips for the same
+   * click, one of them ("Refresh device list") describing half of what it does.
+   */
+  const REFRESH_TITLE =
+    "Refresh the MIDI port list, then ask the module to identify itself again — a live test of the link, without reloading the page. Also retries the serial link, which drops alongside MIDI when the module is re-flashed.";
+
   // --- Bluetooth (M78c) ------------------------------------------------------
   // Connect has to run straight off the click: Web Bluetooth only opens its
   // chooser from a user gesture, so there is no auto-connect and no retry loop
@@ -144,6 +156,20 @@
      Rendered by whichever transport is currently sending — see the call sites.
      It is a snippet rather than duplicated markup because the four states and
      their explanations are the same question over any wire. -->
+<!-- Why an API is missing, when the reason is the *browser* rather than the
+     origin. One snippet so the three sections cannot drift into three
+     different words for the same fact — they had, down to different badge
+     colours for it.
+
+     The colour is a rule, not a mood: MIDI is how this page controls the
+     module, so its absence is an error; Bluetooth and Serial are alternate
+     routes to a module MIDI can already reach, so theirs is a warning. The
+     whole explanation lives in the tooltip, which is why the label itself is
+     the same three words everywhere. -->
+{#snippet notSupported(kind: "error" | "warn", why: string)}
+  <span class="badge {kind}" title={why}>Not supported</span>
+{/snippet}
+
 <!-- Why an API is missing, when the reason is the origin rather than the
      browser. Same badge for all three sections: one cause, one fix. -->
 {#snippet needsHttps(api: string)}
@@ -181,12 +207,16 @@ Asking again every 5 s — it will pick up on its own once something answers."
       >Link open, no module answering</span
     >
   {:else}
-    <span class="badge">Idle</span>
+    <span
+      class="badge"
+      title="Nothing to report yet — no probe has run on this link since it came up."
+      >Idle</span
+    >
   {/if}
 {/snippet}
 
 <header class="connection-bar">
-  <img src="/AlloyFlux_Logo.svg" alt="Logo" class="logo-img" width="50px" />
+  <img src="/AlloyFlux_Logo.svg" alt="Logo" class="logo-img" width="50" />
   <!-- Which module the controls belong to. Detected from the SysEx signature
        in the module's patch dump, so this follows whatever is actually on the
        port; with nothing connected it is the last module seen. Worth a glance
@@ -225,14 +255,26 @@ Asking again every 5 s — it will pick up on its own once something answers."
       {#if insecureOrigin}
         {@render needsHttps("Web MIDI")}
       {:else}
-        <span class="badge error">Not supported</span>
+        {@render notSupported(
+          "error",
+          "Web MIDI is Chrome/Edge only. Firefox and everything on iOS ship no Web MIDI at all — an iPad can still play the module over BLE MIDI from any MIDI app, it just cannot run this page.",
+        )}
       {/if}
     {:else if !$midi.scanned}
       <!-- Not yet scanned — only shown briefly before onMount scan completes -->
-      <button onclick={scanMidi}>Scan for MIDI Devices</button>
+      <button
+        class="btn-accent"
+        onclick={scanMidi}
+        title="Look for MIDI ports. Already-granted permission means no prompt."
+        >Scan for devices</button
+      >
     {:else if $midi.outputs.length === 0}
-      <span class="badge warn">No devices found</span>
-      <button onclick={refreshMidi} disabled={refreshing} title="Refresh device list"
+      <span
+        class="badge warn"
+        title="No MIDI output port is present. Plug the module in, or start the virtual cable (loopMIDI / IAC) that VCV Rack is on."
+        >No devices found</span
+      >
+      <button onclick={refreshMidi} disabled={refreshing} title={REFRESH_TITLE}
         >{refreshing ? "Refreshing…" : "Refresh"}</button
       >
     {:else}
@@ -272,10 +314,7 @@ Asking again every 5 s — it will pick up on its own once something answers."
       </select>
       <!-- TX/RX byte counters live on the MIDI Monitor tab at the bottom of
            the page, next to the traffic they describe. -->
-      <button
-        onclick={refreshMidi}
-        disabled={refreshing}
-        title="Refresh the MIDI port list, then ask the module to identify itself again — a live test of the link, without reloading the page. Also retries the serial link, which drops alongside MIDI when the module is re-flashed."
+      <button onclick={refreshMidi} disabled={refreshing} title={REFRESH_TITLE}
         >{refreshing ? "Refreshing…" : "Refresh"}</button
       >
     {/if}
@@ -294,33 +333,38 @@ Asking again every 5 s — it will pick up on its own once something answers."
        from being discoverable all night. There is no PIN — the module pairs
        with no bonding at all. -->
   <div class="conn-section">
-    <span class="conn-label">BT</span>
+    <span class="conn-label">Bluetooth</span>
     {#if !$midi.bleSupported}
       {#if insecureOrigin}
         {@render needsHttps("Web Bluetooth")}
       {:else}
-        <span
-          class="badge error"
-          title="Web Bluetooth is Chrome/Edge only. Firefox and everything on iOS ship no Web Bluetooth, Web MIDI or Web Serial — an iPad can still play the module through any BLE MIDI app, it just cannot run this page."
-          >Not supported</span
-        >
+        {@render notSupported(
+          "warn",
+          "Web Bluetooth is Chrome/Edge only. Firefox and everything on iOS ship no Web Bluetooth, Web MIDI or Web Serial — an iPad can still play the module through any BLE MIDI app, it just cannot run this page.",
+        )}
       {/if}
     {:else if $midi.transport === "ble"}
       {@render linkState()}
       <span class="badge ok" title="Connected over Bluetooth LE MIDI."
         >{$midi.bleDeviceName ?? "BLE device"}</span
       >
+      <!-- Same ✕ as the serial section. Dropping a link is the same act in
+           both, and it read as two different kinds of control when one was a
+           worded button and the other a glyph. -->
       <button
+        class="btn-disconnect"
         onclick={() => midi.disconnectBluetooth()}
+        aria-label="Disconnect Bluetooth"
         title="Drop the Bluetooth link and go back to sending over the selected MIDI port."
-        >Disconnect</button
+        >✕</button
       >
     {:else}
       <button
+        class="btn-accent"
         onclick={connectBluetooth}
         disabled={btBusy}
         title="Open the browser's device chooser. Hold MODE on the module for ~3 s first so it is advertising — no PIN, no OS pairing."
-        >{btBusy ? "Connecting…" : "Connect Bluetooth"}</button
+        >{btBusy ? "Connecting…" : "Connect"}</button
       >
     {/if}
   </div>
@@ -332,11 +376,10 @@ Asking again every 5 s — it will pick up on its own once something answers."
       {#if insecureOrigin}
         {@render needsHttps("Web Serial")}
       {:else}
-        <span
-          class="badge warn"
-          title="Web Serial is desktop Chrome/Edge only — it does not exist on Android or iOS at all. Not a problem: it is the fallback console, and everything the page needs works over MIDI."
-          >Not supported (use Chrome/Edge)</span
-        >
+        {@render notSupported(
+          "warn",
+          "Web Serial is desktop Chrome/Edge only — it does not exist on Android or iOS at all. Not a problem: it is the fallback console, and everything the page needs works over MIDI.",
+        )}
       {/if}
     {:else if $serial.connecting}
       <!-- An open attempt is in flight — usually auto-reconnect working
@@ -346,7 +389,12 @@ Asking again every 5 s — it will pick up on its own once something answers."
         >Connecting…</span
       >
     {:else if !$serial.connected}
-      <button onclick={connectSerial}>Connect Serial</button>
+      <button
+        class="btn-accent"
+        onclick={connectSerial}
+        title="Choose the module's serial port. Opens the browser's port picker."
+        >Connect</button
+      >
       <!-- Retakes an already-granted port with no picker dialog. Auto-reconnect
            normally beats the user to it; this is the way back once it has run
            out of retries. -->
@@ -355,11 +403,14 @@ Asking again every 5 s — it will pick up on its own once something answers."
         title="Retry the port this page was already granted — no dialog">Retry</button
       >
     {:else}
-      <span class="badge ok">Connected</span>
+      <span class="badge ok" title="The serial console is open on this port."
+        >Connected</span
+      >
       <button
         class="btn-disconnect"
         onclick={() => serial.disconnect()}
-        title="Disconnect Serial">✕</button
+        aria-label="Disconnect serial"
+        title="Close the serial port.">✕</button
       >
     {/if}
     {#if $serial.error}
@@ -369,19 +420,50 @@ Asking again every 5 s — it will pick up on its own once something answers."
 </header>
 
 <style>
+  /* ---------------------------------------------------------------------------
+     One control height, two shapes.
+   *
+   * Everything in this bar is a small thing on a horizontal line, and the bar
+   * reads as tidy or as junk drawer depending on whether those things share a
+   * baseline. They did not: badges, buttons and the port select each carried
+   * their own font size and their own vertical padding, so three controls that
+   * sit side by side in the same section stood at three different heights.
+   * `--ctl-h` is now the only thing that sets height — padding is horizontal
+   * only, and every control centres its own content inside it.
+   *
+   * Shape then carries the one distinction worth keeping: a pill is something
+   * you *read* (status badges, the module name), a rounded rectangle something
+   * you *press* (buttons, the select). The module badge is a pill that is
+   * sometimes clickable, and it stays a pill — what it reports is true whether
+   * or not anything can be done about it, and it advertises the exception
+   * itself, with the ⇄ glyph and a hover that lights copper.
+   * ------------------------------------------------------------------------- */
   .connection-bar {
+    --ctl-h: 1.7rem;
+    --ctl-pad: 0.6rem;
+    --ctl-font: 0.78rem;
+
     display: flex;
-    gap: 1.5rem;
+    gap: 0.5rem 1.1rem;
     align-items: center;
-    padding: 0.5rem 1rem;
+    padding: 0.45rem 1rem;
     background: var(--bg-panel);
     border-bottom: 1px solid var(--hairline);
     flex-wrap: wrap;
   }
+  /* The three transports are the same kind of thing three times over, and with
+     nothing between them the bar was one undifferentiated run of pills — worse
+     when a section holds three controls and its neighbour holds one, because
+     then even the spacing gives no clue where one ends. A hairline is how the
+     panel artwork groups things (see app.css), so the sections are bracketed
+     the same way rather than boxed. The first one's rule also separates the
+     transports from the wordmark and module badge ahead of them. */
   .conn-section {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    padding-left: 1.1rem;
+    border-left: 1px solid var(--hairline);
   }
 
   /* Phone layout (M78d). The bar already wrapped; what it did not do is wrap
@@ -397,8 +479,12 @@ Asking again every 5 s — it will pick up on its own once something answers."
     gap: 0.55rem 0.9rem;
     padding: 0.5rem 0.7rem;
   }
+  /* A divider separates neighbours on a line. Once the sections are stacking it
+     is not separating anything — it is a stray rule down the left margin. */
   :global(.app-shell.stacked) .conn-section {
     flex-wrap: wrap;
+    padding-left: 0;
+    border-left: none;
   }
   /* The one control here with no natural ceiling — "Alloy Flux (loopMIDI
      Port 1)" is wider than a phone on its own. */
@@ -414,16 +500,19 @@ Asking again every 5 s — it will pick up on its own once something answers."
     letter-spacing: 0.19em;
     text-transform: uppercase;
     color: var(--text);
-    min-width: 3rem;
+    white-space: nowrap;
   }
   /* Deliberately loud. It marks which firmware this page can talk to at all,
      so it has to survive a glance rather than blend into the bar. */
   .module-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--ctl-h);
     font-size: 0.7rem;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    padding: 0.2rem 0.5rem;
+    padding: 0 var(--ctl-pad);
     border-radius: 999px;
     border: 1px solid var(--copper-deep);
     background: rgba(192, 137, 74, 0.14);
@@ -433,7 +522,7 @@ Asking again every 5 s — it will pick up on its own once something answers."
     /* Set explicitly because the swap variant is a <button>, which does not
        inherit the page font. */
     font-family: inherit;
-    line-height: 1.5;
+    line-height: 1;
   }
   /* Muted until a module has actually identified itself: with nothing on the
      port the name is only the last one seen, and it should not look like a
@@ -448,8 +537,6 @@ Asking again every 5 s — it will pick up on its own once something answers."
      — so hover lights it copper, which reads as "this is live" against a
      resting badge that deliberately does not. */
   .module-badge.swap {
-    display: inline-flex;
-    align-items: center;
     gap: 0.3rem;
     cursor: pointer;
   }
@@ -459,33 +546,48 @@ Asking again every 5 s — it will pick up on its own once something answers."
     background: rgba(192, 137, 74, 0.14);
     color: var(--copper-bright);
   }
-  .module-badge.swap:focus-visible {
-    outline: 2px solid var(--copper);
-    outline-offset: 2px;
-  }
   .swap-glyph {
     font-size: 0.85em;
     opacity: 0.7;
   }
+  /* Section names, set like the panel's silkscreen legends — the same treatment
+     app.css gives every control label, so the bar belongs to the same object as
+     the panel underneath it. Tracking rather than min-width does the aligning
+     now: a 3rem floor on a label as wide as "Bluetooth" only ever padded the
+     short ones, which is not alignment, just a gap. */
   .conn-label {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 600;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--text-dim);
-    min-width: 3rem;
+    white-space: nowrap;
   }
   .badge {
-    font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--ctl-h);
+    padding: 0 var(--ctl-pad);
+    font-size: var(--ctl-font);
+    line-height: 1;
     border-radius: 999px;
+    /* A hairline the same weight as the buttons', so a row of mixed controls
+       has one silhouette. Transparent by default: the neutral badge is a
+       resting state and should not draw an edge the coloured ones then have to
+       compete with. */
+    border: 1px solid transparent;
     background: var(--bg-raised);
     color: var(--text-dim);
+  }
+  /* Only the ones that actually explain something claim to be explainable. */
+  .badge[title] {
     cursor: help;
   }
   /* Deliberately not green: the port is open and we are asking, but nothing
      has confirmed it is there yet, and the badge should not imply otherwise. */
   .badge.probing {
     background: rgba(53, 200, 216, 0.12);
+    border-color: rgba(53, 200, 216, 0.3);
     color: var(--led-3);
   }
   @media (prefers-reduced-motion: no-preference) {
@@ -500,36 +602,67 @@ Asking again every 5 s — it will pick up on its own once something answers."
   }
   .badge.ok {
     background: rgba(88, 192, 106, 0.14);
+    border-color: rgba(88, 192, 106, 0.32);
     color: var(--ok);
   }
   .badge.error {
     background: rgba(208, 90, 82, 0.15);
+    border-color: rgba(208, 90, 82, 0.34);
     color: var(--err);
   }
   .badge.warn {
     background: rgba(224, 168, 58, 0.14);
+    border-color: rgba(224, 168, 58, 0.32);
     color: var(--warn);
   }
+  /* The one thing here with no natural width — a port name runs as long as the
+     driver feels like making it — so it truncates rather than pushing the
+     Refresh button off the end of the row. */
   select {
+    height: var(--ctl-h);
+    padding: 0 0.35rem;
+    font-family: inherit;
+    font-size: var(--ctl-font);
     background: var(--bg-sunken);
     color: var(--text);
     border: 1px solid var(--hairline-strong);
-    border-radius: 4px;
-    padding: 0.2rem 0.4rem;
-    font-size: 0.8rem;
+    border-radius: var(--radius);
     max-width: 200px;
+    cursor: pointer;
+  }
+  select:hover {
+    border-color: var(--copper-deep);
   }
   button {
-    font-size: 0.8rem;
-    padding: 0.25rem 0.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--ctl-h);
+    padding: 0 0.7rem;
+    font-family: inherit;
+    font-size: var(--ctl-font);
+    line-height: 1;
+    white-space: nowrap;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius);
     background: var(--bg-raised);
     color: var(--text);
     border: 1px solid var(--hairline-strong);
   }
   button:hover {
     background: rgba(192, 137, 74, 0.16);
+    border-color: var(--copper-deep);
+  }
+  /* The action each section is actually offering — Scan, Connect, Connect —
+     against the secondary ones beside them (Refresh, Retry). All three sections
+     now word it the same way and weight it the same way, so the eye finds the
+     same control in each without reading any of them. */
+  .btn-accent {
+    border-color: var(--copper-deep);
+    color: var(--copper-bright);
+  }
+  .btn-accent:hover {
+    background: rgba(192, 137, 74, 0.22);
   }
   /* The refresh buttons latch disabled for a beat after a click so the label
      change is legible; without this the hover tint makes it look live. */
@@ -537,20 +670,34 @@ Asking again every 5 s — it will pick up on its own once something answers."
   button:disabled:hover {
     opacity: 0.55;
     background: var(--bg-raised);
+    border-color: var(--hairline-strong);
     cursor: default;
   }
+  /* Dropping a link: the same control in the Bluetooth and Serial sections,
+     quiet until hovered, then red enough to say what it does. Square-ish so it
+     reads as a button rather than a status pill sitting next to one. */
   .btn-disconnect {
+    padding: 0 0.4rem;
     background: transparent;
-    border: 1px solid var(--hairline-strong);
+    border-color: var(--hairline);
     color: var(--text-faint);
-    padding: 0.15rem 0.45rem;
-    font-size: 0.75rem;
-    line-height: 1;
-    border-radius: 4px;
-    cursor: pointer;
   }
   .btn-disconnect:hover {
     background: rgba(208, 90, 82, 0.15);
+    border-color: rgba(208, 90, 82, 0.45);
     color: var(--err);
+  }
+  /* One focus ring for everything focusable in the bar. The swap badge had the
+     only one; a keyboard user tabbing through the rest got whatever the UA
+     happened to draw on a dark ground, which on Chrome is nearly nothing. */
+  button:focus-visible,
+  select:focus-visible {
+    outline: 2px solid var(--copper);
+    outline-offset: 2px;
+  }
+  .logo-img {
+    display: block;
+    height: 1.9rem;
+    width: auto;
   }
 </style>

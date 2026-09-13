@@ -484,23 +484,27 @@ static void cmd_status(const char * /*args*/, Print &out)
     }
 }
 
+// Bare `perf` toggles; `perf on` / `perf off` set it explicitly. Extra spaces
+// around the argument are tolerated — the dispatcher only strips the single
+// separator, so "perf  off" arrives here as " off".
 static void cmd_performance_print(const char *args, Print &out)
 {
 #ifdef CPU_PROFILE
-    if(strcmp(args, "on") == 0)
-    {
-        gPerformancePrintEnabled = true;
-        out.println(F("CPU profiling print enabled"));
-    }
-    else if(strcmp(args, "off") == 0)
-    {
+    while(*args == ' ')
+        args++;
+    if(*args == '\0')
+        gPerformancePrintEnabled = !gPerformancePrintEnabled;
+    else if(strncasecmp(args, "off", 3) == 0)
         gPerformancePrintEnabled = false;
-        out.println(F("CPU profiling print disabled"));
-    }
+    else if(strncasecmp(args, "on", 2) == 0)
+        gPerformancePrintEnabled = true;
     else
     {
-        out.println(F("usage: performance on|off"));
+        out.println(F("usage: perf [on|off]   (bare perf toggles)"));
+        return;
     }
+    out.println(gPerformancePrintEnabled ? F("CPU profiling print enabled")
+                                         : F("CPU profiling print disabled"));
 #else
     out.println(F("CPU_PROFILE not active — add -DCPU_PROFILE to build_flags"));
 #endif
@@ -1446,7 +1450,7 @@ const CommandEntry kCommands[] = {
     {"config",    "<save|load|reset> [1-9|all]  preset slots 1-9; no slot = live state", cmd_config},
     {"dump",      "            output all params as cc:N=V lines (web configurator sync)", cmd_dump},
     {"status",    "            print all current parameters",                              cmd_status},
-    {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
+    {"perf",      "[on|off]    CPU profiling printing (bare toggles)",                      cmd_performance_print},
     {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},
     {"ble",       "[pair|off|poll 0|1]  BLE state; poll 0 = cost bisect",                     cmd_ble},
     {"help",      "            show this help",                                            cmd_help},

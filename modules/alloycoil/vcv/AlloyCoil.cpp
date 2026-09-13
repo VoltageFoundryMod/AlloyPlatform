@@ -271,9 +271,16 @@ struct AlloyCoil : Module
             //
             // The button is configured 0–1, so cc/127 crosses
             // VCVRackIO::readButton()'s 0.5 threshold at exactly the Off/On
-            // band boundary params.json declares. Rack's momentary widget stays
-            // lit while the CC holds it, which is the latch the wire has and a
-            // finger on the button does not.
+            // band boundary params.json declares, and Rack's momentary widget
+            // stays lit for as long as the CC holds it.
+            //
+            // ⚠ The bridge toggles warp on the button's *release* edge, so a CC
+            // held at 127 lights the button but does not move warp until it
+            // drops — one CC pulse is one toggle, the same as one tap, but a
+            // latched CC applies on the way down rather than the way up. On the
+            // board CC 20 writes the flag directly and does latch; here it is
+            // deliberately a panel press, so that the button and the parameter
+            // cannot disagree about which one warp last came from.
             {"warp", WARP_PARAM},
         };
         std::memset(_ccToParam, -1, sizeof(_ccToParam));
@@ -376,8 +383,9 @@ struct AlloyCoil : Module
 
         // Panel buttons — momentary, matching the hardware switches.
         configButton(WARP_PARAM,
-                     "Warp — toggles the echo time to half length; the tail "
-                     "pitches up when it engages and back down when it releases");
+                     "Warp — each tap toggles the echo time to half length; the "
+                     "tail pitches up when it engages and back down when it "
+                     "disengages");
         configButton(SHIFT_PARAM,
                      "Shift — selects the secondary parameters on hardware; "
                      "in Rack they are in the context menu");
@@ -868,13 +876,12 @@ struct AlloyCoil : Module
         // constructor left it at and what it must be: fillCoilButtons() writes
         // warp on button *edges*, so seeding warpPrev true to "match" a restored
         // latch would make the very first tick — button up, warpPrev true — read
-        // as a release and clear the thing that was just restored.
+        // as a release and toggle off the thing that was just restored.
         //
-        // Leaving it false means the first press after loading a warped patch is
-        // a no-op (it writes the 1 already there) and the release clears it.
-        // That is the same thing that happens on the board when CC 20 latches
-        // warp on and you then tap the button, and it is the behaviour the
-        // momentary-button-over-a-latching-flag design has always had.
+        // Leaving it false means a patch saved with warp latched comes back
+        // latched, and the first tap after loading turns it off, which is what
+        // a toggle should do. Same on the board when CC 20 latches warp on and
+        // you then tap the button: the panel takes the flag back.
         if(json_t *warpJ = json_object_get(rootJ, "warp"))
             _params.warp = json_is_true(warpJ) ? 1 : 0;
 

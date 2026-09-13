@@ -445,8 +445,7 @@
        out above their own box. The frame below clips vertically to keep the
        horizontal scroll honest, and without this the top band's legends lost
        their upper half to it. */
-    padding-top: 10px;
-
+    padding: 5px;
     /* Sections take their natural height rather than stretching to the tallest
        in the row. Stretching kept the outlines tidy but left small groups —
        Voice, FX Chain, Chorus — as three controls adrift in a tall empty box,

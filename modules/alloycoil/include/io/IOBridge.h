@@ -40,6 +40,14 @@ static inline float alloycoilClampf(float v, float lo, float hi)
 struct CoilButtonState
 {
     bool warpPrev = false;
+    /**
+     * Set by whoever recognised a *different* gesture on this same press — on
+     * hardware, the 3 s hold that opens the BLE pairing window — to suppress the
+     * warp toggle that the release would otherwise produce. Cleared on that
+     * release, so it lasts exactly one press. AlloyFlux's `sModeConsumed` is the
+     * same flag for the same reason.
+     */
+    bool warpConsumed = false;
 };
 
 /**
@@ -79,10 +87,8 @@ struct CoilButtonState
  * PotTakeover applies to a knob against the web, reduced to two positions: the
  * panel takes the parameter when it is touched and leaves it alone otherwise.
  *
- * So press gives the dive, release gives the rise — the momentary gesture that
- * is the point of putting a button where upstream had a toggle — and between
- * gestures CC 20 owns the flag and latches, which is what the original toggle
- * did. Touching the button takes it back.
+ * So a tap flips the flag and between taps CC 20 owns it and latches, which is
+ * what the original toggle did. Touching the button takes it back.
  *
  * ---- SHIFT ---------------------------------------------------------------
  *
@@ -97,22 +103,28 @@ inline void fillCoilButtons(IHardwareIO &io, CoilButtonState &st, CoilParams &p)
     if(warpDown != st.warpPrev)
     {
         st.warpPrev = warpDown;
-        // Toggle on the PRESS edge; the release does nothing.
+        // Toggle on the RELEASE edge; the press only arms it.
         //
         // It used to be momentary — down meant on, up meant off — which made
         // the panel the odd one out: CC 20, the Alloy Controller's switch and
         // the preset blob all treat warp as a latched flag, so the one place
         // you could not leave it on was the module itself. Toggling makes the
-        // four agree, and it is what frees the button to be *held*: the state
-        // change is over by the time a long press becomes a gesture, which is
-        // what lets WARP carry the BLE pairing hold (M78b).
+        // four agree.
         //
-        // Press-edge rather than release-edge, unlike AlloyFlux's MODE cycle.
-        // Warp is a performance gesture and wants to land when you hit it;
-        // MODE acts on release so it can double as a shift key, which this
-        // button does not need to do.
-        if(warpDown)
-            p.warp = p.warp ? 0 : 1;
+        // Release-edge, like AlloyFlux's MODE cycle, and for the same reason:
+        // this button also carries the 3 s BLE pairing hold (M78b), and a press
+        // edge cannot tell a tap from the start of a hold. It fired first and
+        // the hold handler then flipped warp back, so pairing audibly shortened
+        // the echo for three seconds and restored it. Waiting for the release
+        // means the gesture that already happened decides whether the toggle
+        // happens at all — the tap costs the length of the tap, which is
+        // shorter than the fix it replaces.
+        if(!warpDown)
+        {
+            if(!st.warpConsumed)
+                p.warp = p.warp ? 0 : 1;
+            st.warpConsumed = false; // one press, one suppression
+        }
     }
 }
 

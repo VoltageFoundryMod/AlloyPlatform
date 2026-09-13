@@ -372,6 +372,31 @@ function createMidi() {
     a.inputs.forEach((input) => {
       input.onmidimessage = null;
     });
+    // Detaching the handler is not the same as letting the device go. Web MIDI
+    // opens a port implicitly — assigning onmidimessage opens an input, send()
+    // opens an output — and nothing closes it again, so a discarded MIDIAccess
+    // leaves the browser's MIDI service holding every port it ever touched. On
+    // Windows a USB-MIDI port admits exactly one open handle, which is how a
+    // page ends up enumerating a port it can no longer talk through.
+    //
+    // The new access reopens what it needs: scan() releases the old instance
+    // before refreshList() runs subscribeInputs() on the new one.
+    closePorts(a);
+  }
+
+  /** Best-effort close of every port on one MIDIAccess. A port that refuses is
+   *  not worth reporting — this runs on teardown paths where there is nothing
+   *  left to do about it. */
+  function closePorts(a: MIDIAccess) {
+    const shut = (p: MIDIPort) => {
+      try {
+        void p.close().catch(() => {});
+      } catch {
+        /* older implementations may not resolve; nothing to do either way */
+      }
+    };
+    a.inputs.forEach(shut);
+    a.outputs.forEach(shut);
   }
 
   /** Register a listener for incoming CC. Returns an unsubscribe function. */
@@ -558,33 +583,106 @@ function createMidi() {
   // the page sits there believing it is connected to something that is gone,
   // and only a reload (which builds a fresh MIDIAccess) recovers.
   //
-  // Re-requesting access is precisely what a reload does, minus the reload. The
-  // permission is already granted so it neither prompts nor costs anything
-  // visible. This runs *only* while no usable port is present, so a healthy
-  // session generates no traffic whatsoever.
+  // Re-requesting access is nearly what a reload does, minus the reload: the
+  // permission is already granted so nothing is prompted. It is *not* free,
+  // though — see the note on kFreshAccessMinMs below, which is why this asks
+  // through scan() and takes that rate limit rather than calling
+  // requestMIDIAccess() on its own schedule. This runs only while no usable
+  // port is present, so a healthy session generates nothing at all.
   // ---------------------------------------------------------------------------
+  // Backs off: a machine with no MIDI interface at all leaves this running for
+  // the whole session, and there is nothing to be gained by asking twice a
+  // second forever. A device arriving still fires onstatechange on the access
+  // we already hold, so the poll is a backstop, not the primary path.
   const kRescanIntervalMs = 2000;
-  let rescanTimer: ReturnType<typeof setInterval> | null = null;
+  const kRescanMaxMs = 15000;
+  let rescanTimer: ReturnType<typeof setTimeout> | null = null;
+  let rescanDelay = kRescanIntervalMs;
 
   function startAutoRescan() {
     if (rescanTimer !== null) return;
-    rescanTimer = setInterval(() => {
+    const tick = () => {
+      rescanTimer = null;
       if (get(store).connected) {
-        stopAutoRescan();
+        rescanDelay = kRescanIntervalMs;
         return;
       }
       void scan();
-    }, kRescanIntervalMs);
+      rescanDelay = Math.min(rescanDelay * 2, kRescanMaxMs);
+      rescanTimer = setTimeout(tick, rescanDelay);
+    };
+    rescanTimer = setTimeout(tick, rescanDelay);
   }
 
   function stopAutoRescan() {
+    rescanDelay = kRescanIntervalMs;
     if (rescanTimer === null) return;
-    clearInterval(rescanTimer);
+    clearTimeout(rescanTimer);
     rescanTimer = null;
   }
 
-  /** Request Web MIDI access and enumerate available ports. */
-  async function scan() {
+  // ---------------------------------------------------------------------------
+  // One access per page, not one per scan.
+  //
+  // requestMIDIAccess() is not idempotent: every call hands back a *new*
+  // MIDIAccess with its own port objects, and the browser's MIDI service keeps
+  // the device handles behind them open. Three callers used to ask for one on a
+  // timer — the rescan above, the 5 s slow probe in App.svelte, and the Refresh
+  // button — so a page with nothing to talk to requested a fresh access every
+  // couple of seconds for as long as it stayed open, each one holding ports the
+  // previous instance had opened.
+  //
+  // That state lives in the browser process, not in the document, which is what
+  // made the failure so hard to read: the ports enumerate, the page looks
+  // connected, nothing gets through, and reloading does not help because a
+  // reload does not tear the MIDI service session down. Closing the tab does.
+  //
+  // So: reuse the access we hold, re-request only to shake loose a port list
+  // Chrome is keeping stale (that is what the rescan is for), never more often
+  // than kFreshAccessMinMs, and never two at once — an overlapping pair both
+  // read `access` as their predecessor, so one of them was leaked outright,
+  // with its inbound path still live and every message arriving twice.
+  // ---------------------------------------------------------------------------
+  const kFreshAccessMinMs = 8000;
+  let lastAccessRequest = 0;
+  let scanInFlight: Promise<void> | null = null;
+
+  /** Report a failed requestMIDIAccess() in terms of what to do about it. */
+  function describeAccessError(e: unknown): string {
+    const err = e as { name?: string; message?: string };
+    if (err?.name === "SecurityError" || err?.name === "NotAllowedError")
+      return "MIDI permission denied — allow MIDI for this site (padlock menu)";
+    if (err?.name === "InvalidStateError" || err?.name === "AbortError")
+      return "Browser MIDI service unavailable — close this tab and reopen it";
+    return `MIDI access failed: ${err?.message ?? String(e)}`;
+  }
+
+  /**
+   * Enumerate MIDI ports.
+   *
+   * `force` is for the Refresh button only: a deliberate click may skip the
+   * rate limit, because the whole point of the button is to do the strongest
+   * thing available. Every automatic caller takes the limit, and gets a
+   * re-enumeration of the access already held when it fires too soon — the same
+   * answer a fresh access gives for everything except a stale port.
+   */
+  async function scan(opts: { force?: boolean } = {}): Promise<void> {
+    if (scanInFlight) return scanInFlight;
+    const now = performance.now();
+    if (access && !opts.force && now - lastAccessRequest < kFreshAccessMinMs) {
+      refreshList();
+      return;
+    }
+    lastAccessRequest = now;
+    scanInFlight = requestAccess();
+    try {
+      await scanInFlight;
+    } finally {
+      scanInFlight = null;
+    }
+  }
+
+  async function requestAccess(): Promise<void> {
     try {
       store.update((s) => ({ ...s, error: null }));
       const previous = access;
@@ -624,8 +722,38 @@ function createMidi() {
       };
       refreshList();
     } catch (e) {
-      store.update((s) => ({ ...s, error: String(e) }));
+      store.update((s) => ({ ...s, error: describeAccessError(e) }));
+      // The request itself failed, so refreshList() never ran and nothing else
+      // would ever look again. Keep trying on the backoff — a MIDI service that
+      // was busy on one call commonly answers the next.
+      startAutoRescan();
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Give the ports back when the page goes away.
+  //
+  // `pagehide` is the last point at which a document can still run code on a
+  // reload, and releasing here is what makes the reloaded page a clean start:
+  // without it the new document asks for MIDI while the old document's handles
+  // are still open, which on Windows is the one case the OS refuses outright.
+  // Leaving it to garbage collection does not work — collection happens at some
+  // later time of the browser's choosing, and by then the new page has already
+  // made its one first impression.
+  //
+  // A page restored from the back/forward cache never ran an unload, so it
+  // comes back holding an access that was torn down; `persisted` is how that
+  // restore announces itself, and a scan rebuilds everything.
+  // ---------------------------------------------------------------------------
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", () => {
+      stopAutoRescan();
+      releaseAccess(access);
+      access = null;
+    });
+    window.addEventListener("pageshow", (e: PageTransitionEvent) => {
+      if (e.persisted) void scan({ force: true });
+    });
   }
 
   /** Connect to the currently selected (or specified) output port. */
