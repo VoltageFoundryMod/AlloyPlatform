@@ -104,15 +104,25 @@ the feedback delay, the echo's repeats, the filter inside the loop.
 
 **SHIFT** — hold to reach the secondaries above.
 
-**WARP** — hold to halve the echo time. Because the echo line
-is already full when you press it, the read head is dragged toward the write
-head and everything in the delay is re-read faster: the whole tail pitches up
-over about half a second, settles, then falls back when you let go. It is the
-module's one real performance gesture, and it is at its best with the echo
-feedback high and the send up.
+**WARP** — tap to halve the echo time; tap again to restore it. Because the
+echo line is already full when it engages, the read head is dragged toward the
+write head and everything in the delay is re-read faster: the whole tail
+pitches up over about half a second and settles, then falls back the same way
+when you release it. It is the module's one real performance gesture, and it is
+at its best with the echo feedback high and the send up.
 
 This is the same control as the toggle switch on the original Synthux Audrey II
-panel, made momentary so it can be played rhythmically rather than set.
+panel, and it latches the same way — as does CC 20 and the Alloy Controller's
+switch, so all four agree about what warp is.
+
+**WARP held 3 seconds** on a wireless model opens the Bluetooth pairing window
+for 60 seconds; there is no PIN and nothing to confirm. It is the same physical
+switch Alloy Flux uses for the same gesture, so the two modules pair the same
+way. Warp toggles on the way in and toggles back when the hold registers, so
+you will hear the echo shorten and return — that is the gesture working, not a
+fault. Alloy Coil's LEDs are not driven by the firmware, so the confirmation is
+the module appearing in your phone's or the Alloy Controller's Bluetooth
+chooser.
 
 Warp is also **CC 20**, so it is reachable from a MIDI controller, from the
 Alloy Controller's panel and from `set warp 1` at the serial console. There it

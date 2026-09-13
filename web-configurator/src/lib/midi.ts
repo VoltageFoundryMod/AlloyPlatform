@@ -1,6 +1,6 @@
 import { SYSEX_MFR, activeDev, type SysExDev } from "./patchSync";
 /**
- * MIDI connection layer — Web MIDI API wrapper.
+ * MIDI connection layer — Web MIDI and Web Bluetooth.
  *
  * Responsibilities:
  *  - Enumerate MIDI ports and expose them reactively via Svelte stores
@@ -12,9 +12,28 @@ import { SYSEX_MFR, activeDev, type SysExDev } from "./patchSync";
  *   await midi.connect();
  *   midi.sendCC(74, 64);   // shape = 0.5
  *   midi.sendNote(60, 64); // C4
+ *
+ * ---------------------------------------------------------------------------
+ * Two transports, one protocol (M78c).
+ *
+ * Everything above the wire — the discovery probe, echo suppression, the
+ * traffic tap, the byte counters, every listener — is transport-independent and
+ * stays in this file exactly once. What changes between USB MIDI and BLE MIDI
+ * is two functions wide: `sendRaw()` picks where bytes go, and inbound bytes
+ * arrive at `handleMidiBytes()` from either a MIDIInput event or `bleMidi`.
+ *
+ * That is the payoff of M63j's `7F 7F` wildcard probe: it identifies the module
+ * over whatever link is open, so a BLE connection needs no discovery of its
+ * own. `lib/bleMidi.ts` owns the GATT link and the BLE MIDI packet framing and
+ * knows nothing about Alloy's protocol.
+ * ---------------------------------------------------------------------------
  */
 
 import { writable, get, type Writable } from "svelte/store";
+import { bleMidi } from "./bleMidi";
+
+/** Which wire the page is currently talking over. */
+export type MidiTransport = "webmidi" | "ble";
 
 export type MidiPortInfo = { id: string; name: string };
 
@@ -80,6 +99,16 @@ export interface MidiStore {
   /** Output port id twinned with the input a module last answered on, or null.
    *  Outranks port-name heuristics in pickPort() — see adoptAnsweringPort(). */
   answeredOutput: string | null;
+
+  // --- Transport (M78c) -----------------------------------------------------
+
+  /** Which wire sends currently go out on. Inbound is never filtered: a BLE
+   *  link and a USB port can both be up, and both feed the same listeners. */
+  transport: MidiTransport;
+  /** Web Bluetooth exists in this browser. False on Firefox and all of iOS. */
+  bleSupported: boolean;
+  /** Name of the connected BLE device, or null. */
+  bleDeviceName: string | null;
 }
 
 function createMidi() {
@@ -104,6 +133,11 @@ function createMidi() {
     lastAnswerAt: null,
     probeFailed: false,
     answeredOutput: null,
+    transport: "webmidi",
+    bleSupported:
+      typeof navigator !== "undefined" &&
+      typeof (navigator as any).bluetooth !== "undefined",
+    bleDeviceName: null,
   });
 
   let access: MIDIAccess | null = null;
@@ -251,6 +285,22 @@ function createMidi() {
     const data = event.data;
     if (!data || data.length < 1) return;
     const portName = (event.target as MIDIInput | null)?.name ?? "?";
+    handleMidiBytes(data, portName);
+  }
+
+  /**
+   * One complete MIDI message, from whichever transport carried it (M78c).
+   *
+   * Split out of handleMidiMessage() so BLE feeds the same path: the traffic
+   * tap, the byte counters, the liveness clock, the SysEx listeners that drive
+   * the discovery probe and the CC listeners that move the panel are all here
+   * and there is exactly one copy of them. `bleMidi` reassembles its packets
+   * into precisely the shape a MIDIMessageEvent would have carried — SysEx
+   * with its F0 and F7 intact — so nothing below this line can tell the
+   * difference, and `portName` is the only place the transport shows.
+   */
+  function handleMidiBytes(data: Uint8Array, portName: string) {
+    if (!data || data.length < 1) return;
     emitTraffic("in", data, portName);
     store.update((s) => ({ ...s, rxBytes: s.rxBytes + data.length }));
     const status = data[0];
@@ -619,6 +669,25 @@ function createMidi() {
    * txBytes gives a counter to compare directly against loopMIDI's.
    */
   function sendRaw(bytes: number[] | Uint8Array): void {
+    // M78c — the whole transport switch, for every sender in this file.
+    if (get(store).transport === "ble") {
+      if (!bleMidi.isConnected()) {
+        store.update((s) => ({
+          ...s,
+          error: "Bluetooth not connected — message not sent",
+        }));
+        return;
+      }
+      bleMidi.send(bytes);
+      emitTraffic("out", bytes, "Bluetooth");
+      store.update((s) => ({
+        ...s,
+        txBytes: s.txBytes + bytes.length,
+        error: null,
+      }));
+      return;
+    }
+
     const out = getOutput();
     if (!out) {
       store.update((s) => ({
@@ -689,6 +758,10 @@ function createMidi() {
     ]);
     // Unchanged behaviour first: whatever the page would have asked anyway.
     sendRaw(msg);
+    // Over BLE there is exactly one peer — the device the user chose in the
+    // browser's own chooser — so there is nothing to fan out to and no port to
+    // guess wrong. The whole reason this function exists is a Web MIDI problem.
+    if (get(store).transport === "ble") return;
     if (!access) return;
 
     const { selectedOutput, userPickedOutput } = get(store);
@@ -794,6 +867,81 @@ function createMidi() {
   }
 
   // ---------------------------------------------------------------------------
+  // Bluetooth (M78c)
+  // ---------------------------------------------------------------------------
+
+  // Inbound BLE joins the same path as USB, tagged only by its port name.
+  // Wired once, at construction: the subscription costs nothing while no link
+  // is open, and tearing it down on disconnect would just mean rebuilding it
+  // on every reconnect.
+  bleMidi.onMessage((bytes) => handleMidiBytes(bytes, "Bluetooth"));
+
+  // Mirror the BLE link into the main store, so one status line can describe
+  // either transport — and fall back to Web MIDI the moment the radio link
+  // drops. A page left sending into a dead radio while a USB cable is plugged
+  // in is exactly the "looks connected, controls nothing" failure the M63j
+  // link-state work exists to rule out.
+  bleMidi.subscribe((b) => {
+    store.update((s) => {
+      if (s.transport !== "ble") {
+        return { ...s, bleDeviceName: b.connected ? b.deviceName : null };
+      }
+      if (!b.connected && !b.connecting) {
+        const haveUsb = s.selectedOutput !== null;
+        return {
+          ...s,
+          transport: "webmidi",
+          bleDeviceName: null,
+          connected: haveUsb,
+          deviceConnected: haveUsb,
+          moduleAnswered: false,
+          moduleName: null,
+          probeFailed: false,
+          // Re-probe over USB if there is a port to probe; staying silent
+          // would leave the badge claiming a module that is no longer there.
+          syncNonce: haveUsb ? s.syncNonce + 1 : s.syncNonce,
+          error: b.error,
+        };
+      }
+      return { ...s, bleDeviceName: b.deviceName };
+    });
+  });
+
+  /**
+   * Open the browser's Bluetooth chooser and switch the page onto BLE.
+   *
+   * Must be called from a user gesture — Web Bluetooth refuses otherwise, which
+   * is why this is bound to a button and never to an effect or a retry loop.
+   */
+  async function connectBluetooth(): Promise<boolean> {
+    const ok = await bleMidi.connect();
+    if (!ok) return false;
+    store.update((s) => ({
+      ...s,
+      transport: "ble",
+      connected: true,
+      deviceConnected: true,
+      // A GATT link is up. Whether a *module* is behind it is a different
+      // question and the probe answers it, exactly as over USB — so the
+      // module state resets and syncNonce runs the probe again.
+      moduleAnswered: false,
+      moduleName: null,
+      probeFailed: false,
+      answeredOutput: null,
+      syncNonce: s.syncNonce + 1,
+      error: null,
+    }));
+    return true;
+  }
+
+  /** Drop the BLE link and hand sends back to Web MIDI. The store update
+   *  arrives through the subscription above, so both routes out of BLE —
+   *  this one and the device vanishing — land in the same place. */
+  function disconnectBluetooth(): void {
+    bleMidi.disconnect();
+  }
+
+  // ---------------------------------------------------------------------------
   // Discovery probe state, reported by App.svelte as it runs.
   //
   // Kept here rather than in the component because the connection bar and the
@@ -843,6 +991,8 @@ function createMidi() {
     subscribe: store.subscribe,
     scan,
     connect,
+    connectBluetooth,
+    disconnectBluetooth,
     setChannel,
     sendCC,
     sendNoteOn,

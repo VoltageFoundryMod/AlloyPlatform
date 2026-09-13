@@ -39,7 +39,28 @@ class AudioDriver
     /// DMA buffers of kBlockFrames each.  4 × 32 = 128 frames ≈ 2.7 ms of
     /// buffering at 48 kHz — enough to ride out a long control tick without
     /// adding audible latency to a synth voice.
-    static constexpr size_t kNumBuffers = 4;
+    ///
+    /// Overridable because 2.7 ms stopped being enough once a radio was in the
+    /// picture (M78f).  A CYW43 doing PIO-SPI DMA stalls core 1 for reasons
+    /// that have nothing to do with how much DSP there is to run: on Alloy Coil
+    /// the measured block time sat at ~610 µs and then spiked past 1000 µs
+    /// whenever BLE traffic moved, and neither halving the smoother's step rate
+    /// (`smooth 64`) nor shrinking the echo loop (`ECHO_DECIM=8`) changed it —
+    /// which is what says it is a stall rather than work.
+    ///
+    /// A deeper queue is the only thing that answers a stall: it does not make
+    /// the block faster, it gives the DAC something to play while core 1 is
+    /// held off the bus.  The cost is output latency — 8 buffers is 5.3 ms,
+    /// 12 is 8.0 ms — and about 128 bytes per buffer.
+    ///
+    /// ⚠ Latency is real on a eurorack voice.  Raise it for a module that has
+    /// a radio, not as a way to paper over a module that is simply too slow:
+    /// if `slow-blk` is climbing steadily with nothing else going on, the
+    /// engine is over budget and buffering only delays the discovery.
+#ifndef AUDIO_DMA_BUFFERS
+#define AUDIO_DMA_BUFFERS 4
+#endif
+    static constexpr size_t kNumBuffers = AUDIO_DMA_BUFFERS;
 
     /// Renders one stereo frame, float, ±1.0 = full scale.  The driver owns
     /// the conversion to the wire format from here on — a module's internal

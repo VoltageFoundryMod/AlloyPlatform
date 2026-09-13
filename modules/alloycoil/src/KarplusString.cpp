@@ -1,5 +1,6 @@
 #include <cmath>
 #include "KarplusString.h"
+#include "CoilHot.h"
 #include <stdlib.h>
 
 using namespace infrasonic;
@@ -34,7 +35,7 @@ void KarplusString::Reset()
     src_phase_                      = 0.0f;
 }
 
-float KarplusString::Process(const float in)
+COIL_HOT(ks_process) float KarplusString::Process(const float in)
 {
     return ProcessInternal(in);
 }
@@ -55,7 +56,7 @@ void KarplusString::SetDamping(float damping)
     damping_ = daisysp::fclamp(damping, 0.f, 1.f);
 }
 
-float KarplusString::ProcessInternal(const float in)
+COIL_HOT(ks_internal) float KarplusString::ProcessInternal(const float in)
 {
     // float brightness = brightness_;
 

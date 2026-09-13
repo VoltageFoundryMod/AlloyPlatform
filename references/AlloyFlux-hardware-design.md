@@ -152,10 +152,33 @@ All pins accounted for. No pin used twice.
 | GP26 | 31       | ADC0 — V/OCT pitch  | In     | Direct ADC, fast reads, 1V/oct tracking                              |
 | GP27 | 32       | ADC1 — FM IN        | In     | Direct ADC, audio-rate reads in `renderAudio()`                      |
 | GP28 | 34       | ADC2 — Mux signal   | In     | 74HC4067 SIG — all knobs + slow CVs + jack switches                  |
-| GP25 | internal | Onboard LED         | Out    | Debug only                                                           |
+| GP25 | internal | Onboard LED         | Out    | Debug only — **does not exist on a Pico 2W** (see below)             |
 | —    | 36       | 3.3V out            | Pwr    | Powers PCM5102, 74HC4067                                             |
 | —    | 39       | VSYS                | Pwr    | System power — 5V from AP63205WU buck converter                      |
 | —    | 40       | VBUS                | Pwr    | USB 5V                                                               |
+
+### Pico 2 vs Pico 2W (M78)
+
+The board accepts either, and the firmware is built per board (`make firmware` /
+`make firmware WIRELESS=1`). **The pin map above needs no change**, because the
+2W's CYW43439 takes GP23 (WL_ON), GP24 (WL_DATA), GP25 (WL_CS) and GP29
+(WL_CLK) — four pins AlloyFlux does not use.
+
+Two things do change, neither of them on a signal net:
+
+- **GP25 stops being the onboard LED.** On a 2W that LED sits on the radio
+  chip. It was debug-only, so nothing is lost, but code that assumes a GPIO
+  there is wrong on half the boards.
+- **ADC3 / VSYS sense on GP29 is gone.** Also unused.
+
+⚠️ **Antenna keepout.** The 2W's antenna is at the USB end of the board, and on
+this module it sits behind an aluminium panel, inside a metal rack, beside the
+AP63205WU switcher. Keep the ground pour clear beneath it and expect
+attenuation relative to a bare board on a desk.
+
+⚠️ **Power.** BLE advertising draws ~10–20 mA with ~40 mA transmit peaks on top
+of the ~100 mA +12 V figure in the table above. The buck has the average
+headroom easily; what it needs is bulk capacitance near VSYS for the peaks.
 
 ---
 

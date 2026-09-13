@@ -19,7 +19,8 @@ lists every target.
 | Target     | Command                  | Notes                                                                                   |
 | ---------- | ------------------------ | --------------------------------------------------------------------------------------- |
 | Firmware   | `make` / `make firmware` | one image per module; `MODULE=alloycoil` for the other. Output `.pio/build/$MODULE/firmware.uf2` |
-|            | `make firmware-all`      | every module's image — run after touching `platform/`                                   |
+|            | `make firmware WIRELESS=0` | the non-wireless image (env `<module>_wired`). **Both modules default to wireless** — the plain env names are the 2W builds, so the IDE buttons and a bare `pio run` produce the shipping image too |
+|            | `make firmware-all`      | all four envs — `alloyflux`, `alloyflux_wired`, `alloycoil`, `alloycoil_wired`. Run after touching `platform/` |
 |            | `make upload`            | build + flash; `make upload-monitor` also opens the serial console                      |
 | VCV plugin | `make vcv`               | **one** `plugin.dll` with *all* modules in it — there is no per-module VCV build        |
 |            | `make vcv-install`       | installs into Rack's user plugin dir (`make print-plugins-dir`)                         |
@@ -52,7 +53,7 @@ to confirm no regressions on either platform.
 ### Firmware (RP2350, dual-core)
 
 - **Core 1** — the entire audio path: owns the I2S driver (`AudioDriver::begin()` + `pump()` both run here) and renders 32-frame blocks at 48000 Hz through `renderAudio()`, reverb included
-- **Core 0** — everything else: knobs, CV, buttons, LEDs, USB MIDI, serial console, flash. `updateControl()` at 128 Hz, paced by `AudioDriver::controlTicks()` so the control rate stays derived from the audio clock
+- **Core 0** — everything else: knobs, CV, buttons, LEDs, USB MIDI, BLE MIDI, serial console, flash. `updateControl()` at 128 Hz, paced by `AudioDriver::controlTicks()` so the control rate stays derived from the audio clock. **BLE lives here and only here**: BTstack's callbacks arrive in a low-priority IRQ on whichever core brought the radio up, and core 1 owns `DMA_IRQ_0` for I2S
 
 Control writes engine state that audio reads with no lock. Safe only because every such value is a single aligned word and is smoothed at control rate — a torn multi-field update costs at most one sample computed from two adjacent parameter values. **Never add a `setParams()` that resizes a buffer or swaps a pointer the audio path dereferences.**
 
@@ -63,6 +64,29 @@ Key files and directories:
 - [`modules/alloyflux/include/SynthEngine.h`](modules/alloyflux/include/SynthEngine.h) / [`modules/alloyflux/src/SynthEngine.cpp`](modules/alloyflux/src/SynthEngine.cpp) — all DSP, platform-independent
 - [`modules/alloyflux/include/io/IOBridge.h`](modules/alloyflux/include/io/IOBridge.h) — `fillSynthParams()` — the single place where hardware reads are converted to a `SynthParams` snapshot (runs on both platforms)
 - [`modules/alloyflux/include/dsp/`](modules/alloyflux/include/dsp/) — individual audio engine headers (reverb, filter, chorus, delay, etc.)
+
+### MIDI transports (M78a)
+
+`platform/include/io/midi_core.h` owns the **protocol** — parameter dispatch, the Alloy SysEx patch protocol, preset commands, the CC feedback diff — and knows nothing about a wire. A transport supplies a `MidiPort` (`sendCC` / `sendSysEx` / `isReady`), registers it once, and turns inbound bytes into `midiCore_handle*()` calls. Two exist: `usb_midi.cpp` (TinyUSB, every build) and `ble_midi.cpp` (M78b, the `_w` envs only).
+
+Two rules that are easy to get wrong:
+
+- **Each port keeps its own 128-byte `lastSent` cache.** It exists to suppress echoing a CC back at the host that sent it; that host knows the value and every *other* host does not. One shared cache would make a second transport quietly miss changes made from the first.
+- **`ble_midi.cpp` is compiled into every env** and collapses to no-op stubs without `ALLOY_BLE`, which is what keeps `main.cpp` free of `#ifdef`. Because of that, `platformio.ini` carries `lib_ignore = BLE` on the non-wireless envs: the PlatformIO LDF regex-scans for `#include` and does not evaluate the `#ifndef` guarding `<BLE.h>`.
+
+⚠️ **BLE costs ~147 µs of every audio block, measured.** Not MIDI work — `ble poll 0` (a runtime switch that stops `bleMidi_update()` entirely) changes nothing. It is background contention for bus and XIP cache from BTstack and the cyw43 driver, present whether the radio is idle, advertising or connected, and nothing in `ble_midi.cpp` can reduce it. AlloyFlux absorbs it in a 64% margin; Alloy Coil had 12% and needs 230.4 MHz to fit. Budget for it before adding a radio to anything.
+
+✅ **Alloy Coil's hot path runs from RAM (M81), and must stay there.** `COIL_HOT(name)` in `modules/alloycoil/include/CoilHot.h` marks a function `.time_critical`; seven carry it, costing 2 KB of SRAM and worth ~95 µs a block. The macro needs a unique *name* per function (COMDAT sections) and is `#ifdef ARDUINO`-guarded for the VCV build. Before it, block time depended on flash layout:
+
+⚠️ **The failure mode it fixed, so it is recognisable if it returns (M81).** Only `renderAudio()` and `loop1()` are in `.time_critical` (RAM); `ControlSmoother::Step()` and the whole engine run from XIP flash. Adding ~300 bytes anywhere in the image shifted the hot path and cost **172 µs a block — 585 → 767 µs**, from four integer compares. So Coil's ~12 % headroom is 12 % *at the current link order*, not 12 % of slack. Treat any block-time change after an unrelated edit as layout first, logic second, and measure against a freshly built baseline (`git worktree add ../x HEAD && pio run -e alloycoil`) rather than against memory.
+
+⚠️ **A radio also needs a deeper I2S queue.** `kNumBuffers = 4` is 2.7 ms — enough to ride out a long control tick, not a cyw43 PIO-SPI DMA stall. Those stalls show up as occasional 100 µs block spikes that no DSP saving touches (`smooth` and `ECHO_DECIM` both changed nothing, which is how it was identified), and they starve the DAC. `AUDIO_DMA_BUFFERS` overrides it; `alloycoil` uses 8 (5.3 ms) and that took its underruns from 10-160/s to flat; 4 clicks, 8 and 12 are both clean. The cost is output latency, so raise it for a module with a radio, never to paper over one that is simply over budget.
+
+**Wireless is additive and must stay so.** Nothing in the audio path, the control tick, the preset format or the SysEx protocol may become conditional on a radio being present. The MODE long-hold consumes the press on *every* build — only what it does (open the pairing window) depends on a radio. Gating the consume itself made the gesture exist only sometimes, which reads from the panel as a broken button.
+
+⚠️ **A control tick is not a unit of time.** `loop()` assigns `sLastTick = tick` rather than stepping it, so missed ticks are coalesced and one `updateControl()` can cover several. Anything user-facing measured in ticks drifts longer whenever core 0 is busy — which is why `ButtonEngine::heldLong()` is wall-clock (`millis()`) while the debounce-scale `held()` stays in ticks.
+
+⚠️ **`cyw43_is_initialized()` does not mean the radio is there.** `cyw43_init()` sets `initted = true` having only configured GPIOs and driver state; the chip is not touched until `cyw43_ensure_up()` on first use. It returns true on a plain Pico 2 running the W image. That matters because `BLEClass::begin()` ends in an unbounded `while (!_addr) delay(10)`, so a 2W image on a radio-less board hangs at boot. **Do not fix that with `cyw43_wifi_pm()` or anything else that calls `cyw43_ensure_up()`** — it brings the WiFi interface up on a Bluetooth-only module and cost Alloy Coil ~595 → ~1036 µs per block against a 666 µs budget. The protection is the compile-time gate: build `WIRELESS=0` for a non-W board.
 
 ### Platform abstraction
 
@@ -85,6 +109,7 @@ There is **no engine singleton**. The firmware owns one `SynthEngine` at file sc
 
 - **Web MIDI SysEx** (primary) — full patch dump/restore, preset save/load; see [`references/AlloyFlux-MIDI-reference.md`](references/AlloyFlux-MIDI-reference.md) for the protocol (manufacturer ID `0x7D`, device signature `0x41 0x46` for AlloyFlux, `0x41 0x43` for Alloy Coil, `0x7F 0x7F` = wildcard/discovery)
 - **Web Serial CDC** (fallback) — text command interface; see [`references/AlloyFlux-serial-reference.md`](references/AlloyFlux-serial-reference.md)
+- **Web Bluetooth** (M78c) — the same SysEx protocol over the standard BLE MIDI GATT service, and the only transport that works on a phone. `src/lib/bleMidi.ts` owns the link and the BLE MIDI packet framing; `src/lib/midi.ts` gained a `transport` field, and the split is two functions wide — `handleMidiBytes()` takes inbound from either wire, `sendRaw()` picks the outbound one. Everything else (the `7F 7F` probe, echo suppression, the traffic tap, the counters) is transport-independent and exists once. Two rules: GATT writes must be serialised through one promise chain (Chrome rejects overlapping writes, and a patch dump is five packets), and `connect()` must run straight off a click (Web Bluetooth needs a user gesture).
 
 Key library modules: `src/lib/serial.ts` (Web Serial), `src/lib/midi.ts` (Web MIDI), `src/lib/patchSync.ts` (SysEx build/parse), `src/lib/paramMap.ts` (CC ↔ param mapping).
 
@@ -100,7 +125,9 @@ Where a control sits is authored in [`src/lib/panelLayout.ts`](web-configurator/
 
 The panel is a **fixed-width stage that zooms**, not a reflowing layout: each module declares a `stageWidth` (AlloyFlux 1700, Alloy Coil 1050), sections take `span` columns of twelve on that stage, and PanelView transform-scales the whole thing to fit both axes of the window. Hand-tuned spans are only safe because of this — a reflowing grid made the same spans read as half-empty outlines on a wide monitor and a column stacked down the left on a narrow one. Aim a stage at roughly 2:1, which is about the window's usable aspect once the chrome and the dock are off; the tighter axis picks the zoom and the other shows slack.
 
-Presets, Keyboard and Settings **dock to a right-hand rail** (`panel/DockPanel.svelte`), several at once. The rail takes its width out of the panel column, and since PanelView measures the room it is given, opening one shrinks the control surface instead of covering it — no overlay, nothing to move out of the way.
+**When the panel cannot be shown whole, the stage stops being a stage** (M78d). `shouldStack(viewportW, stageW)` in PanelView returns true below `stageW * MIN_SCALE` — 1178 px for AlloyFlux, 651 px for Alloy Coil — which is exactly where the frame would otherwise scroll horizontally. A fixed breakpoint cannot serve both modules, and the 820 px one it replaced left AlloyFlux scrolling on a **phone in landscape** (~844 px). `App.svelte` owns the flag and passes it to PanelView, the rail and the connection bar, so all three switch on the same tick; it reads the viewport, never an element, because the rail gives its width back when stacking and measuring the frame oscillates. Stacked, sections render one per row at native size and the page scrolls vertically. Note a span of 5 in a one-column grid does **not** clamp — it invents implicit columns — so the narrow rules override `grid-column` through `:global(.section)`; the spans stay authored in `panelLayout.ts`. `App.svelte` and `ConnectionBar` share the same 820 px breakpoint and must keep sharing it.
+
+Presets, Keyboard and Settings **dock to a right-hand rail** (`panel/DockPanel.svelte`), several at once. The rail takes its width out of the panel column, and since PanelView measures the room it is given, opening one shrinks the control surface instead of covering it — no overlay, nothing to move out of the way. **Below 820 px it becomes a bottom sheet instead** (M78d): that trade is right wherever there is width to give, and at 390 px the rail's own 300 px floor is most of the viewport. The sheet sits above the pinned bottom drawers via a `--dock-h` custom property, because a media query cannot read the JS height `.dock-spacer` already measures.
 
 The quantizer indicator (`panel/ScaleKeys.svelte`) is **read-only by necessity**. The `scale` CC carries a `ScaleId`, not a mask, so there is no way to send an arbitrary set of semitones; making the keys editable needs a new firmware parameter first. Its masks in `lib/scales.ts` are **mirrored by hand from `modules/alloyflux/include/scale_quantizer.h`** — that header is the authority, and the two must be kept in step. They are not generated because the masks live in a hand-written C++ header rather than in `params.json`, which only ever sees the option labels.
 
@@ -108,7 +135,7 @@ Knob readouts derive their decimal places from the parameter's range *and its CC
 
 Three per-control affordances worth knowing: `size` (`sm`/`md`/`lg`, and the spread is the main tool for saying which control matters), `icons` (glyphs from `panel/Glyph.svelte` — on a knob, a strip across the travel with the nearest one lit, as the wave morph and the unison spread use it; on a segmented switch, one glyph per option above its label, as the filter mode and algorithm switches use it), and `disabledParams`, a set of names App.svelte derives from the current mode. Disabled controls are greyed and refuse to put CC on the wire, which is how the AR/ADSR split is shown: AR greys the four ADSR knobs, ADSR greys TIME SCALE. Sections size their dial slots to their largest knob so mixed sizes keep one centre line and one readout baseline.
 
-**Requirement**: Chrome or Edge only — Web Serial and Web MIDI APIs are not supported in Firefox/Safari.
+**Requirement**: Chrome or Edge only — Web Serial, Web MIDI and Web Bluetooth are all absent from Firefox and from every browser on iOS (WebKit ships none of the three). On Android, Chrome has Web Bluetooth but no Web Serial, which is why BLE is the transport that matters there. An iPad still *plays* the module through any BLE-MIDI-aware app — that goes through the OS, not the browser; it is this page specifically that cannot run there.
 
 ### Config/Flash
 
@@ -117,7 +144,7 @@ Three per-control affordances worth knowing: `size` (`sm`/`md`/`lg`, and the spr
 - **Always bump `kEngineVersion`** when adding/removing/reordering fields — old flash data is automatically discarded on mismatch. Current value: `7`.
 - A slot is `{magic, engineId, engineVersion, blob[192]}` — the container belongs to the platform ([`platform/include/ConfigSlot.h`](platform/include/ConfigSlot.h)), the blob to the module. `engineId` (`0x4146` for AlloyFlux) means another module's preset in the same slot is skipped rather than reinterpreted as AlloyFlux floats.
 - Magic word: `0xAF10CF01`. Slot 0 = live auto-save (10 s rate limit), slots 1–9 = user presets.
-- Current SRAM usage: ~359 KB of 512 KB (68.5%), flash 4.5%; check after any change that increases buffer sizes. The delay buffers alone are ~187 KB (`DELAY_MAX_MS` 500 ms sized at `DelayEngine::kNativeRate`).
+- Current SRAM usage: 362 880 B of 524 288 (69.2%), flash 4.8%; check after any change that increases buffer sizes. The delay buffers alone are ~187 KB (`DELAY_MAX_MS` 500 ms sized at `DelayEngine::kNativeRate`). The wireless image (env `alloyflux`, the default) is 443 684 B (84.6%) and flash 14.2% — **BLE costs +79 KB of SRAM and +390 KB of flash**, measured, Alloy Coil (env `alloycoil_wired`, 479 640 B / 91.5%) fits it only with /6 echo decimation; the wireless `alloycoil` is 496 512 B (94.7%) — it can be made to fit by giving back echo length or decimating it further, but see M78f for why CPU rather than RAM is the constraint that decides it. Note the linker's "free RAM" figure *is* the heap: `memmap_default.ld` puts both core stacks in SCRATCH_X/SCRATCH_Y, outside the RAM region.
 
 ---
 

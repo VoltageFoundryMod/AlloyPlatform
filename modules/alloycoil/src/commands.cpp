@@ -9,6 +9,7 @@
 #include "coil_config.h"
 #include "config_store.h" // platform: save/load/reset
 #include "io/param_map.h"
+#include "io/ble_midi.h" // bleMidi_stateName()
 #include "io/usb_midi.h" // gMidiChannel
 #include "params.h"
 #include <Arduino.h>
@@ -103,17 +104,37 @@ static void cmd_status(const char *, Print &out)
     // The engine does not fit in the block budget at the RP2350's stock
     // 150 MHz — that is the whole reason platformio.ini asks for 192. If this
     // reads 150, no amount of DSP accounting will explain the block time.
+    // Compared against this build's own F_CPU rather than a hardcoded 192:
+    // the wireless env runs at 230.4 MHz (M78f), so a fixed "expect 192" read
+    // as a fault on a board that was perfectly correct.
     out.print(F("  sys clock    : "));
     out.print(clock_get_hz(clk_sys) / 1000000u);
-    out.println(F(" MHz  (expect 192)"));
+    out.print(F(" MHz  (expect "));
+    out.print((uint32_t)(F_CPU / 1000000u));
+    out.println(F(")"));
     out.print(F("  MIDI channel : "));
     if(gMidiChannel == 0)
         out.println(F("omni"));
     else
         out.println(gMidiChannel);
-    out.print(F("  echo max     : "));
+    // Both halves of the echo's storage bargain, because either can be
+    // overridden at build time (`make ... ECHO_S=n ECHO_DECIM=n`) and a board
+    // that cannot say which configuration it is running is not one you can
+    // A/B against. The derived numbers are the ones that matter to the ear:
+    // the loop's own rate, and the anti-alias cutoff at rate x 0.25.
+    out.print(F("  echo         : "));
     out.print((int)COIL_ECHO_MAX_S);
-    out.println(F(" s"));
+    out.print(F(" s max, /"));
+    out.print((int)COIL_ECHO_DECIMATION);
+    out.print(F(" = "));
+    out.print(48000 / (int)COIL_ECHO_DECIMATION);
+    out.print(F(" Hz, AA "));
+    out.print(48000 / (int)COIL_ECHO_DECIMATION / 4);
+    out.print(F(" Hz, "));
+    // Exactly what the buffer costs: rate x 2 bytes x 2 channels x seconds.
+    out.print((48000 / (int)COIL_ECHO_DECIMATION) * 4 * (int)COIL_ECHO_MAX_S
+              / 1024);
+    out.println(F(" KiB"));
     out.print(F("  smoother     : "));
     if(gSmoothFrames == 0)
         out.println(F("OFF"));
@@ -136,6 +157,14 @@ static void cmd_status(const char *, Print &out)
         out.print(F("   SHIFT "));
         out.println((b & 0x2) ? F("down") : F("up"));
     }
+    // The *flag*, not the switch. Since WARP became a toggle the two can
+    // disagree for as long as you like — the button reads up while warp is on
+    // — and a latched warp is a state the hardware never sustained while the
+    // button was momentary. It halves the echo time, so it changes what the
+    // delay line is doing; if a block-time mystery shows up, look here before
+    // anywhere else. CC 20 and the Alloy Controller set the same flag.
+    out.print(F("  warp         : "));
+    out.println(gCoilParams.warp ? F("ON (echo time halved)") : F("off"));
     cmd_get("", out);
 }
 
@@ -178,6 +207,28 @@ static void cmd_perf(const char *args, Print &out)
 {
     gPerformancePrintEnabled = (*args != 'off');
     out.println(gPerformancePrintEnabled ? F("perf on") : F("perf off"));
+}
+
+// M78 — bring-up for the experimental wireless Coil. Prints "not-built" on
+// every env but alloycoil_w, and "no-radio" on a board whose CYW43 did not
+// answer. `ble pair` reopens the 60 s advertising window that init() opened.
+static void cmd_ble(const char *args, Print &out)
+{
+    if(strncasecmp(args, "pair", 4) == 0)
+        bleMidi_startPairing();
+    else if(strncasecmp(args, "off", 3) == 0)
+        bleMidi_stopPairing();
+    else if(strncasecmp(args, "poll ", 5) == 0)
+        bleMidi_setPolling(args[5] != '0');
+    else if(*args != '\0')
+    {
+        out.println(F("usage: ble [pair|off|poll 0|poll 1]"));
+        return;
+    }
+    out.print(F("ble -> "));
+    out.print(bleMidi_stateName());
+    out.print(F("  poll "));
+    out.println(bleMidi_polling() ? F("on") : F("OFF (diagnostic)"));
 }
 
 static void cmd_cpu(const char *, Print &out)
@@ -240,6 +291,7 @@ const CommandEntry kCommands[] = {
     {"perf", "<on|off> - periodic CPU report", cmd_perf},
     {"cpu", "- one CPU report now", cmd_cpu},
 #endif
+    {"ble", "[pair|off|poll 0|1]  BLE state; poll 0 = cost bisect", cmd_ble},
     {"help", "- this list", cmd_help},
 };
 

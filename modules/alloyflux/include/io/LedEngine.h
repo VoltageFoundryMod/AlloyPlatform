@@ -140,6 +140,12 @@ struct LedSignals
     bool    droneMode    = false; ///< free-running, no gate
     bool    shiftHeld    = false; ///< SHIFT_SW currently held
     bool    gateHigh     = false; ///< gate / MIDI note currently active
+    /// M78b — BLE pairing window open (discoverable).  Always false on a
+    /// module with no radio and in VCV, so the SHIFT LED reads exactly as it
+    /// did before.
+    bool bleAdvertising = false;
+    /// M78b — a BLE MIDI host is connected.
+    bool bleConnected = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -199,15 +205,15 @@ class LedEngine
         for(int i = 0; i < int(LedId::LED_COUNT); ++i)
             _led[i] = LedPalette::kOff;
         _lvlL = _lvlR = _act = 0.0f;
-        _breathePhase = _pulsePhase = 0.0f;
-        _rippleT                    = -1.0f;
-        _noteFlash                  = 0.0f;
-        _confirmT                   = -1.0f;
-        _modeFlash                  = 0.0f;
-        _countT                     = -1.0f;
-        _countN                     = 0;
-        _countColor                 = LedPalette::kOff;
-        _cal                        = LedCalPhase::OFF;
+        _breathePhase = _pulsePhase = _blePhase = 0.0f;
+        _rippleT                                = -1.0f;
+        _noteFlash                              = 0.0f;
+        _confirmT                               = -1.0f;
+        _modeFlash                              = 0.0f;
+        _countT                                 = -1.0f;
+        _countN                                 = 0;
+        _countColor                             = LedPalette::kOff;
+        _cal                                    = LedCalPhase::OFF;
     }
 
     /** Global dimmer applied to every LED — 0.0 (dark) to 1.0 (full). */
@@ -316,6 +322,7 @@ class LedEngine
     static constexpr float kCountHold   = 0.24f; ///< all n lit and steady
     static constexpr float kCountFade   = 0.20f; ///< dissolve back to normal
     static constexpr float kBreatheHz   = 0.14f; ///< drone / idle breathe
+    static constexpr float kBleHz       = 1.10f; ///< BLE advertising pulse
     static constexpr float kPeakAtkTau  = 0.004f;
     static constexpr float kPeakRelTau  = 0.22f;
     static constexpr float kFlashRelTau = 0.16f;
@@ -337,6 +344,12 @@ class LedEngine
         _breathePhase += kBreatheHz * dt;
         _breathePhase -= (float)(int)_breathePhase;
         float breathe = ledWave01(_breathePhase);
+
+        // M78b — its own phase rather than a multiple of the breathe: the
+        // advertising pulse has to read as urgent against the drone's slow
+        // one, and scaling a wrapping phase would step at every wrap.
+        _blePhase += kBleHz * dt;
+        _blePhase -= (float)(int)_blePhase;
 
         if(s.droneMode && !s.gateHigh)
             _act = 0.55f + 0.30f * breathe;
@@ -537,6 +550,22 @@ class LedEngine
             // Warm white slow breathe — drone is always visible.
             float b = 0.22f + 0.30f * ledWave01(_breathePhase);
             c       = ledScale(LedPalette::kWarmWhite, b);
+        }
+        // M78b — the radio, layered above drone and below SHIFT.  Blue is the
+        // one colour nothing else on this panel uses for a *state*, and it is
+        // what everyone already reads as Bluetooth.
+        //
+        // Connected is deliberately dim and steady: it is a background fact,
+        // not something to look at.  Advertising is a fast breathe because it
+        // is a 60 s window the player is waiting on — it has to be obvious
+        // from across a room that the module is discoverable, and equally
+        // obvious when it stops being so.
+        if(s.bleConnected)
+            c = ledScale(LedPalette::kCoolBlue, 0.18f);
+        if(s.bleAdvertising)
+        {
+            float b = 0.20f + 0.80f * ledWave01(_blePhase);
+            c       = ledScale(LedPalette::kCoolBlue, b);
         }
         if(s.shiftHeld)
         {
@@ -762,6 +791,7 @@ class LedEngine
 
     float _breathePhase = 0.0f;
     float _pulsePhase   = 0.0f;
+    float _blePhase     = 0.0f;
 
     float _noteFlash = 0.0f; // gate attack flash    (D15)
     float _modeFlash = 0.0f; // mode-accept flash    (D14)

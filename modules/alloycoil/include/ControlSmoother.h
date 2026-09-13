@@ -2,6 +2,7 @@
 #ifndef INFS_COIL_CONTROL_SMOOTHER_H
 #define INFS_COIL_CONTROL_SMOOTHER_H
 
+#include "CoilHot.h"
 #include "DSPUtils.h" // onepole_coef_t60
 #include "FeedbackSynthEngine.h"
 #include "dsp.h" // fonepole
@@ -159,7 +160,7 @@ class ControlSmoother {
          *        nothing leaks across; the interpolator state in value_/pushed_
          *        belongs to the smoother, which is already per-instance.
          */
-        inline void Step(Engine &engine, const CoilParams &p)
+        COIL_HOT(smoother_step) inline void Step(Engine &engine, const CoilParams &p)
         {
             const float goal[kCount] = {
                 readGoal(p.stringPitch),
@@ -267,7 +268,7 @@ class ControlSmoother {
             return (d < 0.0f ? -d : d) > eps_[i];
         }
 
-        inline void apply(Engine &engine, const int i)
+        COIL_HOT(smoother_apply) inline void apply(Engine &engine, const int i)
         {
             switch(i)
             {

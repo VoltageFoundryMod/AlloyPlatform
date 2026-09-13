@@ -83,10 +83,11 @@ extern CoilParams gCoilParams;
  * than on the stored value, and packCoilConfig() saves echoTime — a preset
  * captured with warp on would otherwise come back half as long.
  *
- * Latching in the struct, momentary on the panel: Btn::WARP writes it from the
- * button's live state each control tick (io/IOBridge.h), while CC 20 and SysEx
- * set it and leave it. Not in CoilConfig for the same reason — a held gesture
- * is not part of a patch. The VCV module persists it with the rack anyway,
+ * Latching everywhere, including the panel: Btn::WARP toggles it on the press
+ * edge each control tick (io/IOBridge.h), while CC 20 and SysEx set it and
+ * leave it. The panel used to be the exception, momentary while every other
+ * route latched; it is not any more. Still not in CoilConfig — warp is a
+ * performance state, not part of a patch. The VCV module persists it with the rack anyway,
  * because a Rack patch is a session and not a preset: what you left the module
  * set to is what should come back.
  */

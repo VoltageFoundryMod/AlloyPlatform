@@ -72,6 +72,7 @@ static constexpr uint8_t kPinI2sData = 18u;
 #include "io/IOBridge.h"       // fillCoilButtons()
 #include "io/PanelMap.h"       // Btn:: — Alloy Coil's slot names
 #include "io/serial_console.h"
+#include "io/ble_midi.h"   // M78 — no-ops without ALLOY_BLE or a radio
 #include "io/usb_midi.h"
 #include "params.h"
 #include <math.h>
@@ -107,6 +108,7 @@ volatile uint32_t gAudioBudgetUs           = 1;
 #endif
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
 // Engine and driver
 // ---------------------------------------------------------------------------
 
@@ -131,8 +133,15 @@ static AudioDriver sAudioDriver;
 // — the same seam AlloyFlux reads its two switches through, and the one the ADC
 // driver will slot into.
 // ---------------------------------------------------------------------------
-static ButtonEngine   gBtnWarp(PIN_BUTTON_WARP);   // SW2 — doppler warp, held
-static ButtonEngine   gBtnShift(PIN_BUTTON_SHIFT); // SW3 — knob secondaries
+// WARP carries the BLE pairing hold (M78b), so its long threshold is spelled
+// out here the way AlloyFlux's MODE one is — it is a user-facing duration the
+// manual quotes, and it is the same physical switch (BUTTON_1 / SW2), so the
+// gesture sits in the same place whichever firmware the board is running.
+// Milliseconds, not ticks: updateControl() coalesces missed control ticks, so
+// a tick count drifts longer under load. See ButtonEngine.h.
+static constexpr uint32_t kWarpLongHoldMs = 3000;
+static ButtonEngine gBtnWarp(PIN_BUTTON_WARP, 64, kWarpLongHoldMs); // SW2
+static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // SW3 — knob secondaries
 static HardwarePicoIO sHardwareIO(gBtnWarp, gBtnShift);
 // Last button levels the bridge acted on. It writes gCoilParams.warp on the edges only, so
 // that CC 20 can own the flag between presses — see io/IOBridge.h.
@@ -206,6 +215,12 @@ void setup()
     serialConsole_ready();
     if(sAudioState == kAudioFailed)
         DLOGLN("AUDIO: I2S begin() FAILED — no bit clock, check PIO resources");
+
+    // M78 — after the audio driver, because the cyw43 bus is PIO-SPI and
+    // claims a state machine through pio_claim_free_sm(); I2S has to get its
+    // own first. Compiles to nothing without -DALLOY_BLE, which is every env
+    // but alloycoil_w.
+    bleMidi_init();
 #ifdef CPU_PROFILE
     sAudioDriver.resetOverruns();
     gAudioOverruns = 0;
@@ -217,12 +232,17 @@ void updateControl()
     serialConsole_update();
 #ifdef USE_TINYUSB
     usbMidi_update();
+#endif
+    // Drains inbound BLE packets, closes the pairing window when it expires,
+    // and flushes what the drain queued. A no-op with no radio.
+    bleMidi_update();
+#ifdef USE_TINYUSB
     static uint32_t sLastMidiFeedbackMs = 0;
     const uint32_t  nowMidi             = millis();
     if(nowMidi - sLastMidiFeedbackMs >= 250u)
     {
         sLastMidiFeedbackMs = nowMidi;
-        usbMidi_sendFeedback();
+        midiCore_sendFeedback();
     }
 #endif
 
@@ -240,6 +260,39 @@ void updateControl()
     gBtnWarp.poll();
     gBtnShift.poll();
     fillCoilButtons(sHardwareIO, sBtnState, gCoilParams);
+
+    // M78b — WARP held 3 s opens the BLE pairing window.
+    //
+    // The same physical switch AlloyFlux calls MODE: both are BUTTON_1, SW2 on
+    // the shared PCB, so the gesture is in the same place on both modules
+    // whichever firmware is loaded. That is worth more than either module's
+    // local name for it.
+    //
+    // It moved here from SHIFT once WARP became a toggle. While WARP was
+    // momentary, holding it *was* the warp effect and a pairing gesture would
+    // have fired in the middle of a performance; now the toggle lands on the
+    // press edge and the button is free to be held.
+    //
+    // ⚠ That press edge has already flipped warp by the time this fires, so
+    // undo it — the same job AlloyFlux's `sModeConsumed` does, except that a
+    // toggle cannot be suppressed in advance, only reverted. The audible cost
+    // is up to three seconds of warp before it returns, which is honest enough
+    // for a deliberate gesture and much better than silently leaving the echo
+    // half-length afterwards.
+    if(gBtnWarp.heldLong())
+    {
+        gCoilParams.warp = gCoilParams.warp ? 0 : 1;
+        sBtnState.warpPrev = true; // stay in sync; the button is still down
+        if(bleMidi_state() != BleMidiState::Unavailable)
+            bleMidi_startPairing();
+#ifdef SERIAL_CONTROL
+        // Alloy Coil's LED chain is not driven by the firmware, so unlike
+        // AlloyFlux there is no panel feedback for this — the console line and
+        // the module appearing in a phone's chooser are the only confirmation.
+        Serial.print(F("warp held -> ble "));
+        Serial.println(bleMidi_stateName());
+#endif
+    }
 
     // Nothing else here talks to the engine. This tick's job is to bring
     // the *goal* values up to date from MIDI, SysEx and the console; the

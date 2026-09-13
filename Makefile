@@ -146,6 +146,69 @@ WEB := web-configurator
 MODULE ?= alloyflux
 MODULES := alloyflux alloycoil
 
+# WIRELESS=1 builds the Pico 2W image of the same module: the identical engine
+# at the same rate from the same sources, with BLE MIDI added (M78).
+#
+# A separate knob rather than another MODULE value, deliberately. MODULE names
+# the module — its params tables, its sources, its host checks — and a 2W build
+# is not a different module, it is the same one on a different board. Folding
+# it into MODULE would mean `make params MODULE=alloyflux_wired` looking for a
+# params.json that should never exist.
+#
+# Only AlloyFlux has a wireless env. Alloy Coil sits at 91% RAM after M63i and
+# has nothing to give BTstack, so `make firmware MODULE=alloycoil WIRELESS=1`
+# fails in PlatformIO with "unknown environment" — the honest error.
+#
+# Wireless is the default on BOTH modules, and the PlatformIO envs are named to
+# match: the plain names (alloyflux, alloycoil) are the 2W builds and the
+# non-radio ones carry the _wired suffix. The suffix marks the exception, so
+# the IDE buttons, a bare `pio run` and make all produce the shipping image
+# without anyone having to remember a flag to get it.
+#
+WIRELESS ?= 1
+
+# ── Echo experiments (M78f) ──────────────────────────────────────────────────
+# Sweep Alloy Coil's echo ceiling and decimation without editing platformio.ini,
+# so a session of A/B leaves no diff behind:
+#
+#     make upload MODULE=alloycoil WIRELESS=1 ECHO_S=2 ECHO_DECIM=4
+#     make firmware MODULE=alloycoil ECHO_DECIM=8
+#
+# Storage is exactly 48000/DECIM x 2 bytes x 2 channels x SECONDS, i.e. linear
+# in both — /4 at 4 s is 192 000 B, /6 at 4 s is 128 000 B, /8 at 4 s is 96 000.
+# Watch the RAM figure after the build: if it did not move, the override did not
+# take, and you are measuring the old configuration.
+#
+# These reach the compiler through ${sysenv.ALLOY_FLAGS}, which is the LAST entry
+# in each Coil env's build_flags. PLATFORMIO_BUILD_FLAGS cannot do this job —
+# PlatformIO prepends it, so the env's own -D wins and the override is silently
+# ignored.
+#
+# No -U: PlatformIO sorts -U into a LATER flag group than -D, so -UX -DX=2`r
+# reaches the compiler as -DX=4 -DX=2 ... -UX and the undef wins — leaving the
+# header's #ifndef default in force and the build silently unchanged. A plain
+# -D is enough, because the later definition on the line is the one kept.
+ALLOY_FLAGS :=
+ifneq ($(ECHO_S),)
+ALLOY_FLAGS += -DCOIL_ECHO_MAX_S=$(ECHO_S)
+endif
+ifneq ($(ECHO_DECIM),)
+ALLOY_FLAGS += -DCOIL_ECHO_DECIMATION=$(ECHO_DECIM)
+endif
+# DMA_BUF=n — I2S output queue depth, n x 32 frames. 4 = 2.7 ms (default),
+# 8 = 5.3 ms, 12 = 8.0 ms. Buys ride-through for stalls, costs output latency.
+# See AUDIO_DMA_BUFFERS in platform/include/io/AudioDriver.h.
+ifneq ($(DMA_BUF),)
+ALLOY_FLAGS += -DAUDIO_DMA_BUFFERS=$(DMA_BUF)
+endif
+export ALLOY_FLAGS
+
+ifeq ($(WIRELESS),1)
+FW_ENV := $(MODULE)
+else
+FW_ENV := $(MODULE)_wired
+endif
+
 # `all` is the firmware you flash — AlloyFlux unless MODULE says otherwise.
 all: firmware
 
@@ -154,11 +217,23 @@ all: firmware
 # built once: one bundle drives every module, detected at runtime.
 everything: firmware-all vcv web
 
+# Every image a shared change can break, named as PlatformIO envs rather than
+# as modules. The wireless build is a third image from the same sources, and
+# the old MODULES loop never covered it — so an edit under platform/ could
+# break it with nothing in the repo noticing.
+#
+# All four are in the list. The wireless Coil is the one a careless change breaks
+# It sits at 94.3% of SRAM, so it is the env a careless change breaks first —
+# which makes it the most useful one to have compiling here, not the least. If
+# it starts failing, that is the answer to M78f arriving early rather than a
+# broken build target.
+FW_ENVS := alloyflux alloyflux_wired alloycoil alloycoil_wired
+
 .PHONY: firmware-all
 firmware-all:
-	@for m in $(MODULES); do \
-	  echo ""; echo "--- firmware: $$m ---"; \
-	  $(MAKE) --no-print-directory firmware MODULE=$$m || exit 1; \
+	@for e in $(FW_ENVS); do \
+	  echo ""; echo "--- firmware: $$e ---"; \
+	  $(PIO) run -e $$e || exit 1; \
 	done
 
 help:
@@ -168,16 +243,20 @@ help:
 	@echo "  Modules: $(MODULES)"
 	@echo "    MODULE=<module>   picks the firmware image and the params"
 	@echo "                      tables                  (current: $(MODULE))"
+	@echo "    WIRELESS=0|1      Pico 2W image with BLE MIDI. DEFAULT is 1 on"
+	@echo "                      both modules; WIRELESS=0 gives the _wired env."
+	@echo "                      Currently building: $(FW_ENV)"
 	@echo ""
 	@echo "  Firmware (RP2350, one image per module)"
 	@echo "    firmware          build firmware.uf2                  (default)"
-	@echo "    firmware-all      build every module's image"
+	@echo "    firmware-all      build all four envs (both modules, both boards)"
 	@echo "    upload            build and flash over USB"
 	@echo "    upload-monitor    flash, then open the serial monitor"
 	@echo "    monitor           serial monitor only"
 	@echo "    test              every host suite, then the PlatformIO ones"
 	@echo "    firmware-clean    clean the PlatformIO build"
 	@echo "      e.g.  make upload MODULE=alloycoil"
+	@echo "      e.g.  make upload WIRELESS=0   (Alloy Flux on a plain Pico 2)"
 	@echo ""
 	@echo "  VCV Rack plugin (ONE plugin, all modules in it)"
 	@echo "    vcv               build vcv-plugin/plugin.dll"
@@ -189,6 +268,8 @@ help:
 	@echo "  Alloy Controller (Svelte + Vite, one build drives every module)"
 	@echo "    web               production build into $(WEB)/dist"
 	@echo "    web-dev           vite dev server on localhost:5173"
+	@echo "    web-host          same over HTTPS, on the LAN, for phone testing"
+	@echo "                      (self-signed cert - accept it once on the phone)"
 	@echo "    web-check         svelte-check + tsc type validation"
 	@echo "    web-deps          npm install"
 	@echo "    web-clean         remove dist/ and node_modules/"
@@ -260,19 +341,19 @@ params-check: params
 .PHONY: firmware upload upload-monitor monitor firmware-clean
 
 firmware:
-	$(PIO) run -e $(MODULE)
+	$(PIO) run -e $(FW_ENV)
 
 upload:
-	$(PIO) run -e $(MODULE) -t upload
+	$(PIO) run -e $(FW_ENV) -t upload
 
 upload-monitor:
-	$(PIO) run -e $(MODULE) -t upload -t monitor
+	$(PIO) run -e $(FW_ENV) -t upload -t monitor
 
 monitor:
 	$(PIO) device monitor
 
 firmware-clean:
-	$(PIO) run -e $(MODULE) -t clean
+	$(PIO) run -e $(FW_ENV) -t clean
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 # Every pass/fail suite in the repo, and one target that runs them all.
@@ -715,7 +796,7 @@ print-plugins-dir:
 #
 # The build targets bootstrap node_modules on first run so a fresh clone works
 # with a single `make web`.
-.PHONY: web web-dev web-check web-deps web-clean
+.PHONY: web web-dev web-host web-check web-deps web-clean
 
 $(WEB)/node_modules:
 	cd $(WEB) && $(NPM) install
@@ -734,6 +815,24 @@ web: $(WEB)/node_modules
 
 web-dev: $(WEB)/node_modules
 	cd $(WEB) && $(NPM) run dev
+
+# Exposes the dev server on the LAN so a phone can reach it, over HTTPS.
+#
+# The HTTPS is not optional decoration. Web Bluetooth, Web MIDI and Web Serial
+# are secure-context APIs, and over plain HTTP on a LAN IP the browser does not
+# refuse them — it does not *define* them, so every feature-detect on the page
+# reports "not supported" on an Android Chrome that supports them perfectly
+# well. vite.config.ts turns on basic-ssl when it sees --host for exactly this,
+# and leaves `make web-dev` alone because localhost is already secure.
+#
+# The certificate is self-signed, so the phone shows an interstitial once.
+web-host: $(WEB)/node_modules
+	@echo ""
+	@echo "NOTE: self-signed certificate - accept the browser warning once on the"
+	@echo "      phone. https:// is required: Web Bluetooth and Web MIDI do not"
+	@echo "      exist on a plain-HTTP origin, and the page will say 'Needs HTTPS'."
+	@echo ""
+	cd $(WEB) && $(NPM) run dev -- --host
 
 web-check: $(WEB)/node_modules
 	cd $(WEB) && $(NPM) run check

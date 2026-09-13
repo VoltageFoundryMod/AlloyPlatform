@@ -136,6 +136,7 @@ external FM onto CASCADE or PLASMA is where the module gets genuinely violent.
 | MODE         | Tap                  | Cycle: PAIR → CLOUD → CHORD → CASCADE → STRING → PLASMA → POLY → PAIR |
 | SHIFT        | Hold + knob          | Access secondary function for that knob                               |
 | SHIFT + MODE | Hold SHIFT, tap MODE | Toggle drone mode (sustained without gate)                            |
+| MODE         | Hold 3 s             | Open the Bluetooth pairing window for 60 s _(wireless models)_. A hold this long never cycles the mode on release |
 | MODE         | Hold during power-on | Enter V/Oct two-point calibration                                     |
 
 ---

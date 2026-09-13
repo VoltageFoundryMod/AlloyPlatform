@@ -376,8 +376,8 @@ struct AlloyCoil : Module
 
         // Panel buttons — momentary, matching the hardware switches.
         configButton(WARP_PARAM,
-                     "Warp — hold to halve the echo time; the tail pitches up "
-                     "on press and back down on release");
+                     "Warp — toggles the echo time to half length; the tail "
+                     "pitches up when it engages and back down when it releases");
         configButton(SHIFT_PARAM,
                      "Shift — selects the secondary parameters on hardware; "
                      "in Rack they are in the context menu");

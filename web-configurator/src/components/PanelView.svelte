@@ -10,9 +10,43 @@
    */
 
   /** Never shrink past this; below it the page scrolls instead. */
-  const MIN_SCALE = 0.62;
+  export const MIN_SCALE = 0.62;
   /** Nor grow past it — knobs the size of coasters help nobody. */
   const MAX_SCALE = 1.3;
+
+  /**
+   * Should the panel stack into one column instead of zooming? (M78d)
+   *
+   * Zooming a fixed composition is the right answer everywhere there is room
+   * for it. Where there is not, it does not produce a smaller panel — it
+   * produces the same panel behind a horizontal scrollbar, pan-and-hunt, with
+   * every knob too small to grab. So the sections stack at their *native* size
+   * and the page scrolls vertically, which is the one thing a phone is good
+   * at. That deliberately reverses the module comment above, but only where
+   * its premise — that there is room to zoom into — is false.
+   *
+   * ⚠ This was a fixed 820 px breakpoint and that was wrong twice over.
+   *
+   * It was a guess rather than a measurement: the frame only scrolls once the
+   * fit falls under MIN_SCALE, which for AlloyFlux's 1900-unit stage is
+   * 1178 px and for Alloy Coil's 1050-unit one is 651 px. One number cannot be
+   * right for both, and 820 was right for neither — it left AlloyFlux
+   * scrolling horizontally between 820 and 1178, which is exactly where a
+   * **phone in landscape** sits at ~844 px. The complaint that started this
+   * was a landscape phone showing the desktop panel.
+   *
+   * Deriving it from the stage instead makes it true per module and by
+   * construction: stack precisely when the panel could not be shown whole.
+   * Coil at 844 px fits at 0.80 and correctly stays zoomed.
+   *
+   * Takes the **viewport** width, never the frame's. The rail gives its width
+   * back when the layout stacks, so measuring the frame would feed back on
+   * itself: narrow → rail becomes a sheet → frame is wider → not narrow →
+   * rail takes width again, oscillating forever at one particular window size.
+   */
+  export function shouldStack(viewportW: number, stageW: number): boolean {
+    return viewportW < stageW * MIN_SCALE;
+  }
 </script>
 
 <script lang="ts">
@@ -47,6 +81,7 @@
     sliderDisplays = {},
     disabledParams = new Set<string>(),
     bottomReserve = 96,
+    stacked = false,
   }: {
     moduleId: string;
     map: CCParam[];
@@ -73,6 +108,17 @@
      * instead of being covered.
      */
     bottomReserve?: number;
+    /**
+     * Stack into one column at native size instead of zooming (M78d).
+     *
+     * Owned by App.svelte rather than decided here, because the same answer
+     * has to move the utility rail and the connection bar as well — three
+     * places computing it separately is three chances for them to disagree
+     * mid-resize and for the rail to keep a third of a phone screen while the
+     * panel below it has already stacked. App derives it with `shouldStack()`
+     * from this module, so there is one rule and one reading of it.
+     */
+    stacked?: boolean;
   } = $props();
 
   const sections = $derived(layoutFor(moduleId, map));
@@ -95,6 +141,13 @@
     const stage = stageEl;
 
     const measure = () => {
+      // Stacked, at native size: there is no zoom to compute and the stage-box
+      // is not sized from `scale` either, so measuring would only fight the
+      // ResizeObserver it is triggered by.
+      if (stacked) {
+        scale = 1;
+        return;
+      }
       // offsetHeight is the *layout* height, which a transform does not
       // affect — so this stays the stage's natural size however it is scaled,
       // and the fit below cannot oscillate.
@@ -251,7 +304,7 @@
 {/snippet}
 
 <div class="panel">
-  <div class="frame" bind:this={frameEl}>
+  <div class="frame" class:stacked bind:this={frameEl}>
     <!-- Carries the *scaled* size as real layout, which the transformed stage
          inside it cannot: a transform never changes an element's layout box,
          so the stage still measures stageW wide at any zoom. Left to itself
@@ -259,16 +312,18 @@
          width and put a horizontal scrollbar under content that visibly fit.
          With the box sized correctly, `margin: auto` also centres it, so the
          hand-rolled offset this used to need is gone. -->
+    <!-- Stacked: the stage is in normal flow at its natural height, so the box
+         must not impose the scaled size it has no scale for. -->
     <div
       class="stage-box"
-      style:width={`${stageW * scale}px`}
-      style:height={`${stageHeight * scale}px`}
+      style:width={stacked ? "100%" : `${stageW * scale}px`}
+      style:height={stacked ? "auto" : `${stageHeight * scale}px`}
     >
       <div
         class="stage"
         bind:this={stageEl}
-        style:width={`${stageW}px`}
-        style:transform={`scale(${scale})`}
+        style:width={stacked ? "100%" : `${stageW}px`}
+        style:transform={stacked ? "none" : `scale(${scale})`}
       >
         <div class="grid">
           {#each sections as section (section.key)}
@@ -353,6 +408,33 @@
     top: 0;
     left: 0;
     transform-origin: top left;
+  }
+
+  /* ── Phone layout (M78d) ────────────────────────────────────────────────
+     One column at native size, scrolled vertically. Everything here is the
+     stage metaphor being switched off rather than adjusted: the stage rejoins
+     normal flow, stops being transformed, and the twelve-column grid — whose
+     hand-tuned spans only mean anything at the design width — collapses so
+     every section takes the full width it is given. */
+  .frame.stacked {
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+  .frame.stacked .stage {
+    position: static;
+  }
+  .frame.stacked .grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px 0;
+    padding-inline: 4px;
+  }
+  /* PanelSection sets `grid-column: span var(--span)`, and a span of 5 in a
+     one-column grid does not clamp — it invents four implicit columns and puts
+     the section in a row of its own that is five screens wide. Reaching into
+     the child's scope is the only way to say "ignore the span"; the span itself
+     stays authored in panelLayout.ts, where it belongs for every other width. */
+  .frame.stacked :global(.section) {
+    grid-column: 1 / -1;
   }
 
   .grid {

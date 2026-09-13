@@ -1,4 +1,5 @@
 #include "FeedbackSynthEngine.h"
+#include "CoilHot.h"
 #include "DSPUtils.h"
 
 using namespace infrasonic;
@@ -96,6 +97,7 @@ void Engine::SetOutputLevel(const float level) { output_level_ = level; }
 
 void Engine::SetExciterLevel(const float level) { exciter_level_ = level; }
 
+COIL_HOT(engine_process)
 void Engine::Process(float in, float &outL, float &outR) {
   // --- Update audio-rate-smoothed control params ---
 

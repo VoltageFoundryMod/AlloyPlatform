@@ -56,6 +56,7 @@ static constexpr uint8_t kPinI2sData = 18u;
 #include "dsp/ShapeOsc.h"
 #include "dsp/SpaceEngine.h"
 #include "io/AudioDriver.h" // block I2S output + control tick
+#include "io/ble_midi.h"    // M78b — optional; no-ops without a radio
 #include "io/ButtonEngine.h"
 #include "io/usb_midi.h"
 #include <math.h>
@@ -160,7 +161,17 @@ static uint32_t sCvPolyReleaseAt[6] = {0, 0, 0, 0, 0, 0};
 static SynthEngine gSynthEngine;
 
 // Button engines (Milestone 31) — polled at 128 Hz in updateControl().
-static ButtonEngine gBtnMode(PIN_BUTTON_MODE);   // mode cycle
+//
+// MODE's thresholds are spelled out rather than left to the defaults because
+// the long one is a user-facing gesture — the BLE pairing hold (M78b) — and
+// the manual quotes its duration.
+//
+// Note the units differ: the short one is ticks, the long one milliseconds.
+// updateControl() coalesces missed control ticks, so a tick count is a lower
+// bound on elapsed time rather than a measure of it; see ButtonEngine.h.
+static constexpr uint8_t  kModeHoldTicks  = 64;   // ~0.5 s
+static constexpr uint32_t kModeLongHoldMs = 3000; // BLE pairing hold
+static ButtonEngine gBtnMode(PIN_BUTTON_MODE, kModeHoldTicks, kModeLongHoldMs);
 static ButtonEngine gBtnShift(PIN_BUTTON_SHIFT); // shift / combo
 // M37d — hardware IO abstraction layer; owns readPot/readCV/readButton/writeLight.
 static HardwarePicoIO sHardwareIO(gBtnMode, gBtnShift);
@@ -388,6 +399,14 @@ void setup()
     // never started: no BCK/WS clocks at all, and the DAC sees nothing.
     if(sAudioState == kAudioFailed)
         DLOGLN("AUDIO: I2S begin() FAILED — no bit clock, check PIO resources");
+
+    // M78b — BLE MIDI, and deliberately *after* the audio driver.  The cyw43
+    // bus is PIO-SPI and claims a state machine through pio_claim_free_sm(),
+    // so I2S has to get its own first or a radio could cost us the audio.
+    // Compiles to nothing without -DALLOY_BLE, and returns immediately on a
+    // board whose radio did not come up — either way the module carries on
+    // exactly as it does over USB alone.
+    bleMidi_init();
 #ifdef CPU_PROFILE
     // Clear any overruns that occurred during the driver's DMA/PIO init —
     // they are not representative of steady-state audio performance.
@@ -401,12 +420,20 @@ void updateControl()
     serialConsole_update();
 #ifdef USE_TINYUSB
     usbMidi_update();
+#endif
+    // Drains inbound BLE packets, closes the pairing window when it expires,
+    // and flushes anything the drain queued — a PATCH_DUMP answering a probe
+    // goes out in this same tick.  A no-op with no radio.
+    bleMidi_update();
+#ifdef USE_TINYUSB
     static uint32_t sLastMidiFeedbackMs = 0;
     const uint32_t  nowMidi             = millis();
     if(nowMidi - sLastMidiFeedbackMs >= 250u)
     {
         sLastMidiFeedbackMs = nowMidi;
-        usbMidi_sendFeedback();
+        // Every attached host, not just USB: one snapshot, diffed against
+        // each port's own cache (M78a).
+        midiCore_sendFeedback();
     }
 #endif
 
@@ -441,6 +468,35 @@ void updateControl()
         else
         {
             sDroneComboFired = false;
+            // M78b — MODE held ~3 s opens the BLE pairing window.  Hold during
+            // power-on was not available (it enters V/Oct calibration) and
+            // SHIFT+MODE is drone, so a long hold on MODE alone is the free
+            // gesture and the most discoverable one.  Consuming the press is
+            // the same guard the drone combo uses: without it the release
+            // would also cycle the voice mode.
+            //
+            // ⚠ The consume is unconditional, and the first version of this
+            // was wrong to gate it on the radio being present.  The intent was
+            // to leave a non-wireless board behaving exactly as before, but
+            // the effect was a gesture that existed only sometimes — and from
+            // the panel "held it for three seconds and it changed mode
+            // anyway" is indistinguishable from a broken button, with nothing
+            // to say whether the hold was missed or the radio was absent.  A
+            // long press is its own gesture on every build; only what it
+            // *does* depends on there being a radio.
+            if(gBtnMode.heldLong())
+            {
+                sModeConsumed = true;
+                if(bleMidi_state() != BleMidiState::Unavailable)
+                    bleMidi_startPairing();
+#ifdef SERIAL_CONTROL
+                // Prints on every long hold, so the console separates the two
+                // halves of this in one line: seeing it at all proves the hold
+                // was recognised, and the state says whether a radio answered.
+                Serial.print(F("mode held -> ble "));
+                Serial.println(bleMidi_stateName());
+#endif
+            }
             // Mode solo: cycle voice mode on RELEASE so holding MODE can be used
             // as a secondary shift key for future combos (mirrors SHIFT behaviour).
             if(gBtnMode.released())
@@ -716,6 +772,11 @@ void updateControl()
             sig.droneMode = !p.gatePatched;
             sig.shiftHeld = gBtnShift.isDown();
             sig.gateHigh  = p.gateHigh;
+            // M78b — both stay false with no radio, so the SHIFT LED behaves
+            // exactly as it did before on a non-wireless board.
+            const BleMidiState ble = bleMidi_state();
+            sig.bleAdvertising     = (ble == BleMidiState::Advertising);
+            sig.bleConnected       = (ble == BleMidiState::Connected);
 
             sLedEngine.update(p, sig, 1.0f / (float)kControlRate);
             sLedEngine.writeTo(sHardwareIO);

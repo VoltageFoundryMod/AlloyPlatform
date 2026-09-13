@@ -97,7 +97,22 @@ inline void fillCoilButtons(IHardwareIO &io, CoilButtonState &st, CoilParams &p)
     if(warpDown != st.warpPrev)
     {
         st.warpPrev = warpDown;
-        p.warp      = warpDown ? 1 : 0;
+        // Toggle on the PRESS edge; the release does nothing.
+        //
+        // It used to be momentary — down meant on, up meant off — which made
+        // the panel the odd one out: CC 20, the Alloy Controller's switch and
+        // the preset blob all treat warp as a latched flag, so the one place
+        // you could not leave it on was the module itself. Toggling makes the
+        // four agree, and it is what frees the button to be *held*: the state
+        // change is over by the time a long press becomes a gesture, which is
+        // what lets WARP carry the BLE pairing hold (M78b).
+        //
+        // Press-edge rather than release-edge, unlike AlloyFlux's MODE cycle.
+        // Warp is a performance gesture and wants to land when you hit it;
+        // MODE acts on release so it can double as a shift key, which this
+        // button does not need to do.
+        if(warpDown)
+            p.warp = p.warp ? 0 : 1;
     }
 }
 

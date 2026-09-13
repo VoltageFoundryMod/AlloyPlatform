@@ -2,18 +2,25 @@
 
 #include <stdint.h>
 
+// gMidiChannel and the whole Alloy MIDI protocol moved to midi_core.h in
+// M78a.  Re-exported here so every existing includer — both modules'
+// commands.cpp, config_store.cpp and main.cpp — keeps compiling unchanged.
+#include "io/midi_core.h"
+
 /**
- * USB MIDI interface — Milestone 29, promoted to the platform in M63f.
+ * USB MIDI transport — Milestone 29, promoted to the platform in M63f,
+ * reduced to a transport in M78a.
  *
  * Compiled only when USE_TINYUSB is defined (-DUSE_TINYUSB in build_flags).
  * The host sees a composite USB device: CDC (serial console) + MIDI.
  *
- * Everything here is module-independent. Parameters come from the generated
- * manifest (`param_map.h`), and anything the manifest cannot express — what a
- * note means, which CCs are actions, what identity to enumerate as — comes
- * from the module via `ModuleHooks.h`.
+ * This header is now small on purpose.  Everything a *message* means —
+ * parameter dispatch, the SysEx patch protocol, preset commands, the CC
+ * feedback diff — belongs to `io/midi_core.h` and is shared with any other
+ * transport (BLE MIDI, M78b).  What remains here is TinyUSB enumeration and
+ * draining the USB FIFO.
  *
- * Handled generically:
+ * Handled generically by midi_core, from any transport:
  *   Note On / Note Off        → moduleHook_noteOn / moduleHook_noteOff
  *   CC in the manifest        → paramMap_dispatchCC()
  *   CC not in the manifest    → moduleHook_controlChange()
@@ -24,7 +31,8 @@
 
 #ifdef USE_TINYUSB
 
-/** Register the USB MIDI descriptor and set up MIDI callbacks.
+/** Register the USB MIDI descriptor, set up MIDI callbacks, and register the
+ *  USB MidiPort with midi_core.
  *  Call once in setup(), before the audio driver starts. */
 void usbMidi_init();
 
@@ -32,23 +40,4 @@ void usbMidi_init();
  *  Call from updateControl() — runs on the control core at the control rate. */
 void usbMidi_update();
 
-/** Send CC feedback for any parameters that changed since the last call.
- *  Diffs current values against a cached snapshot; only emits changed CCs.
- *  Call from updateControl() after usbMidi_update(), once per tick. */
-void usbMidi_sendFeedback();
-
-/** Transmit a full PATCH_DUMP. Exposed so a module can push state to the host
- *  after something the platform cannot see has changed it. */
-void usbMidi_sendPatchDump();
-
 #endif // USE_TINYUSB
-
-/**
- * MIDI receive channel: 0 = omni (accept all), 1–16 = that channel only.
- *
- * Platform-owned rather than module-owned — it is a property of the transport,
- * every module needs exactly the same behaviour from it, and the SysEx command
- * that sets it lives in the platform. Modules read it only to persist it.
- * Defined in platform/src/usb_midi.cpp.
- */
-extern uint8_t gMidiChannel;

@@ -107,7 +107,83 @@
   async function retrySerial() {
     await serial.autoConnect();
   }
+
+  /**
+   * Web Bluetooth, Web MIDI and Web Serial are all **secure-context** APIs.
+   *
+   * On a plain-HTTP origin the browser does not merely refuse them — it does
+   * not define them at all, so every feature-detect in this file reports "not
+   * supported" on a browser that supports them perfectly well. `make web-host`
+   * serves `http://<LAN-IP>:5173`, which is exactly that case, and is how
+   * anyone reaches the page from a phone. Telling someone on Android Chrome to
+   * "use Chrome/Edge" is the worst possible advice at that moment.
+   *
+   * Not reactive: an origin cannot become secure while the page is open.
+   */
+  const insecureOrigin =
+    typeof window !== "undefined" && !window.isSecureContext;
+
+  // --- Bluetooth (M78c) ------------------------------------------------------
+  // Connect has to run straight off the click: Web Bluetooth only opens its
+  // chooser from a user gesture, so there is no auto-connect and no retry loop
+  // to write here — which is also why there is no pairing dialog to sit through.
+  let btBusy = $state(false);
+
+  async function connectBluetooth() {
+    if (btBusy) return;
+    btBusy = true;
+    try {
+      await midi.connectBluetooth();
+    } finally {
+      btBusy = false;
+    }
+  }
 </script>
+
+<!-- Whether a *module* has answered, as opposed to whether a link exists.
+     Rendered by whichever transport is currently sending — see the call sites.
+     It is a snippet rather than duplicated markup because the four states and
+     their explanations are the same question over any wire. -->
+<!-- Why an API is missing, when the reason is the origin rather than the
+     browser. Same badge for all three sections: one cause, one fix. -->
+{#snippet needsHttps(api: string)}
+  <span
+    class="badge warn"
+    title="{api} needs a secure context, and this page is on plain HTTP — so the browser does not expose it at all. Nothing is wrong with the browser.
+
+Fixes, easiest first:
+  • Chrome DevTools on the desktop → chrome://inspect/#devices → Port forwarding → 5173. The phone then loads http://localhost:5173, which counts as secure.
+  • chrome://flags/#unsafely-treat-insecure-origin-as-secure on the phone, with this page's origin added.
+  • Serve the page over HTTPS."
+    >Needs HTTPS</span
+  >
+{/snippet}
+
+{#snippet linkState()}
+  {#if $midi.moduleAnswered}
+    <span
+      class="badge ok"
+      title="{$midi.moduleName} answered the discovery probe on this link. Refresh confirms it is still there."
+      >{$midi.moduleName} responding</span
+    >
+  {:else if $midi.probing}
+    <span
+      class="badge probing"
+      title="Link open, asking what is on it. A module normally answers within a second."
+      >Looking for a module…</span
+    >
+  {:else if $midi.probeFailed}
+    <span
+      class="badge warn"
+      title="The link is open and this page is sending, but nothing has answered.
+Usual causes: Rack's MIDI output is not set to this port, the module is still booting, or this is the wrong port.
+Asking again every 5 s — it will pick up on its own once something answers."
+      >Link open, no module answering</span
+    >
+  {:else}
+    <span class="badge">Idle</span>
+  {/if}
+{/snippet}
 
 <header class="connection-bar">
   <img src="/AlloyFlux_Logo.svg" alt="Logo" class="logo-img" width="50px" />
@@ -146,7 +222,11 @@
   <div class="conn-section">
     <span class="conn-label">MIDI</span>
     {#if !$midi.supported}
-      <span class="badge error">Not supported</span>
+      {#if insecureOrigin}
+        {@render needsHttps("Web MIDI")}
+      {:else}
+        <span class="badge error">Not supported</span>
+      {/if}
     {:else if !$midi.scanned}
       <!-- Not yet scanned — only shown briefly before onMount scan completes -->
       <button onclick={scanMidi}>Scan for MIDI Devices</button>
@@ -167,28 +247,18 @@
            "Connected" conflated them: a virtual port with nothing behind it, a
            stale port left after a re-flash, and Rack with its MIDI output
            unset all read as connected while the page was talking to nobody. -->
-      {#if $midi.moduleAnswered}
-        <span
-          class="badge ok"
-          title="{$midi.moduleName} answered the discovery probe on this port. Refresh confirms it is still there."
-          >{$midi.moduleName} responding</span
-        >
-      {:else if $midi.probing}
-        <span
-          class="badge probing"
-          title="Port open, asking what is on it. A module normally answers within a second."
-          >Looking for a module…</span
-        >
-      {:else if $midi.probeFailed}
-        <span
-          class="badge warn"
-          title="The port is open and this page is sending, but nothing has answered.
-Usual causes: Rack's MIDI output is not set to this port, the module is still booting, or this is the wrong port.
-Asking again every 5 s — it will pick up on its own once something answers."
-          >Port open, no module answering</span
-        >
+      <!-- The link-state badge describes whichever transport is sending, so it
+           renders in that transport's section and nowhere else. Showing it here
+           while the page is on Bluetooth would read as a claim about the USB
+           port, which is precisely the conflation this badge exists to undo. -->
+      {#if $midi.transport === "webmidi"}
+        {@render linkState()}
       {:else}
-        <span class="badge">Idle</span>
+        <span
+          class="badge"
+          title="Sends are going over Bluetooth. This port is still listening — inbound MIDI is never filtered by port."
+          >Bluetooth active</span
+        >
       {/if}
       <select
         value={$midi.selectedOutput}
@@ -214,11 +284,60 @@ Asking again every 5 s — it will pick up on its own once something answers."
     {/if}
   </div>
 
+  <!-- Bluetooth (M78c) — a third way to reach the module, alongside USB MIDI
+       and the serial console, and the only one that works from a phone.
+       Chrome on Android has no Web Serial and no dependable route from Web MIDI
+       to a BLE peripheral, so the page goes at the GATT service directly.
+
+       Hold MODE on the module for ~3 s first: it advertises for 60 s and is
+       invisible the rest of the time, which is what keeps a rack on a stage
+       from being discoverable all night. There is no PIN — the module pairs
+       with no bonding at all. -->
+  <div class="conn-section">
+    <span class="conn-label">BT</span>
+    {#if !$midi.bleSupported}
+      {#if insecureOrigin}
+        {@render needsHttps("Web Bluetooth")}
+      {:else}
+        <span
+          class="badge error"
+          title="Web Bluetooth is Chrome/Edge only. Firefox and everything on iOS ship no Web Bluetooth, Web MIDI or Web Serial — an iPad can still play the module through any BLE MIDI app, it just cannot run this page."
+          >Not supported</span
+        >
+      {/if}
+    {:else if $midi.transport === "ble"}
+      {@render linkState()}
+      <span class="badge ok" title="Connected over Bluetooth LE MIDI."
+        >{$midi.bleDeviceName ?? "BLE device"}</span
+      >
+      <button
+        onclick={() => midi.disconnectBluetooth()}
+        title="Drop the Bluetooth link and go back to sending over the selected MIDI port."
+        >Disconnect</button
+      >
+    {:else}
+      <button
+        onclick={connectBluetooth}
+        disabled={btBusy}
+        title="Open the browser's device chooser. Hold MODE on the module for ~3 s first so it is advertising — no PIN, no OS pairing."
+        >{btBusy ? "Connecting…" : "Connect Bluetooth"}</button
+      >
+    {/if}
+  </div>
+
   <!-- Serial -->
   <div class="conn-section">
     <span class="conn-label">Serial</span>
     {#if !$serial.supported}
-      <span class="badge warn">Not supported (use Chrome/Edge)</span>
+      {#if insecureOrigin}
+        {@render needsHttps("Web Serial")}
+      {:else}
+        <span
+          class="badge warn"
+          title="Web Serial is desktop Chrome/Edge only — it does not exist on Android or iOS at all. Not a problem: it is the fallback console, and everything the page needs works over MIDI."
+          >Not supported (use Chrome/Edge)</span
+        >
+      {/if}
     {:else if $serial.connecting}
       <!-- An open attempt is in flight — usually auto-reconnect working
            through its retries after a re-flash. Saying so beats showing a
@@ -263,6 +382,28 @@ Asking again every 5 s — it will pick up on its own once something answers."
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+
+  /* Phone layout (M78d). The bar already wrapped; what it did not do is wrap
+     *within* a section, so a long port name dragged the whole row past the
+     screen edge and took a horizontal scrollbar with it.
+
+     Keyed on the ancestor `.app-shell.stacked` rather than a media query of its
+     own. A second breakpoint here would be a second opinion about how small is
+     small, and it would be wrong for one of the two modules: the real question
+     is "can the panel be shown whole", which depends on that module's stage
+     width. App.svelte answers it once. */
+  :global(.app-shell.stacked) .connection-bar {
+    gap: 0.55rem 0.9rem;
+    padding: 0.5rem 0.7rem;
+  }
+  :global(.app-shell.stacked) .conn-section {
+    flex-wrap: wrap;
+  }
+  /* The one control here with no natural ceiling — "Alloy Flux (loopMIDI
+     Port 1)" is wider than a phone on its own. */
+  :global(.app-shell.stacked) select {
+    max-width: 46vw;
   }
   /* Set as a wordmark rather than a page heading: the panel below is the
      subject, and a 1.5rem title was competing with it for the top of the

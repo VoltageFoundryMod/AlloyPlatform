@@ -27,7 +27,8 @@
   import MidiKeyboard from "./components/MidiKeyboard.svelte";
   import PresetManager from "./components/PresetManager.svelte";
   import MidiMonitor from "./components/MidiMonitor.svelte";
-  import PanelView from "./components/PanelView.svelte";
+  import PanelView, { shouldStack } from "./components/PanelView.svelte";
+  import { stageWidthFor } from "./lib/panelLayout";
   import DockPanel from "./components/panel/DockPanel.svelte";
 
   // The parameter table of whichever module is on the port, following it as
@@ -109,6 +110,39 @@
   const ccStreamOn = $derived($midi.connected);
   const syncKey = $derived($midi.deviceConnected ? $midi.syncNonce : -1);
   const serialOn = $derived($serial.connected);
+  // M78c. A derived rather than a direct `$midi` read inside the effect, for
+  // the reason the block above gives: this only changes when the transport
+  // actually flips, and a flip is a moment the probe should restart anyway.
+  const onBluetooth = $derived($midi.transport === "ble");
+
+  // ── Stacked layout (M78d) ──────────────────────────────────────────────────
+  // One decision, taken here, used by the panel, the utility rail and the
+  // connection bar. It has to be one: a rail still claiming a third of the
+  // width while the panel below it has already stacked is worse than either
+  // layout on its own.
+  //
+  // Viewport, not any element's width — see shouldStack() for why measuring an
+  // element makes this oscillate. The threshold comes from the module's own
+  // stage, so "can the panel be shown whole?" is answered per module rather
+  // than by a breakpoint that has to be wrong for one of them.
+  let viewportW = $state(
+    typeof window === "undefined" ? 1920 : window.innerWidth,
+  );
+  $effect(() => {
+    const onResize = () => (viewportW = window.innerWidth);
+    window.addEventListener("resize", onResize);
+    // Rotating a phone fires resize, but not always with the new size on the
+    // first tick in every browser; orientationchange is the reliable edge.
+    window.addEventListener("orientationchange", onResize);
+    onResize();
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  });
+  const stacked = $derived(
+    shouldStack(viewportW, stageWidthFor($activeModule.id)),
+  );
 
   // Subscribe to incoming MIDI CC messages and route to the right component.
   // This is the live feedback path: the module emits a CC whenever a parameter
@@ -321,7 +355,12 @@
       // it neither prompts nor shows anything — and it only runs while nothing
       // is answering. If it turns up a different port the store bumps
       // syncNonce and this effect restarts.
-      void midi.scan();
+      //
+      // Not over Bluetooth: there is one peer, chosen by hand in the browser's
+      // own chooser, and no port to go stale or come back under a new name. A
+      // rescan there would only churn the Web MIDI selection — and bumping
+      // syncNonce off the back of it would restart this very loop.
+      if (!onBluetooth) void midi.scan();
 
       // Firmware older than the wildcard ignores a broadcast, so from here
       // also ask each known module by name. Only in the slow phase: it is
@@ -713,7 +752,11 @@
   </div>
 {/snippet}
 
-<div class="app-shell">
+<!-- --dock-h publishes the pinned bottom drawers' current height to CSS, so the
+     phone-width rail sheet can sit above them instead of underneath. It is
+     already measured for .dock-spacer; this just makes it reachable from a
+     media query, which cannot see a JS value. -->
+<div class="app-shell" class:stacked style:--dock-h={`${dockHeight}px`}>
   <!-- Top connection bar. Its module badge is a preview switch while nothing
        has answered on the port, and switching is the same operation the
        discovery probe performs — hence the same function. -->
@@ -772,6 +815,7 @@
           map={PARAM_MAP}
           bind:paramValues
           bind:selectValues
+          {stacked}
           {sliderRefs}
           {selectRefs}
           {sliderHints}
@@ -972,6 +1016,42 @@
     padding: 0px 12px 12px 0;
     min-width: 0;
     border-left: 1px solid var(--hairline);
+  }
+
+  /* ── Phone layout (M78d) ──────────────────────────────────────────────────
+     The rail stops taking width out of the panel and becomes a sheet across the
+     bottom of it.
+
+     That reverses the desktop rule on purpose. "The rail shrinks the control
+     surface instead of covering it" is the right trade wherever there is width
+     to give — and on a 390 px screen the rail's own minimum is most of the
+     viewport, so giving ground would leave nothing to give it to. Covering part
+     of a panel you can scroll is cheaper than shrinking one you cannot read.
+
+     Driven by the same `stacked` flag PanelView gets, not by a media query of
+     its own: the two have to switch on the same tick, or the panel stacks into
+     a column while the rail is still taking a third of it. */
+  .app-shell.stacked .panel-row {
+    display: block;
+  }
+  .app-shell.stacked .dock-rail {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--dock-h, 0px);
+    width: auto;
+    max-height: 60vh;
+    overflow-y: auto;
+    z-index: 40;
+    padding: 10px 12px 14px;
+    background: var(--bg);
+    border-left: none;
+    border-top: 1px solid var(--hairline);
+    box-shadow: 0 -14px 30px rgba(0, 0, 0, 0.45);
+  }
+  /* Its 230px floor is a desktop comfort; here it is wider than the screen. */
+  .app-shell.stacked .settings-body {
+    min-width: 0;
   }
 
   /* Settings window contents. Grouped with headings so the other settings

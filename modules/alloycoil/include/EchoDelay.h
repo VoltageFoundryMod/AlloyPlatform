@@ -1,4 +1,6 @@
 #pragma once
+
+#include "CoilHot.h"
 #ifndef INFS_ECHODELAY_H
 #define INFS_ECHODELAY_H
 
@@ -183,7 +185,7 @@ class EchoDelay {
             feedback_ = feedback;
         }
 
-        inline float Process(const float in)
+        COIL_HOT(echo_process) inline float Process(const float in)
         {
             // Band-limit the send before it is decimated. This is the whole
             // defence against fold-down: the tap is post-reverb and carries
@@ -214,7 +216,7 @@ class EchoDelay {
         EchoDelay& operator=(EchoDelay &&other) = delete;
 
         /// One tick of the echo loop, at the decimated rate.
-        inline float tick(const float in)
+        COIL_HOT(echo_tick) inline float tick(const float in)
         {
             daisysp::fonepole(delay_time_current_, delay_time_target_, delay_smooth_coef_);
 

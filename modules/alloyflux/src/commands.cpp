@@ -8,6 +8,7 @@
 #include "dsp/OTALadder.h"
 #include "dsp/ReverbEngine.h"
 #include "io/param_map.h"
+#include "io/ble_midi.h" // bleMidi_stateName() — "unavailable" without a radio
 #include "io/usb_midi.h" // gMidiChannel
 #include "params.h"
 #include "scale_quantizer.h"
@@ -25,6 +26,38 @@
 
 // Defined further down with cmd_pot; declared here for cmd_status.
 static const __FlashStringHelper *potTakeoverName(PotTakeoverMode m);
+
+/**
+ * `ble` / `ble pair` / `ble off` — M78b bring-up.
+ *
+ * Exists because the panel gesture and the radio are two things that can fail
+ * independently, and from the front of the module they fail identically: a
+ * long MODE hold that does nothing looks the same whether the hold was not
+ * recognised or the radio was never there. This drives the radio directly, so
+ * one command separates them.
+ *
+ * The state word is the other half: "not-built" means this image has no BLE in
+ * it (build with WIRELESS=1), "no-radio" means it does and the CYW43 did not
+ * answer at boot — a plain Pico 2, or a 2W that did not come up.
+ */
+static void cmd_ble(const char *args, Print &out)
+{
+    if(strncasecmp(args, "pair", 4) == 0)
+        bleMidi_startPairing();
+    else if(strncasecmp(args, "off", 3) == 0)
+        bleMidi_stopPairing();
+    else if(strncasecmp(args, "poll ", 5) == 0)
+        bleMidi_setPolling(args[5] != '0');
+    else if(*args != '\0')
+    {
+        out.println(F("usage: ble [pair|off|poll 0|poll 1]"));
+        return;
+    }
+    out.print(F("ble -> "));
+    out.print(bleMidi_stateName());
+    out.print(F("  poll "));
+    out.println(bleMidi_polling() ? F("on") : F("OFF (diagnostic)"));
+}
 
 static void cmd_pitch(const char *args, Print &out)
 {
@@ -361,6 +394,10 @@ static void cmd_status(const char * /*args*/, Print &out)
         out.print(F("omni"));
     else
         out.print(gMidiChannel);
+    // M78b — reads "unavailable" on every build without a radio, which is the
+    // answer to "is this a 2W and did the radio come up" in one line.
+    out.print(F(" ble="));
+    out.print(bleMidi_stateName());
     out.print(F(" veloc="));
     out.print(gVelocitySensitive ? F("on") : F("off"));
     out.print(F(" glide="));
@@ -1411,6 +1448,7 @@ const CommandEntry kCommands[] = {
     {"status",    "            print all current parameters",                              cmd_status},
     {"perf",      "            enable or disable CPU profiling printing",                  cmd_performance_print},
     {"cpu",       "            audio ISR µs, headroom, overrun count",                    cmd_cpu},
+    {"ble",       "[pair|off|poll 0|1]  BLE state; poll 0 = cost bisect",                     cmd_ble},
     {"help",      "            show this help",                                            cmd_help},
 };
 // clang-format on
