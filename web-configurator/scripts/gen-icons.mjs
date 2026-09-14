@@ -9,7 +9,8 @@
  *     splash masters that `@capacitor/assets` takes as its source.
  *   ⓶ Run `@vite-pwa/assets-generator` for the PWA set (favicon, apple-touch,
  *     the manifest icons). Configured by `pwa-assets.config.ts`.
- *   ⓷ Flatten the PWA icons it left transparent — see the warning below.
+ *   ⓷ Flatten the PWA icons it left transparent, then cut the `purpose: any`
+ *     ones to a circle — see `ROUND_ICONS` for why only those three.
  *   ⓸ Run `@capacitor/assets` for the ~97 iOS and Android launcher sizes.
  *   ⓹ Delete the two files `@capacitor/assets` writes that we must not keep.
  *
@@ -109,7 +110,7 @@ await render("assets/splash.png", 2732, 600);
 console.log("\nGenerating PWA icons:");
 run("@vite-pwa/assets-generator", "pwa-assets-generator", []);
 
-// ── ⓷ repair ────────────────────────────────────────────────────────────────
+// ── ⓷ repair, then round ────────────────────────────────────────────────────
 //
 // ⚠ `generateTransparentAsset` hardcodes `{r:0,g:0,b:0,alpha:0}` as its canvas
 // and ignores `resizeOptions.background` entirely — only the maskable and apple
@@ -118,27 +119,75 @@ run("@vite-pwa/assets-generator", "pwa-assets-generator", []);
 // on a light tab strip or a light taskbar is invisible. There is no config
 // option for this; flattening afterwards is the fix.
 //
-// Read to a buffer first: sharp cannot write to the file it is reading.
-console.log("\nFlattening transparent PWA icons onto the panel ground:");
-for (const f of [
-  "public/pwa-64x64.png",
-  "public/pwa-192x192.png",
-  "public/pwa-512x512.png",
-]) {
-  const buf = await sharp(f).flatten({ background: BG }).png().toBuffer();
-  writeFileSync(f, buf);
-  console.log(`  ${f}`);
+// Each file is read to a buffer first: sharp cannot write to the file it is
+// reading.
+
+/** Circular alpha mask at `size`. `dest-in` keeps only what the mask covers. */
+function circleMask(size) {
+  const r = size / 2;
+  return Buffer.from(
+    `<svg width="${size}" height="${size}">` +
+      `<circle cx="${r}" cy="${r}" r="${r}" fill="#fff"/></svg>`,
+  );
 }
 
-// favicon.ico is encoded straight from the same transparent source, so it needs
-// the same treatment. 48px is what the generator's preset asks for.
-const favicon = await sharp("public/pwa-64x64.png")
-  .resize(48, 48, { fit: "contain", background: BG })
-  .flatten({ background: BG })
-  .png()
-  .toBuffer();
-writeFileSync("public/favicon.ico", ico.encode([favicon]));
-console.log("  public/favicon.ico");
+/**
+ * ⚠ **Only the `purpose: any` icons are round. This is not an oversight in the
+ * other two, and "fixing" them would break both.**
+ *
+ * `maskable-icon-512x512.png` is under a contract with the launcher: we supply
+ * a full-bleed square and *it* crops to whatever shape that device uses —
+ * circle, squircle, rounded square, teardrop. Pre-rounding means a squircle
+ * launcher exposes the transparent corners as bright wedges around our circle,
+ * and the mask bites a second time into an already-inscribed circle, shrinking
+ * the mark. It only looks right on launchers that happen to use a circle, and
+ * we do not choose those.
+ *
+ * `apple-touch-icon-180x180.png`: iOS discards alpha, composites onto **black**,
+ * and applies its own squircle. Transparency there buys nothing and costs a
+ * corner mismatch — invisible against our near-black ground on most screens,
+ * but a mismatch nonetheless, on top of the same double-rounding.
+ *
+ * The native launcher icons under `ios/` and `android/` are square for the same
+ * reasons, plus a harder one: **App Store Connect rejects an app icon that
+ * contains an alpha channel at all.** They are produced in step ⓸ and nothing
+ * here touches them.
+ */
+const ROUND_ICONS = [
+  ["public/pwa-64x64.png", 64],
+  ["public/pwa-192x192.png", 192],
+  ["public/pwa-512x512.png", 512],
+];
+
+console.log("\nFlattening and rounding the `purpose: any` icons:");
+for (const [file, size] of ROUND_ICONS) {
+  // Flatten first so the mark sits on the panel ground, then cut the circle —
+  // the result is a dark disc with transparent corners, not a transparent
+  // square with a floating mark.
+  const flat = await sharp(file).flatten({ background: BG }).png().toBuffer();
+
+  // favicon.ico is encoded straight from the same transparent source the
+  // generator produced, so it needs the flatten too — but it is taken from the
+  // *square* buffer, before rounding. At 16px a disc throws away a fifth of the
+  // pixels and reads as mush in a tab strip; the browser draws no mask there to
+  // justify the loss. 48px is what the generator's preset asks for.
+  if (size === 64) {
+    const favicon = await sharp(flat)
+      .resize(48, 48, { fit: "contain", background: BG })
+      .flatten({ background: BG })
+      .png()
+      .toBuffer();
+    writeFileSync("public/favicon.ico", ico.encode([favicon]));
+    console.log("  public/favicon.ico  (square — see note)");
+  }
+
+  const rounded = await sharp(flat)
+    .composite([{ input: circleMask(size), blend: "dest-in" }])
+    .png()
+    .toBuffer();
+  writeFileSync(file, rounded);
+  console.log(`  ${file}  (round)`);
+}
 
 // ── ⓸ native launcher sets ──────────────────────────────────────────────────
 console.log("\nGenerating native asset sets:");

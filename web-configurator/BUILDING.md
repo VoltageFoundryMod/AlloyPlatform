@@ -229,6 +229,31 @@ Regenerates every icon — PWA, iOS launcher, Android launcher, splash screens �
 from `public/AlloyFlux_Logo.svg`. Outputs are committed; run this only when the
 logo changes, then commit what it writes into `public/`, `ios/` and `android/`.
 
+### ⚠️ Only three icons are round, and the rest are square on purpose
+
+| Icon                           | Shape  | Why                                         |
+| ------------------------------ | ------ | ------------------------------------------- |
+| `pwa-{64,192,512}.png`         | round  | Nothing masks these — the shape is ours     |
+| `maskable-icon-512x512.png`    | square | The launcher masks it (see below)           |
+| `apple-touch-icon-180x180.png` | square | iOS masks it and drops alpha onto black     |
+| `favicon.ico`                  | square | At 16px a disc wastes a fifth of the pixels |
+| `ios/` + `android/` launchers  | square | Masked by the OS; iOS also forbids alpha    |
+
+**Do not round the maskable icon.** `purpose: maskable` is a contract: we supply
+a full-bleed square and the launcher crops it to whatever shape that device uses
+— circle, squircle, rounded square, teardrop. Pre-rounding means a squircle
+launcher exposes the transparent corners as bright wedges around the disc, and
+the mask bites a second time into an already-inscribed circle. It looks right
+only on launchers that happen to use a circle, and we do not pick those.
+
+**Do not round or alpha the iOS app icon.** App Store Connect rejects an app
+icon containing an alpha channel outright — it fails at upload, not at review.
+
+The rounding lives in `ROUND_ICONS` in
+[`scripts/gen-icons.mjs`](scripts/gen-icons.mjs). ⚠️ Everything in `public/` is
+generated: hand-editing an icon there works until the next `make web-icons`
+overwrites it.
+
 ⚠️ **The mark is pale mint line-art and needs the dark panel ground under it.**
 Everything the pipeline produces is composited onto `#131518` — on white the
 logo is very nearly invisible. Two places fight this and are handled in
