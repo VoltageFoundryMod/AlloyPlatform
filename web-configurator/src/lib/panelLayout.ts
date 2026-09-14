@@ -431,7 +431,10 @@ const ALLOYCOIL: PanelLayout = {
       stretch: true,
       controls: [
         { name: "pitch", size: "lg", label: "Pitch", sub: "string" },
-        { name: "excite", size: "lg", label: "Exciter" },
+        // A step down from PITCH: the string's pitch is the thing you play
+        // here, and two dials at the same weight left the section with no
+        // first read.
+        { name: "excite", label: "Exciter In" },
       ],
     },
     {
