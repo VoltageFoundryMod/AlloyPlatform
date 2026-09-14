@@ -273,6 +273,23 @@ toolchain problem unrelated to the Controller.
 
 ---
 
+## Analytics
+
+The Google tag in [`index.html`](index.html) loads on the **hosted site only**.
+
+⚠️ This matters because Capacitor wraps the same `dist/`: a plain `<script>` tag
+there would ship analytics inside both store binaries, and Apple's App Privacy
+labels and Play's Data Safety form would then both have to declare the
+collection — undeclared collection is a rejection, not a warning.
+
+The gate is on the **origin**, not on `window.Capacitor`. The bridge does set
+that global, but whether it has run before an inline `<head>` script is an
+injection-ordering detail that differs per platform, and guessing wrong fails in
+the direction that ships the tag. The origins are fixed instead: iOS serves
+`capacitor://localhost`, Android serves `https://localhost`. Local and LAN
+addresses are excluded too, so neither `make web-dev` nor the `make web-host`
+phone-testing loop puts sessions in the property.
+
 ## Things that will bite you
 
 **`appId` is permanent.** `com.voltagefoundry.alloycontroller`, in

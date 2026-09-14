@@ -3,14 +3,62 @@
 
 <head>
   <meta charset="UTF-8" />
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-Q97B4RG7LV"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag() { dataLayer.push(arguments); }
-    gtag('js', new Date());
+  <!-- Google tag (gtag.js) — the hosted site only.
+       ⚠ The same dist/ is wrapped by Capacitor for the iOS and Android apps, so
+       a plain <script> tag here would ship analytics inside both store
+       binaries. That is not a neutral change: Apple's App Privacy labels and
+       Play's Data Safety form would both have to declare the collection, and
+       undeclared collection is a rejection rather than a warning. Keep it on
+       the web, where it is just a page doing what pages do.
 
-    gtag('config', 'G-Q97B4RG7LV');
+       ⚠ Gated on the ORIGIN, not on `window.Capacitor`. The bridge sets that
+       global, but whether it has run before this inline script is an injection
+       ordering detail that differs between the two platforms — and getting it
+       wrong fails in the direction that ships the tag. The origins are fixed
+       and knowable: iOS serves `capacitor://localhost`, Android serves
+       `https://localhost` (capacitor.config.ts sets androidScheme). The bridge
+       check is kept as a belt-and-braces third signal only.
+
+       Development origins are excluded for the same reason: `make web-dev`
+       serves localhost, and `make web-host` serves a LAN IP so a phone can
+       reach it — that one is the whole phone-testing loop, and it would
+       otherwise put a session in the property every time you reload. -->
+  <script>
+    (function () {
+      var host = location.hostname;
+      var cap = window.Capacitor;
+
+      var isLocal =
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "[::1]" ||
+        /\.local$/.test(host) ||
+        // RFC1918, i.e. `make web-host` on the LAN.
+        /^10\./.test(host) ||
+        /^192\.168\./.test(host) ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+
+      var isNativeShell =
+        location.protocol === "capacitor:" ||
+        location.protocol === "file:" ||
+        !!(cap && (typeof cap.isNativePlatform === "function"
+          ? cap.isNativePlatform()
+          : cap.isNative));
+
+      if (isLocal || isNativeShell) return;
+
+      var MEASUREMENT_ID = "G-Q97B4RG7LV";
+      var s = document.createElement("script");
+      s.async = true;
+      s.src = "https://www.googletagmanager.com/gtag/js?id=" + MEASUREMENT_ID;
+      document.head.appendChild(s);
+
+      window.dataLayer = window.dataLayer || [];
+      function gtag() { dataLayer.push(arguments); }
+      window.gtag = gtag;
+      gtag("js", new Date());
+      gtag("config", MEASUREMENT_ID);
+    })();
   </script>
 
   <!-- ⚠ Deliberately NOT an SVG favicon. Browsers prefer `image/svg+xml` over
