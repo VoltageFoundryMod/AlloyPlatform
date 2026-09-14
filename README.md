@@ -7,9 +7,9 @@ A firmware platform for Eurorack synth modules.
 One board, one panel family, one build system, one Alloy Controller — and a
 clean seam between the parts that are the same for every module and the parts
 that make a module itself. A synthesis engine drops in on one side of that seam
-and gets USB and TRS MIDI, a SysEx patch protocol, nine-slot preset storage, a
-serial console, an I2S audio driver, knob takeover, an LED language and a VCV
-Rack build without writing any of it.
+and gets USB, TRS and Bluetooth LE MIDI, a SysEx patch protocol, nine-slot
+preset storage, a serial console, an I2S audio driver, knob takeover, an LED
+language and a VCV Rack build without writing any of it.
 
 The platform started as the firmware for a single module, **Alloy Flux**, and was
 factored out when a second engine — Synthux Academy's **Audrey II** — needed the
@@ -45,11 +45,11 @@ about Alloy Coil here; ask about Audrey II
 
 ## Three targets, one codebase
 
-| Target                                                   | Build                           | Output                                   |
-| -------------------------------------------------------- | ------------------------------- | ---------------------------------------- |
-| **Firmware** — RP2350 (Pico 2), PlatformIO, arduino-pico | `make firmware MODULE=<module>` | `.pio/build/<module>/firmware.uf2`       |
-| **VCV Rack plugin** — Rack SDK 2.6.6                     | `make vcv`                      | one `plugin.dll` carrying _every_ module |
-| **Alloy Controller** — Svelte 5 + TypeScript + Vite      | `make web`                      | `web-configurator/dist`                  |
+| Target                                                        | Build                           | Output                                   |
+| ------------------------------------------------------------- | ------------------------------- | ---------------------------------------- |
+| **Firmware** — RP2350 (Pico 2 / 2W), PlatformIO, arduino-pico | `make firmware MODULE=<module>` | `.pio/build/<env>/firmware.uf2`          |
+| **VCV Rack plugin** — Rack SDK 2.6.6                          | `make vcv`                      | one `plugin.dll` carrying _every_ module |
+| **Alloy Controller** — Svelte 5 + TypeScript + Vite           | `make web`                      | `web-configurator/dist`                  |
 
 ```sh
 make help              # every target, with the current ENV / MODULE
@@ -65,8 +65,26 @@ directly. On Windows it locates the toolchain itself: it finds `pio.exe` under
 `~/.platformio` and switches `SHELL` and `PATH` to msys2 for the Rack plugin
 build, which is what Rack's POSIX `plugin.mk` needs.
 
-The Alloy Controller needs **Chrome or Edge** — Web Serial and Web MIDI are not
-available in Firefox or Safari.
+**Every default path builds the wireless image.** `make`, `pio run` and the
+PlatformIO sidebar all produce the Pico 2W build with BLE MIDI compiled in;
+`WIRELESS=0` gives the plain Pico 2 image instead, from the `_wired` env of the
+same module. The suffix marks the exception so nobody has to remember a flag to
+get the image that ships.
+
+```sh
+make upload                           # Alloy Flux, Pico 2W, BLE MIDI
+make upload WIRELESS=0                # same module on a plain Pico 2
+make upload MODULE=alloycoil          # Alloy Coil, Pico 2W
+```
+
+⚠️ Do not flash a wireless image onto a non-W board — it can hang waiting for a
+radio that is not there. `WIRELESS=0` is the supported fallback, and it is a
+compile-time decision, not a runtime one.
+
+The Alloy Controller needs **Chrome or Edge** — Web Serial, Web MIDI and Web
+Bluetooth are not available in Firefox or Safari. On Android, Chrome reaches a
+module over Bluetooth; iOS has none of the three, so an iPad pairs with the
+module as an ordinary BLE MIDI device from any MIDI app instead.
 
 ---
 
@@ -127,9 +145,17 @@ Slot 0 is a rate-limited live auto-save; slots 1–9 are user presets.
 ### The audio path owns a core
 
 Core 1 runs the entire audio path — it owns the I2S driver and renders 32-frame
-blocks at 48 kHz. Core 0 does everything else: knobs, CV, buttons, LEDs, USB MIDI,
-serial, flash, at a 128 Hz control tick paced by `AudioDriver::controlTicks()` so
-the control rate stays derived from the audio clock.
+blocks at 48 kHz. Core 0 does everything else: knobs, CV, buttons, LEDs, USB and
+BLE MIDI, serial, flash, at a 128 Hz control tick paced by
+`AudioDriver::controlTicks()` so the control rate stays derived from the audio
+clock.
+
+A radio is not free even when it is idle: the CYW43's PIO-SPI DMA contends for
+the bus with core 1's instruction fetches out of XIP flash, which cost Alloy Coil
+about **147 µs of every 666 µs audio block** — whether or not any MIDI was
+moving. It is paid in bus contention, not in MIDI work, which is why that
+module's hot DSP path is pinned into RAM (`COIL_HOT`) instead of running from
+flash.
 
 Control writes engine state that audio reads with no lock, which is safe only
 because every such value is a single aligned word smoothed at control rate. The
@@ -166,8 +192,9 @@ one object instance, where Alloy Coil is stereo pairs throughout).
 ## Repository layout
 
 ```txt
-platform/         engine-agnostic: HAL, MIDI/SysEx, config store, serial console,
-                  audio driver, VCV scaffolding, LED and panel geometry
+platform/         engine-agnostic: HAL, MIDI/SysEx over USB and BLE, config
+                  store, serial console, audio driver, VCV scaffolding, LED and
+                  panel geometry
 modules/
   alloyflux/      the dual relation oscillator — engine, params.json, panel map,
                   VCV module, manual
@@ -185,12 +212,27 @@ references/       design docs, module/MIDI/serial specs, milestones
 
 ## Connecting to a module
 
-Two channels, both driverless:
+Three channels, all driverless — no pairing PIN, no installer, no app store:
 
-- **Web MIDI SysEx** (primary) — full patch dump and restore, preset save and
-  load. Manufacturer ID `0x7D`, then a two-byte device signature per module
-  (`0x41 0x46` for Alloy Flux, `0x41 0x43` for Alloy Coil).
+- **Web MIDI SysEx** (primary) — over USB. Full patch dump and restore, preset
+  save and load. Manufacturer ID `0x7D`, then a two-byte device signature per
+  module (`0x41 0x46` for Alloy Flux, `0x41 0x43` for Alloy Coil).
+- **Web Bluetooth** (wireless) — the same SysEx protocol over standard BLE MIDI,
+  so the Controller reaches the module from a laptop with nothing plugged in.
 - **Web Serial CDC** (fallback) — a text command console.
+
+The SysEx protocol is identical on USB and Bluetooth — the transport is chosen
+at the browser, and the firmware carries one MIDI core behind a `MidiPort` that
+each of the two registers into. Anything the Controller can do over USB it can
+do over Bluetooth. (Serial is the odd one out: a text console, not SysEx.)
+
+**Pairing is a hold, not a power cycle.** Hold **MODE** for 3 seconds and the
+module advertises for 60 s; a hold that long never cycles the mode on release.
+It advertises as an ordinary BLE MIDI peripheral, so it is equally reachable
+from a phone or tablet MIDI controller app — the Controller is not required.
+
+Wireless is an **addition**, never a dependency. USB and TRS MIDI behave
+identically whether the radio is there, absent, or compiled out.
 
 The configurator **detects which module it is talking to**. On connect it sends
 a patch request addressed to the wildcard signature `7F 7F`, which every module

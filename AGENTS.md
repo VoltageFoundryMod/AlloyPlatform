@@ -67,7 +67,7 @@ Key files and directories:
 
 ### MIDI transports (M78a)
 
-`platform/include/io/midi_core.h` owns the **protocol** — parameter dispatch, the Alloy SysEx patch protocol, preset commands, the CC feedback diff — and knows nothing about a wire. A transport supplies a `MidiPort` (`sendCC` / `sendSysEx` / `isReady`), registers it once, and turns inbound bytes into `midiCore_handle*()` calls. Two exist: `usb_midi.cpp` (TinyUSB, every build) and `ble_midi.cpp` (M78b, the `_w` envs only).
+`platform/include/io/midi_core.h` owns the **protocol** — parameter dispatch, the Alloy SysEx patch protocol, preset commands, the CC feedback diff — and knows nothing about a wire. A transport supplies a `MidiPort` (`sendCC` / `sendSysEx` / `isReady`), registers it once, and turns inbound bytes into `midiCore_handle*()` calls. Two exist: `usb_midi.cpp` (TinyUSB, every build) and `ble_midi.cpp` (M78b, everything but the `_wired` envs).
 
 Two rules that are easy to get wrong:
 
