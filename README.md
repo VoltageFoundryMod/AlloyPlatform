@@ -1,4 +1,4 @@
-<img src="images/VFM_Logo_Full.svg" alt="Voltage Foundry Modular" width="280">
+<img src="images/AlloyFlux_Logo.png" alt="Voltage Foundry Modular" width="280">
 
 # Alloy Platform
 

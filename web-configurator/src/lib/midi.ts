@@ -1062,6 +1062,36 @@ function createMidi() {
     return true;
   }
 
+  /**
+   * Reopen the last BLE link with no chooser, if there is one to reopen.
+   *
+   * Identical bookkeeping to `connectBluetooth` on success — including bumping
+   * `syncNonce`, because a reconnected link still has to re-run the discovery
+   * probe: nothing guarantees the thing on the other end is the module that was
+   * there before, or that it kept its state.
+   *
+   * ⚠ Silent when it fails. Called unprompted on mount and on every return to
+   * the foreground, so a failure must leave no trace — no error, no transport
+   * change, nothing that could contradict a working Web MIDI connection.
+   */
+  async function autoConnectBluetooth(): Promise<boolean> {
+    const ok = await bleMidi.autoConnect();
+    if (!ok) return false;
+    store.update((s) => ({
+      ...s,
+      transport: "ble",
+      connected: true,
+      deviceConnected: true,
+      moduleAnswered: false,
+      moduleName: null,
+      probeFailed: false,
+      answeredOutput: null,
+      syncNonce: s.syncNonce + 1,
+      error: null,
+    }));
+    return true;
+  }
+
   /** Drop the BLE link and hand sends back to Web MIDI. The store update
    *  arrives through the subscription above, so both routes out of BLE —
    *  this one and the device vanishing — land in the same place. */
@@ -1120,6 +1150,7 @@ function createMidi() {
     scan,
     connect,
     connectBluetooth,
+    autoConnectBluetooth,
     disconnectBluetooth,
     setChannel,
     sendCC,

@@ -12,6 +12,29 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Alloy Controller</title>
+
+  <!-- ⚠ Catch `beforeinstallprompt` here, not in the app.
+       Chrome fires it as soon as the install criteria are met, which is
+       routinely *before* the module bundle has executed — so a listener added
+       in a component's onMount misses it entirely and the install tip never
+       appears. The event fires once and is not replayed.
+
+       So: stash it on `window` from an inline script in <head>, which runs
+       before anything else, and re-announce it under our own name for whatever
+       mounts later. `PwaStatus.svelte` reads the stashed event if it is already
+       there and otherwise waits for either signal. -->
+  <script>
+    window.__alloyInstallPrompt = null;
+    window.addEventListener("beforeinstallprompt", function (e) {
+      // Suppresses Chrome's own mini-infobar so our tip is the only prompt.
+      e.preventDefault();
+      window.__alloyInstallPrompt = e;
+      window.dispatchEvent(new Event("alloy:installprompt"));
+    });
+    window.addEventListener("appinstalled", function () {
+      window.__alloyInstallPrompt = null;
+    });
+  </script>
 </head>
 
 <body>

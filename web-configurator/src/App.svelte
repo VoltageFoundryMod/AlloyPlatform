@@ -31,6 +31,7 @@
   import { stageWidthFor } from "./lib/panelLayout";
   import DockPanel from "./components/panel/DockPanel.svelte";
   import PwaStatus from "./components/PwaStatus.svelte";
+  import { setWakeLock, wakeLockSupported } from "./lib/wakeLock";
 
   // The parameter table of whichever module is on the port, following it as
   // the discovery probe identifies one. Everything below reads this rather
@@ -78,6 +79,36 @@
   // bottom dock instead, where it has the width it wants; `utility.keyboard`
   // still toggles it, so the toolbar button works either way.
   const railOpen = $derived(utility.presets || utility.settings);
+
+  // ── Keep screen awake (M80) ────────────────────────────────────────────────
+  // Defaults ON, because the case for it is the case for the app: a Controller
+  // on a stand is looked at far more than it is touched, and every gap between
+  // knob moves is long enough for a phone to dim, lock, and drop the BLE link.
+  // It is a preference rather than a fixed behaviour only because holding
+  // someone's screen on is the kind of thing they are entitled to refuse.
+  //
+  // The lock itself is scoped twice over — see lib/wakeLock.ts: it is taken
+  // only while a module is connected, and the browser drops it whenever the
+  // page is hidden. So it can never hold a screen on in the background.
+  const KEEP_AWAKE_KEY = "keep-screen-awake";
+  let keepAwake = $state(
+    (() => {
+      try {
+        return localStorage.getItem(KEEP_AWAKE_KEY) !== "0";
+      } catch {
+        return true; // storage blocked; the default is still the useful one
+      }
+    })(),
+  );
+
+  $effect(() => {
+    try {
+      localStorage.setItem(KEEP_AWAKE_KEY, keepAwake ? "1" : "0");
+    } catch {
+      // Not worth reporting — the toggle still works for this session.
+    }
+    setWakeLock(keepAwake && $midi.deviceConnected);
+  });
 
   // MIDI receive channel (0=omni, 1-16). Set by CC 110 in patch dump; sent via SysEx 0x07.
   let midiChannel = $state(0);
@@ -864,6 +895,19 @@
             <div class="settings-body">
               <h4 class="settings-group">MIDI</h4>
               {@render midiChannelRow()}
+              {#if wakeLockSupported}
+                <h4 class="settings-group">Display</h4>
+                <label class="setting-toggle">
+                  <input type="checkbox" bind:checked={keepAwake} />
+                  <span>
+                    Keep screen awake while connected
+                    <small>
+                      Stops a phone or tablet dimming mid-set. Applies only while
+                      a module is connected and this page is in front.
+                    </small>
+                  </span>
+                </label>
+              {/if}
             </div>
           </DockPanel>
         {/if}
@@ -1088,6 +1132,35 @@
     flex-direction: column;
     gap: 8px;
     min-width: 230px;
+  }
+  /* Checkbox and its label share a baseline; the explanatory line sits under
+     the label rather than beside it, so the row stays one column wide in the
+     rail and does not force the panel wider. */
+  .setting-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.15rem 0;
+    font-size: 0.82rem;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .setting-toggle input {
+    margin: 0.15rem 0 0;
+    accent-color: var(--copper);
+    cursor: pointer;
+    flex: none;
+  }
+  .setting-toggle small {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--text-faint);
+    font-size: 0.74rem;
+    line-height: 1.35;
+  }
+  .setting-toggle input:focus-visible {
+    outline: 2px solid var(--copper);
+    outline-offset: 2px;
   }
   .settings-group {
     margin: 0;

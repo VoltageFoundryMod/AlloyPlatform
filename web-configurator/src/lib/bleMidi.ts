@@ -65,6 +65,45 @@ export interface BleMidiStore {
 
 type MessageListener = (bytes: Uint8Array) => void;
 
+/**
+ * The last module we had a link to, so it can be reopened without a chooser.
+ *
+ * ⚠ The id is **origin- and platform-scoped and not portable** — a Web
+ * Bluetooth device id means nothing to CoreBluetooth and vice versa. Stored
+ * under a key that names the transport so the two shells cannot read each
+ * other's, which on a shared `localStorage` (the native WebView keeps its own,
+ * but a PWA and a tab do not) would otherwise produce a reconnect attempt
+ * against an identifier the platform has never seen.
+ */
+const LAST_DEVICE_KEY = "ble-last-device";
+
+interface LastDevice {
+  kind: "web" | "native";
+  id: string;
+  name: string;
+}
+
+function readLastDevice(kind: "web" | "native"): LastDevice | null {
+  try {
+    const raw = localStorage.getItem(LAST_DEVICE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as Partial<LastDevice>;
+    if (d.kind !== kind || typeof d.id !== "string" || !d.id) return null;
+    return { kind, id: d.id, name: typeof d.name === "string" ? d.name : "" };
+  } catch {
+    return null;
+  }
+}
+
+function writeLastDevice(d: LastDevice | null): void {
+  try {
+    if (d) localStorage.setItem(LAST_DEVICE_KEY, JSON.stringify(d));
+    else localStorage.removeItem(LAST_DEVICE_KEY);
+  } catch {
+    // Storage blocked. Reconnect then needs the chooser, as it always did.
+  }
+}
+
 function createBleMidi() {
   const link = bleLink();
 
@@ -330,6 +369,13 @@ function createBleMidi() {
 
       resetParser();
       writeChain = Promise.resolve();
+      if (session) {
+        writeLastDevice({
+          kind: link.kind,
+          id: session.deviceId,
+          name: session.deviceName,
+        });
+      }
       store.update((s) => ({
         ...s,
         connected: true,
@@ -354,12 +400,90 @@ function createBleMidi() {
     }
   }
 
+  /**
+   * Reopen the last link without a chooser. Safe to call at any time.
+   *
+   * **Why this exists.** Locking a phone or switching apps tears the GATT link
+   * down, and on a phone that happens constantly — every glance away from a
+   * module mid-set. Without this, coming back means pressing Connect and
+   * picking the module out of a dialog again, which is the difference between
+   * an instrument and a toy.
+   *
+   * ⚠ **Silent in every failure case, deliberately.** Nobody asked for this
+   * connection, so a failed attempt must look exactly like not having tried:
+   * no error banner, no state change, no chooser. `link.reconnect` returns null
+   * rather than throwing for precisely that reason. The manual Connect button
+   * is always still there.
+   *
+   * ⚠ Never runs while a link is up or an attempt is in flight. `connecting`
+   * gates the button too, so the user cannot race it.
+   */
+  async function autoConnect(): Promise<boolean> {
+    if (!link.available || session || get(store).connecting) return false;
+
+    const last = readLastDevice(link.kind);
+    if (!last) return false;
+
+    store.update((s) => ({ ...s, connecting: true }));
+    try {
+      const s = await link.reconnect(last.id, {
+        service: BLE_MIDI_SERVICE,
+        characteristic: BLE_MIDI_CHAR,
+        deviceName: last.name,
+        onPacket: parsePacket,
+        onDisconnect: onDisconnected,
+      });
+
+      if (!s) {
+        store.update((st) => ({ ...st, connecting: false }));
+        return false;
+      }
+
+      session = s;
+      resetParser();
+      writeChain = Promise.resolve();
+      store.update((st) => ({
+        ...st,
+        connected: true,
+        connecting: false,
+        deviceName: s.deviceName || last.name || "BLE MIDI device",
+        error: null,
+      }));
+      return true;
+    } catch {
+      session = null;
+      store.update((st) => ({ ...st, connecting: false }));
+      return false;
+    }
+  }
+
+  /**
+   * Try again whenever the app comes back to the foreground.
+   *
+   * `visibilitychange` is the one signal both shells agree on: iOS and Android
+   * fire it for the WebView on resume, and browsers fire it on tab focus. A
+   * Capacitor `appStateChange` listener would be the native-only equivalent and
+   * is not worth a second code path for the same event.
+   *
+   * Only fires when something was already remembered *and* the link is down, so
+   * a foreground with a healthy connection costs a comparison and nothing else.
+   */
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") void autoConnect();
+    });
+  }
+
   function disconnect(): void {
     // Fire-and-forget: the native teardown is async, but the UI must not wait
     // on a radio to reflect a button press, and nothing here can fail in a way
     // the user could act on. The state reset below is the part that matters.
     void session?.disconnect();
     session = null;
+    // ⚠ Forget the device. This is the *deliberate* disconnect — the user
+    // pressed the button — and without this the next foreground would silently
+    // undo it, which reads as a control that does not work.
+    writeLastDevice(null);
     resetParser();
     store.update((s) => ({
       ...s,
@@ -377,6 +501,7 @@ function createBleMidi() {
   return {
     subscribe: store.subscribe,
     connect,
+    autoConnect,
     disconnect,
     isConnected,
     send,

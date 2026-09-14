@@ -36,6 +36,8 @@
 export interface BleSession {
   /** What the chooser called it — "Alloy Flux" for a module at defaults. */
   readonly deviceName: string;
+  /** Hand back to `reconnect()` to reopen this link without a chooser. */
+  readonly deviceId: string;
   /**
    * Write one BLE MIDI packet, already framed.
    *
@@ -55,6 +57,22 @@ export interface BleConnectOptions {
   onPacket(packet: Uint8Array): void;
   /** The link dropped from the far end. Not called for a local disconnect. */
   onDisconnect(): void;
+  /**
+   * `reconnect` only: the name this device had when it was last connected.
+   *
+   * A silent reconnect never opens a chooser, so there is nothing to read a
+   * name from — and re-reading it off the device would cost a round trip to
+   * learn something the caller already stored. Ignored by `connect`, which
+   * gets the real name from the chooser.
+   */
+  deviceName?: string;
+}
+
+export interface BleSessionInfo {
+  /** Stable enough to reconnect to later. Origin-scoped on the web; a platform
+   *  UUID or MAC on native. Opaque — only ever handed back to `reconnect`. */
+  readonly deviceId: string;
+  readonly deviceName: string;
 }
 
 export interface BleLink {
@@ -71,6 +89,27 @@ export interface BleLink {
   readonly available: boolean;
   /** Opens the chooser. Throws `BleChooserCancelled` if the user backs out. */
   connect(opts: BleConnectOptions): Promise<BleSession>;
+
+  /**
+   * Reconnect to a device already granted, with **no chooser and no gesture**.
+   *
+   * This is what makes the phone apps usable. Locking the screen or switching
+   * away tears down the GATT link, and requiring the user to re-pick their
+   * module from a dialog every time they come back would make the app useless
+   * on stage. The permission is already granted, so neither platform needs a
+   * fresh user gesture to reopen the link.
+   *
+   * ⚠ **Returns null rather than throwing when it simply cannot.** A silent,
+   * unrequested reconnect that fails must be indistinguishable from not having
+   * tried — no error banner, no state change. The caller decides whether to
+   * fall back to the chooser. Reasons it may decline: the device is out of
+   * range or powered off, the module has stopped advertising, or (on the web)
+   * the browser does not implement `getDevices()`.
+   */
+  reconnect(
+    deviceId: string,
+    opts: BleConnectOptions,
+  ): Promise<BleSession | null>;
 }
 
 /**
@@ -133,6 +172,53 @@ export function bleLink(): BleLink {
 // -----------------------------------------------------------------------------
 
 function createWebLink(): BleLink {
+  /** Open GATT on an already-chosen device and wire up notifications. */
+  async function attach(
+    device: BluetoothDevice,
+    opts: BleConnectOptions,
+  ): Promise<BleSession> {
+    if (!device?.gatt) throw new Error("device has no GATT server");
+
+    const onGattDisconnected = () => opts.onDisconnect();
+    const onValue = (event: Event) => {
+      const view = (event.target as BluetoothRemoteGATTCharacteristic | null)
+        ?.value;
+      if (!view) return;
+      opts.onPacket(
+        new Uint8Array(view.buffer, view.byteOffset, view.byteLength),
+      );
+    };
+
+    device.addEventListener("gattserverdisconnected", onGattDisconnected);
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(opts.service);
+    const characteristic = await service.getCharacteristic(opts.characteristic);
+    characteristic.addEventListener("characteristicvaluechanged", onValue);
+    await characteristic.startNotifications();
+
+    return {
+      deviceName: device.name ?? "BLE MIDI device",
+      deviceId: device.id,
+      write: (packet) => characteristic.writeValueWithoutResponse(packet),
+      async disconnect() {
+        try {
+          characteristic.removeEventListener(
+            "characteristicvaluechanged",
+            onValue,
+          );
+          device.removeEventListener(
+            "gattserverdisconnected",
+            onGattDisconnected,
+          );
+          device.gatt?.disconnect();
+        } catch {
+          // Already gone. Nothing to report; the caller resets its own state.
+        }
+      },
+    };
+  }
+
   return {
     kind: "web",
     available:
@@ -155,47 +241,31 @@ function createWebLink(): BleLink {
         }
         throw e;
       }
-      if (!device?.gatt) throw new Error("device has no GATT server");
+      return attach(device, opts);
+    },
 
-      const onGattDisconnected = () => opts.onDisconnect();
-      const onValue = (event: Event) => {
-        const view = (event.target as BluetoothRemoteGATTCharacteristic | null)
-          ?.value;
-        if (!view) return;
-        opts.onPacket(
-          new Uint8Array(view.buffer, view.byteOffset, view.byteLength),
-        );
-      };
+    async reconnect(
+      deviceId: string,
+      opts: BleConnectOptions,
+    ): Promise<BleSession | null> {
+      try {
+        const bluetooth = (navigator as any).bluetooth;
+        // ⚠ `getDevices()` is the only way back to a granted device without a
+        // chooser, and it is not universal — Chrome gates it behind the newer
+        // permissions backend and other engines have none of it. Absent, there
+        // is simply no silent reconnect on the web; the chooser still works.
+        if (typeof bluetooth?.getDevices !== "function") return null;
 
-      device.addEventListener("gattserverdisconnected", onGattDisconnected);
+        const devices: BluetoothDevice[] = await bluetooth.getDevices();
+        const device = devices.find((d) => d.id === deviceId);
+        if (!device) return null;
 
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService(opts.service);
-      const characteristic = await service.getCharacteristic(
-        opts.characteristic,
-      );
-      characteristic.addEventListener("characteristicvaluechanged", onValue);
-      await characteristic.startNotifications();
-
-      return {
-        deviceName: device.name ?? "BLE MIDI device",
-        write: (packet) => characteristic.writeValueWithoutResponse(packet),
-        async disconnect() {
-          try {
-            characteristic.removeEventListener(
-              "characteristicvaluechanged",
-              onValue,
-            );
-            device.removeEventListener(
-              "gattserverdisconnected",
-              onGattDisconnected,
-            );
-            device.gatt?.disconnect();
-          } catch {
-            // Already gone. Nothing to report; the caller resets its own state.
-          }
-        },
-      };
+        return await attach(device, opts);
+      } catch {
+        // Out of range, powered off, or no longer advertising. Indistinguishable
+        // from not having tried, by design — see the interface note.
+        return null;
+      }
     },
   };
 }
@@ -219,6 +289,64 @@ function createWebLink(): BleLink {
 // -----------------------------------------------------------------------------
 
 function createNativeLink(): BleLink {
+  /** Connect + subscribe against a known deviceId. Shared by both entry points. */
+  async function attach(
+    deviceId: string,
+    deviceName: string,
+    opts: BleConnectOptions,
+  ): Promise<BleSession> {
+    const { BleClient, numbersToDataView } = await import(
+      "@capacitor-community/bluetooth-le"
+    );
+
+    await BleClient.connect(deviceId, () => opts.onDisconnect());
+    await BleClient.startNotifications(
+      deviceId,
+      opts.service,
+      opts.characteristic,
+      (value: DataView) => {
+        // Copy — the underlying buffer is reused between callbacks on Android,
+        // and the parser is re-entrant across packets.
+        opts.onPacket(
+          new Uint8Array(
+            value.buffer.slice(
+              value.byteOffset,
+              value.byteOffset + value.byteLength,
+            ),
+          ),
+        );
+      },
+    );
+
+    return {
+      deviceName,
+      deviceId,
+      write: (packet) =>
+        BleClient.writeWithoutResponse(
+          deviceId,
+          opts.service,
+          opts.characteristic,
+          numbersToDataView(Array.from(packet)),
+        ),
+      async disconnect() {
+        try {
+          await BleClient.stopNotifications(
+            deviceId,
+            opts.service,
+            opts.characteristic,
+          );
+        } catch {
+          // Link already down; the disconnect below is what matters.
+        }
+        try {
+          await BleClient.disconnect(deviceId);
+        } catch {
+          // Already gone.
+        }
+      },
+    };
+  }
+
   return {
     kind: "native",
     // The shell would not exist if the platform lacked a BLE stack. Whether the
@@ -227,21 +355,20 @@ function createNativeLink(): BleLink {
     available: true,
 
     async connect(opts: BleConnectOptions): Promise<BleSession> {
-      const { BleClient, numbersToDataView } = await import(
-        "@capacitor-community/bluetooth-le"
-      );
+      const { BleClient } = await import("@capacitor-community/bluetooth-le");
 
       await BleClient.initialize();
 
-      let deviceId: string;
-      let deviceName: string;
       try {
         const device = await BleClient.requestDevice({
           services: [opts.service],
           optionalServices: [opts.service],
         });
-        deviceId = device.deviceId;
-        deviceName = device.name ?? "BLE MIDI device";
+        return await attach(
+          device.deviceId,
+          device.name ?? "BLE MIDI device",
+          opts,
+        );
       } catch (e: unknown) {
         // The plugin has no dedicated cancel error and the wording differs
         // between iOS and Android, so this is a message match. It is allowed to
@@ -254,51 +381,25 @@ function createNativeLink(): BleLink {
         }
         throw e;
       }
+    },
 
-      await BleClient.connect(deviceId, () => opts.onDisconnect());
-      await BleClient.startNotifications(
-        deviceId,
-        opts.service,
-        opts.characteristic,
-        (value: DataView) => {
-          // Copy — see ⓷ above.
-          opts.onPacket(
-            new Uint8Array(
-              value.buffer.slice(
-                value.byteOffset,
-                value.byteOffset + value.byteLength,
-              ),
-            ),
-          );
-        },
-      );
-
-      return {
-        deviceName,
-        write: (packet) =>
-          BleClient.writeWithoutResponse(
-            deviceId,
-            opts.service,
-            opts.characteristic,
-            numbersToDataView(Array.from(packet)),
-          ),
-        async disconnect() {
-          try {
-            await BleClient.stopNotifications(
-              deviceId,
-              opts.service,
-              opts.characteristic,
-            );
-          } catch {
-            // Link already down; the disconnect below is what matters.
-          }
-          try {
-            await BleClient.disconnect(deviceId);
-          } catch {
-            // Already gone.
-          }
-        },
-      };
+    async reconnect(
+      deviceId: string,
+      opts: BleConnectOptions,
+    ): Promise<BleSession | null> {
+      try {
+        const { BleClient } = await import("@capacitor-community/bluetooth-le");
+        await BleClient.initialize();
+        // No chooser and no scan: CoreBluetooth and Android BLE will both
+        // connect straight to a known identifier, which is exactly what coming
+        // back from the lock screen needs. The name is not re-read — it is not
+        // worth a round trip, and the caller already has the one it stored.
+        return await attach(deviceId, opts.deviceName ?? "BLE MIDI device", opts);
+      } catch {
+        // Out of range, radio off, module no longer advertising, or permission
+        // withdrawn. Silent by design — see the interface note.
+        return null;
+      }
     },
   };
 }

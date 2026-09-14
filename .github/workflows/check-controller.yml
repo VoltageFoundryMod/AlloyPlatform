@@ -1,0 +1,73 @@
+# Type-check and build the Alloy Controller on every pull request.
+#
+# The deploy workflow already runs these on `main`, but by then the change is
+# merged and the live site is what breaks. This is the same two commands one
+# step earlier, where a failure costs nothing.
+#
+# Deliberately not a duplicate of the deploy job: it builds at the **default**
+# base (`/`) rather than the Pages one, which is the base the native shells use
+# — so between the two workflows both modes get built on every change. See the
+# BASE_URL note in web-configurator/vite.config.ts for why that distinction
+# matters and how quietly it fails.
+name: Check Controller
+
+on:
+  pull_request:
+    paths:
+      - "web-configurator/**"
+      - ".github/workflows/check-controller.yml"
+  # Also on direct pushes to main, so a commit that bypassed a PR is still
+  # checked — the deploy job only runs when web-configurator/ changes, and a
+  # workflow edit alone should not go unverified.
+  push:
+    branches: [main]
+    paths:
+      - "web-configurator/**"
+
+# A PR that gets three pushes in a minute should run the newest one, not all
+# three. The opposite of the deploy job, which must never be interrupted.
+concurrency:
+  group: check-controller-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-configurator
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Vite 8 requires Node 20.19+ / 22.12+.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web-configurator/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+      # Icons are committed, and `make web-icons` needs sharp, which compiles.
+      # Rather than regenerate them here, assert they are present: a PR that
+      # deletes one would otherwise only fail once the site was live and an
+      # install produced a nameless, iconless app.
+      - name: Icons present
+        run: |
+          set -e
+          for f in pwa-64x64.png pwa-192x192.png pwa-512x512.png \
+                   maskable-icon-512x512.png apple-touch-icon-180x180.png \
+                   favicon.ico; do
+            test -f "dist/$f" || { echo "missing dist/$f"; exit 1; }
+          done
+          echo "all icons present"

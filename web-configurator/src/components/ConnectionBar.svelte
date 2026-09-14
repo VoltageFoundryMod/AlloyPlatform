@@ -11,6 +11,10 @@
   } from "../lib/activeModule";
   import { midi } from "../lib/midi";
   import { serial } from "../lib/serial";
+  import { isNativeShell } from "../lib/platform";
+
+  // Constant for the page's lifetime — which shell we are in cannot change.
+  const nativeShell = isNativeShell();
 
   interface Props {
     /**
@@ -51,6 +55,11 @@
   onMount(async () => {
     if ($midi.supported) await midi.scan();
     if ($serial.supported) await serial.autoConnect();
+    // Same idea as serial's auto-reconnect above, and the same silence when
+    // there is nothing to reconnect to. It runs last so a module already found
+    // over USB MIDI wins the transport on a desktop, where both are possible;
+    // on a phone this is the only one of the three that can succeed.
+    if ($midi.bleSupported) await midi.autoConnectBluetooth();
   });
 
   async function scanMidi() {
@@ -248,7 +257,13 @@ Asking again every 5 s — it will pick up on its own once something answers."
       {$activeModule.name}
     </span>
   {/if}
-  <!-- MIDI -->
+  <!-- MIDI.
+       Hidden entirely in the native shells: there is no Web MIDI in a
+       WKWebView or an Android WebView, and no USB cable in the picture either.
+       Rendering "Not supported" there would explain a *browser* limitation to
+       someone who is not in a browser, next to a transport they cannot use
+       however they hold the phone. Bluetooth is the whole story on mobile. -->
+  {#if !nativeShell}
   <div class="conn-section">
     <span class="conn-label">MIDI</span>
     {#if !$midi.supported}
@@ -323,6 +338,8 @@ Asking again every 5 s — it will pick up on its own once something answers."
     {/if}
   </div>
 
+  {/if}
+
   <!-- Bluetooth (M78c) — a third way to reach the module, alongside USB MIDI
        and the serial console, and the only one that works from a phone.
        Chrome on Android has no Web Serial and no dependable route from Web MIDI
@@ -369,7 +386,9 @@ Asking again every 5 s — it will pick up on its own once something answers."
     {/if}
   </div>
 
-  <!-- Serial -->
+  <!-- Serial. Hidden in the native shells for the same reason as MIDI above —
+       Web Serial exists on no mobile platform, and there is no cable anyway. -->
+  {#if !nativeShell}
   <div class="conn-section">
     <span class="conn-label">Serial</span>
     {#if !$serial.supported}
@@ -417,6 +436,7 @@ Asking again every 5 s — it will pick up on its own once something answers."
       <span class="badge error">{$serial.error}</span>
     {/if}
   </div>
+  {/if}
 </header>
 
 <style>

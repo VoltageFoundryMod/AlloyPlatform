@@ -116,18 +116,22 @@
       },
     });
 
-    // Chrome fires this when the install criteria are met. Preventing the
-    // default suppresses the browser's own mini-infobar so the bar below is the
-    // only prompt — two prompts for one action reads as a bug.
+    // ⚠ The `beforeinstallprompt` listener lives in index.html, not here.
+    // Chrome fires it once, as soon as the install criteria are met, and that
+    // is routinely before this bundle has executed — a listener added in
+    // onMount misses it and the tip never appears. The inline script stashes
+    // the event on `window` and re-announces it as `alloy:installprompt`, so
+    // this works whether we mounted before or after it fired.
     //
-    // ⚠ This never fires when the app is already installed, and never on iOS
-    // (no browser there implements it). So "already installed" is handled by
-    // the browser declining to offer, by `isStandalone()`, and by `appinstalled`
+    // ⚠ It never fires when the app is already installed, and never on iOS (no
+    // browser there implements it). So "already installed" is handled by the
+    // browser declining to offer, by `isStandalone()`, and by `appinstalled`
     // below — three independent guards, because the first two are advisory:
     // `display-mode: standalone` is false in a plain tab of an installed app.
-    const onPrompt = (e: Event) => {
-      e.preventDefault();
-      installEvent = e;
+    const offer = () => {
+      const pending = (window as any).__alloyInstallPrompt;
+      if (!pending) return;
+      installEvent = pending;
 
       if (isStandalone() || !installTipAllowed()) return;
       // The event can fire more than once in a session. Without this the second
@@ -149,10 +153,13 @@
       hideTip();
     };
 
-    window.addEventListener("beforeinstallprompt", onPrompt);
+    // Already fired before we mounted — the common case on a warm cache.
+    offer();
+
+    window.addEventListener("alloy:installprompt", offer);
     window.addEventListener("appinstalled", onInstalled);
     return () => {
-      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("alloy:installprompt", offer);
       window.removeEventListener("appinstalled", onInstalled);
       clearTimers();
     };
@@ -164,8 +171,10 @@
     installEvent.prompt();
     await installEvent.userChoice;
     // Single-use by spec — the browser will fire a fresh event if the user
-    // declines and later becomes eligible again.
+    // declines and later becomes eligible again. Clear the stash too, or a
+    // later `offer()` would hand back an event that has already been consumed.
     installEvent = null;
+    (window as any).__alloyInstallPrompt = null;
   }
 
   const showInstall = $derived(
