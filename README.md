@@ -19,9 +19,9 @@ same infrastructure. That port is the proof the seam is real.
 
 ## Modules
 
-| Module                               | What it is                                                                                     | Manual                                   | Status                                             |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------- |
-| **[Alloy Flux](modules/alloyflux/)** | Dual relation oscillator — stereo synth voice, six voice modes, 6-voice poly                   | [MANUAL.md](modules/alloyflux/MANUAL.md) | Firmware, VCV and web complete                     |
+| Module                               | What it is                                                                                     | Manual                                   | Status                                                            |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------- |
+| **[Alloy Flux](modules/alloyflux/)** | Dual relation oscillator — stereo synth voice, six voice modes, 6-voice poly                   | [MANUAL.md](modules/alloyflux/MANUAL.md) | Firmware, VCV and web complete                                    |
 | **[Alloy Coil](modules/alloycoil/)** | Feedback resonator — Karplus-Strong string in a saturating feedback loop, with echo and reverb | [MANUAL.md](modules/alloycoil/MANUAL.md) | Engine, VCV and web complete; panel buttons live, ADC mux pending |
 
 Both share a PCB and a panel outline, so the same slot numbers land on the same
@@ -81,10 +81,24 @@ make upload MODULE=alloycoil          # Alloy Coil, Pico 2W
 radio that is not there. `WIRELESS=0` is the supported fallback, and it is a
 compile-time decision, not a runtime one.
 
-The Alloy Controller needs **Chrome or Edge** — Web Serial, Web MIDI and Web
-Bluetooth are not available in Firefox or Safari. On Android, Chrome reaches a
-module over Bluetooth; iOS has none of the three, so an iPad pairs with the
-module as an ordinary BLE MIDI device from any MIDI app instead.
+The Alloy Controller is live at
+**<https://alloy.vfmod.com/>**, published from `main` on every
+change under `web-configurator/`. It runs three ways, from the one build
+`make web` produces:
+
+| Where             | How                                                            | Reaches a module by         |
+| ----------------- | -------------------------------------------------------------- | --------------------------- |
+| Desktop, Android  | Chrome or Edge, in a tab or installed as a PWA                 | USB MIDI, serial, Bluetooth |
+| iOS, Android      | The Alloy Controller app (`make app-ios` / `make app-android`) | Bluetooth                   |
+| Anywhere, offline | Either of the above — the page precaches itself on first visit | as above                    |
+
+Firefox has none of Web Serial, Web MIDI or Web Bluetooth, so the browser build
+needs **Chrome or Edge**. On **iOS the browser is a dead end whatever you pick**
+— WebKit ships none of the three APIs, every iOS browser is WebKit underneath,
+and an installed PWA there is still WebKit. That is what the native app is for:
+it reaches the radio through CoreBluetooth instead, and the page above it is
+byte-for-byte the same one. (An iPad also still _plays_ the module from any
+BLE-MIDI-aware app — that goes through the OS, not the browser.)
 
 ---
 

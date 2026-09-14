@@ -202,7 +202,8 @@
         class="midi-btn"
         class:active={paused}
         onclick={() => (paused = !paused)}
-        title="Stop capturing so the list holds still">
+        title="Stop capturing so the list holds still"
+      >
         {paused ? "Resume" : "Pause"}
       </button>
       <button class="midi-btn" onclick={clear}>Clear</button>
@@ -253,7 +254,7 @@
     border: none;
     border-bottom: 1px solid var(--hairline);
     color: var(--text-dim);
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -264,7 +265,7 @@
     gap: 0.5rem;
   }
   .midi-tab:hover {
-    background: rgba(192, 137, 74, 0.10);
+    background: rgba(192, 137, 74, 0.1);
     color: var(--text);
   }
   .midi-conn-dot {
@@ -359,7 +360,7 @@
     background: rgba(192, 137, 74, 0.14);
   }
   .midi-btn.active {
-    background: rgba(192, 137, 74, 0.20);
+    background: rgba(192, 137, 74, 0.2);
     border-color: var(--copper);
     color: var(--copper-bright);
   }

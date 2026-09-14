@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+        Bluetooth LE. Android split these at API 31 (Android 12) and both halves
+        must be declared, because the old names are still what pre-12 devices
+        check and the new ones are all that 12+ grants.
+
+        ⚠ `neverForLocation` is the line that matters. Without it Android treats
+        a BLE scan as a possible location fix and demands ACCESS_FINE_LOCATION
+        at runtime on 12+ — a location prompt from a synthesiser editor, which
+        users refuse, and rightly. We only ever scan for one fixed service UUID
+        and derive nothing about position, so the assertion is honest.
+
+        The maxSdkVersion caps keep the legacy trio off 12+ devices, where they
+        would otherwise show in the store listing as permissions the app does
+        not actually use.
+    -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s"
+    />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30" />
+
+    <!-- The app is a BLE controller and nothing else; a device without the
+         radio can only fail at the one thing it does. Declaring this keeps it
+         out of Play listings for hardware that cannot run it. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+</manifest>

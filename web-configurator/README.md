@@ -1,7 +1,14 @@
 # Alloy Controller
 
-A browser-based editor for the **Alloy Flux** Eurorack module by Voltage Foundry Modular.  
-Connects to the module over **Web MIDI** and **Web Serial** to read and write all parameters in real time, manage presets, and monitor the serial console — no drivers or native app required.
+An editor for the **Alloy Flux** and **Alloy Coil** Eurorack modules by Voltage Foundry Modular.  
+Connects over **USB MIDI**, **serial** or **Bluetooth LE** to read and write all parameters in real time, manage presets, and monitor the serial console — no drivers required.
+
+**Live at <https://alloy.vfmod.com/>** — published from `main` automatically.
+
+Ships three ways from one build: a browser page that installs as a **PWA** and
+works offline, and native **iOS** and **Android** apps that reach the module
+over Bluetooth. See **[BUILDING.md](BUILDING.md)** for how to build and publish
+each.
 
 ## Features
 
@@ -38,8 +45,14 @@ No backend, no server-side code — the built output is a fully static site.
 
 - **Node.js** 18 or later
 - **npm** 9 or later
-- A Chromium-based browser (Chrome, Edge, Opera) for Web MIDI + Web Serial support  
-  — Firefox does not support either API
+- A Chromium-based browser (Chrome, Edge, Opera) for Web MIDI, Web Serial and Web Bluetooth  
+  — Firefox supports none of the three
+- **iOS**: the app, not the browser. WebKit ships none of those APIs, every iOS
+  browser is WebKit underneath, and an installed PWA there is still WebKit — so
+  no browser on an iPhone can reach a module. See [BUILDING.md](BUILDING.md).
+
+Building the native apps additionally needs a JDK and the Android SDK, or a Mac
+with Xcode. Full toolchain setup is in **[BUILDING.md](BUILDING.md)**.
 
 ## Development
 
@@ -55,7 +68,19 @@ npm run build      # production build → dist/
 npm run preview    # serve the dist/ folder locally to verify before deploy
 ```
 
-The `dist/` folder is a self-contained static site — serve it from any web server or open `index.html` directly (note: Web Serial requires a secure context, so `file://` won't work; use `npm run preview` or a local server).
+The `dist/` folder is a self-contained static site — serve it from any web server (note: Web Serial, Web MIDI and Web Bluetooth all require a secure context, so `file://` won't work and neither will a plain-HTTP LAN address; use `npm run preview`, or `make web-host` for HTTPS on the LAN).
+
+The same `dist/` is what Capacitor wraps for the iOS and Android apps:
+
+```bash
+npm run sync           # copy the current dist/ into both native projects
+npm run open:android   # open in Android Studio
+npm run open:ios       # open in Xcode (macOS only)
+```
+
+⚠️ `sync` copies, it does not build — run `npm run build` first, or use the
+`make app-*` targets from the repository root, which depend on it. Full
+instructions: **[BUILDING.md](BUILDING.md)**.
 
 ## Type-check
 

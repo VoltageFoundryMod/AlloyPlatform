@@ -3,7 +3,13 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/svg+xml" href="/VFM_Logo_Stripped.svg" />
+  <!-- ⚠ Deliberately NOT an SVG favicon. Browsers prefer `image/svg+xml` over
+       the .ico when both are offered, and AlloyFlux_Logo.svg is pale mint
+       line-art on transparency — which disappears into a light tab strip. The
+       generated .ico carries the same mark on the dark panel ground, so it
+       reads on both light and dark, and matches the installed app's icon. -->
+  <link rel="icon" href="/favicon.ico" sizes="48x48" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Alloy Controller</title>
 </head>

@@ -30,6 +30,7 @@
   import PanelView, { shouldStack } from "./components/PanelView.svelte";
   import { stageWidthFor } from "./lib/panelLayout";
   import DockPanel from "./components/panel/DockPanel.svelte";
+  import PwaStatus from "./components/PwaStatus.svelte";
 
   // The parameter table of whichever module is on the port, following it as
   // the discovery probe identifies one. Everything below reads this rather
@@ -951,6 +952,11 @@
   </div>
 </div>
 
+<!-- Outside .app-shell deliberately: it is position:fixed and owns its own
+     stacking, so nesting it inside the flex layout only risks a clipped
+     ancestor. Renders nothing in the native shells. -->
+<PwaStatus />
+
 <style>
   .app-shell {
     display: flex;
@@ -1178,7 +1184,7 @@
     border: none;
     border-bottom: 1px solid var(--hairline);
     color: var(--text-dim);
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;

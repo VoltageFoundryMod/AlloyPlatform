@@ -12,12 +12,17 @@
  * on a phone — and it costs nothing on the desktop, where it becomes a third
  * way to reach the module alongside USB MIDI and the serial console.
  *
- * ⚠ iOS reaches none of this. WebKit ships neither Web Bluetooth, Web MIDI nor
- * Web Serial. An iPad still *plays* the module perfectly well through any
- * BLE-MIDI-aware app, because that goes through the OS rather than the browser;
- * it is the Controller specifically that cannot run there.
+ * ⚠ iOS reaches none of this *from a browser*. WebKit ships neither Web
+ * Bluetooth, Web MIDI nor Web Serial, and an installed PWA on iOS is still
+ * WebKit — so the Controller is blind there however it is launched. The route
+ * that does work is a native BLE stack under the same page, which is what
+ * `lib/bleLink.ts` exists for: inside the Capacitor shell the packets below go
+ * to CoreBluetooth instead of `navigator.bluetooth`, and nothing in this file
+ * changes. (An iPad also still *plays* the module perfectly well through any
+ * BLE-MIDI-aware app — that goes through the OS, not the browser.)
  *
- * This module owns the link and the packet framing and nothing else. It hands
+ * This module owns the packet framing and nothing else — `lib/bleLink.ts` owns
+ * the GATT link and which radio API reaches it. It hands
  * `midi.ts` whole MIDI messages in exactly the shape a `MIDIMessageEvent`
  * would have carried, which is what lets the discovery probe, the echo
  * suppression, the traffic tap and the byte counters stay in one place and work
@@ -25,6 +30,7 @@
  */
 
 import { writable, get, type Writable } from "svelte/store";
+import { bleLink, BleChooserCancelled, type BleSession } from "./bleLink";
 
 /** Fixed by the MIDI Manufacturers Association — every BLE MIDI device on
  *  every platform uses exactly these, which is why no driver is involved.
@@ -43,8 +49,11 @@ const BLE_MIDI_CHAR = "7772e5db-3868-4112-a1a9-f2669d106bf3";
 const MAX_TX_PACKET = 20;
 
 export interface BleMidiStore {
-  /** Web Bluetooth exists in this browser. False on Firefox and all of iOS. */
+  /** A BLE chooser can be opened. False on Firefox and on iOS *in a browser*;
+   *  true in the native shells, where the radio is reached natively. */
   supported: boolean;
+  /** Which transport backs the link — "native" inside the iOS/Android app. */
+  kind: "web" | "native";
   /** A GATT link is up and notifications are flowing. */
   connected: boolean;
   /** True between the chooser closing and the characteristic being ready. */
@@ -57,18 +66,18 @@ export interface BleMidiStore {
 type MessageListener = (bytes: Uint8Array) => void;
 
 function createBleMidi() {
+  const link = bleLink();
+
   const store: Writable<BleMidiStore> = writable({
-    supported:
-      typeof navigator !== "undefined" &&
-      typeof (navigator as any).bluetooth !== "undefined",
+    supported: link.available,
+    kind: link.kind,
     connected: false,
     connecting: false,
     deviceName: null,
     error: null,
   });
 
-  let device: BluetoothDevice | null = null;
-  let characteristic: BluetoothRemoteGATTCharacteristic | null = null;
+  let session: BleSession | null = null;
 
   const listeners = new Set<MessageListener>();
 
@@ -120,7 +129,7 @@ function createBleMidi() {
 
   function enqueueWrite(packet: Uint8Array): void {
     writeChain = writeChain
-      .then(() => characteristic?.writeValueWithoutResponse(packet))
+      .then(() => session?.write(packet))
       .then(
         () => undefined,
         (e: unknown) => {
@@ -131,7 +140,7 @@ function createBleMidi() {
 
   /** Fragment one complete MIDI message into packets and queue them. */
   function send(bytes: number[] | Uint8Array): void {
-    if (!characteristic) return;
+    if (!session) return;
     const data = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
     if (data.length === 0) return;
 
@@ -276,15 +285,8 @@ function createBleMidi() {
     }
   }
 
-  function onCharacteristicValue(event: Event): void {
-    const target = event.target as BluetoothRemoteGATTCharacteristic | null;
-    const view = target?.value;
-    if (!view) return;
-    parsePacket(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
-  }
-
   function onDisconnected(): void {
-    characteristic = null;
+    session = null;
     resetParser();
     store.update((s) => ({
       ...s,
@@ -299,7 +301,7 @@ function createBleMidi() {
   // ---------------------------------------------------------------------------
 
   /**
-   * Put up the browser's device chooser and connect to what the user picks.
+   * Put up the device chooser and connect to what the user picks.
    *
    * **Must be called from a user gesture** — Web Bluetooth refuses otherwise,
    * which is why this is wired to a button and never to an effect or a retry
@@ -310,32 +312,21 @@ function createBleMidi() {
     if (!get(store).supported) {
       store.update((s) => ({
         ...s,
-        error: "Web Bluetooth is not available in this browser",
+        error:
+          "Bluetooth is not available in this browser — use Chrome or Edge, " +
+          "or install the Alloy Controller app on iOS",
       }));
       return false;
     }
 
     store.update((s) => ({ ...s, connecting: true, error: null }));
     try {
-      device = await (navigator as any).bluetooth.requestDevice({
-        // Filtering on the service is what keeps the chooser to BLE MIDI
-        // devices rather than every radio in the room, and it is also what
-        // grants access to that service afterwards.
-        filters: [{ services: [BLE_MIDI_SERVICE] }],
-        optionalServices: [BLE_MIDI_SERVICE],
+      session = await link.connect({
+        service: BLE_MIDI_SERVICE,
+        characteristic: BLE_MIDI_CHAR,
+        onPacket: parsePacket,
+        onDisconnect: onDisconnected,
       });
-      if (!device?.gatt) throw new Error("device has no GATT server");
-
-      device.addEventListener("gattserverdisconnected", onDisconnected);
-
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService(BLE_MIDI_SERVICE);
-      characteristic = await service.getCharacteristic(BLE_MIDI_CHAR);
-      characteristic.addEventListener(
-        "characteristicvaluechanged",
-        onCharacteristicValue,
-      );
-      await characteristic.startNotifications();
 
       resetParser();
       writeChain = Promise.resolve();
@@ -343,15 +334,16 @@ function createBleMidi() {
         ...s,
         connected: true,
         connecting: false,
-        deviceName: device?.name ?? "BLE MIDI device",
+        deviceName: session?.deviceName ?? "BLE MIDI device",
         error: null,
       }));
       return true;
     } catch (e: unknown) {
-      // A cancelled chooser throws NotFoundError; that is a decision, not a
-      // fault, so it must not leave an error banner on screen.
-      const cancelled = (e as { name?: string })?.name === "NotFoundError";
-      characteristic = null;
+      // A cancelled chooser is a decision, not a fault, so it must not leave an
+      // error banner on screen. Both transports normalise to this one type —
+      // see the note on BleChooserCancelled.
+      const cancelled = e instanceof BleChooserCancelled;
+      session = null;
       store.update((s) => ({
         ...s,
         connected: false,
@@ -363,18 +355,11 @@ function createBleMidi() {
   }
 
   function disconnect(): void {
-    try {
-      characteristic?.removeEventListener(
-        "characteristicvaluechanged",
-        onCharacteristicValue,
-      );
-      device?.removeEventListener("gattserverdisconnected", onDisconnected);
-      device?.gatt?.disconnect();
-    } catch {
-      // Already gone. Nothing to report — the state update below is the point.
-    }
-    characteristic = null;
-    device = null;
+    // Fire-and-forget: the native teardown is async, but the UI must not wait
+    // on a radio to reflect a button press, and nothing here can fail in a way
+    // the user could act on. The state reset below is the part that matters.
+    void session?.disconnect();
+    session = null;
     resetParser();
     store.update((s) => ({
       ...s,
@@ -386,7 +371,7 @@ function createBleMidi() {
   }
 
   function isConnected(): boolean {
-    return characteristic !== null && get(store).connected;
+    return session !== null && get(store).connected;
   }
 
   return {

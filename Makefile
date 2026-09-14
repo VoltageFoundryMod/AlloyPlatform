@@ -272,7 +272,14 @@ help:
 	@echo "                      (self-signed cert - accept it once on the phone)"
 	@echo "    web-check         svelte-check + tsc type validation"
 	@echo "    web-deps          npm install"
+	@echo "    web-icons         regenerate PWA icons from the logo SVG"
 	@echo "    web-clean         remove dist/ and node_modules/"
+	@echo ""
+	@echo "    app-sync          build + copy dist/ into the iOS and Android shells"
+	@echo "    app-ios           open the iOS project in Xcode (macOS only)"
+	@echo "    app-android       open the Android project in Android Studio"
+	@echo "    app-apk           build a debug APK (no IDE needed)"
+	@echo "    app-install       build the APK and adb install it to a phone"
 	@echo "      (no MODULE — the controller detects what is on the port)"
 	@echo ""
 	@echo "  Parameters"
@@ -796,7 +803,7 @@ print-plugins-dir:
 #
 # The build targets bootstrap node_modules on first run so a fresh clone works
 # with a single `make web`.
-.PHONY: web web-dev web-host web-check web-deps web-clean
+.PHONY: web web-dev web-host web-check web-deps web-icons web-clean
 
 $(WEB)/node_modules:
 	cd $(WEB) && $(NPM) install
@@ -837,8 +844,80 @@ web-host: $(WEB)/node_modules
 web-check: $(WEB)/node_modules
 	cd $(WEB) && $(NPM) run check
 
+# Rasterise every icon — PWA, iOS launcher, Android launcher, splash screens —
+# from web-configurator/public/AlloyFlux_Logo.svg. Two tools: the PWA set comes
+# from @vite-pwa/assets-generator, the ~97 native sizes from @capacitor/assets,
+# both driven by scripts/gen-icons.mjs — which also repairs output from the
+# first (it leaves the manifest icons transparent, and the mark is pale) and
+# deletes two files the second writes that must not be kept.
+#
+# Deliberately NOT a prerequisite of `web`: both need sharp, a native module that
+# has to compile, and putting that on the path of every build would make a fresh
+# clone's first `make web` fail on a toolchain problem that has nothing to do
+# with the Controller. The outputs are committed. Re-run only when the logo
+# changes, then commit what it writes into public/, ios/ and android/.
+web-icons: $(WEB)/node_modules
+	cd $(WEB) && $(NPM) run icons
+
 web-clean:
 	rm -rf $(WEB)/dist $(WEB)/node_modules
+
+# ── Alloy Controller: native shells (iOS / Android) ──────────────────────────
+# Capacitor wraps the *same* dist/ that `make web` produces. There is no second
+# codebase — the only thing that changes is which implementation
+# web-configurator/src/lib/bleLink.ts picks at runtime.
+#
+# Why this exists is iOS and nothing else. WebKit ships no Web Bluetooth, no Web
+# MIDI and no Web Serial, and an installed PWA on iOS is still WebKit, so the
+# app is the only way a page can reach a module from an iPhone. Android comes
+# along for one extra command; on Android the browser and the PWA already work.
+#
+# ⚠ `app-sync` copies dist/ — it does not build it. A stale dist means a stale
+# app, so both entry points below depend on `web`.
+.PHONY: app-sync app-ios app-android app-apk app-install
+
+app-sync: web
+	cd $(WEB) && $(NPM) run sync
+
+# Opens Xcode. macOS only — Xcode does not exist elsewhere, and a device build
+# needs a signing team set on the App target (Signing & Capabilities). The
+# project itself generates fine on any OS: Capacitor 8 uses Swift Package
+# Manager, so there is no CocoaPods step to fail on Windows.
+app-ios: app-sync
+	cd $(WEB) && $(NPM) run open:ios
+
+app-android: app-sync
+	cd $(WEB) && $(NPM) run open:android
+
+# Build a debug APK and put it on a plugged-in phone, with no IDE involved.
+#
+# ⚠ **Test on real hardware. The Android emulator has no Bluetooth radio** — it
+# emulates no BLE stack at all, so the chooser opens on an empty list and every
+# connect fails in a way that says nothing about the app. An emulator is useful
+# here only for checking layout.
+#
+# Needs a JDK 17+ (AGP 8.13 refuses anything older) and an SDK with platform 36.
+# Both are located through JAVA_HOME / ANDROID_HOME; the check below fails with
+# a usable message rather than letting Gradle produce its own.
+#
+# The SDK check runs BEFORE the sync rather than as a prerequisite of it, so a
+# missing toolchain fails in a second instead of after a full web build.
+app-apk:
+	@test -n "$$ANDROID_HOME" || test -n "$$ANDROID_SDK_ROOT" || { \
+	  echo ""; \
+	  echo "No Android SDK: neither ANDROID_HOME nor ANDROID_SDK_ROOT is set."; \
+	  echo "One-time toolchain setup is in $(WEB)/BUILDING.md."; \
+	  echo ""; exit 1; }
+	@$(MAKE) --no-print-directory app-sync
+	cd $(WEB)/android && ./gradlew assembleDebug
+	@echo ""
+	@echo "APK: $(WEB)/android/app/build/outputs/apk/debug/app-debug.apk"
+
+# `adb install -r` replaces in place and keeps app data, so presets survive a
+# reinstall. -t allows test builds. Plug the phone in with USB debugging on;
+# `adb devices` should list it as `device`, not `unauthorized`.
+app-install: app-apk
+	adb install -r -t $(WEB)/android/app/build/outputs/apk/debug/app-debug.apk
 
 # ── Formatting ───────────────────────────────────────────────────────────────
 # Style is governed by .clang-format (4-space, 80 columns, Allman). clang-format

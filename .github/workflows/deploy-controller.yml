@@ -1,0 +1,93 @@
+# Publish the Alloy Controller to GitHub Pages.
+#
+# The Controller is a static bundle with no backend, so "deploy" is literally
+# `make web` plus an upload. What makes this more than four lines is the base
+# path: Pages serves a project site from `/<repo>/`, not from the root.
+#
+# ⚠️ One-time setup, and CI cannot do it for you: in the repository's
+#    Settings → Pages, set **Source** to **GitHub Actions**. Until that is done
+#    the deploy job fails with a 404 from the Pages API, which reads as a
+#    permissions problem and is not one.
+name: Deploy Controller
+
+on:
+  push:
+    branches: [main]
+    # The firmware and the VCV plugin share this repository and change far more
+    # often than the Controller does. Without this filter every DSP commit would
+    # redeploy an identical site.
+    paths:
+      - "web-configurator/**"
+      - ".github/workflows/deploy-controller.yml"
+  # So a deploy can be forced without an empty commit — useful after changing
+  # the Pages source, which does not itself trigger anything.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write # deploy-pages authenticates with OIDC, not a PAT
+
+# Let a running deploy finish rather than cancelling it: a half-uploaded
+# artifact would leave the live site serving a mix of two builds.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-configurator
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # Vite 8 requires Node 20.19+ / 22.12+.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web-configurator/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        # Same gate as `make web-check`. Cheap, and it fails here rather than
+        # shipping a build that typechecks nowhere.
+        run: npm run check
+
+      - name: Build
+        env:
+          # Root, because the site is served from the custom domain
+          # `alloy.vfmod.com` rather than from `github.io/<repo>/`.
+          #
+          # ⚠️ **This must match how the site is actually reached.** A project
+          # site on `<user>.github.io/<repo>/` needs
+          # `BASE_URL: /${{ github.event.repository.name }}/` instead — a fork
+          # without a custom domain has to change this line or every asset 404s
+          # against the wrong prefix. See the note in vite.config.ts for the two
+          # ways that goes wrong, both of them silent.
+          BASE_URL: /
+        run: npm run build
+
+      # Icons are deliberately NOT regenerated here. `make web-icons` needs
+      # sharp, which compiles, and the outputs are committed precisely so that
+      # neither a fresh clone nor CI has to build a native module.
+
+      - uses: actions/configure-pages@v6
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web-configurator/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

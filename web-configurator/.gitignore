@@ -22,3 +22,34 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# vite-plugin-pwa dev output (service worker is disabled in dev, but the
+# plugin still scaffolds this directory if devOptions are ever turned on).
+dev-dist
+
+# --- Capacitor native shells -------------------------------------------------
+# ios/ and android/ ARE committed on purpose: they carry the Info.plist
+# Bluetooth usage string, the AndroidManifest permission set, the signing
+# configuration and the launcher icons. Regenerating them with `cap add` would
+# silently drop all four. Only build output and the copied-in web assets are
+# ignored — everything below is reproduced by `make app-sync`.
+android/.gradle/
+android/.idea/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+ios/App/build/
+ios/DerivedData/
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/Pods/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcworkspace/xcuserdata/
+# Intermediates for `make web-icons` — rasterised from public/VFM_Logo_Stripped.svg
+# by scripts/gen-native-icons.mjs on every run, so there is nothing to preserve.
+# The generated icon sets under ios/ and android/ ARE committed.
+assets/icon.png
+assets/splash.png

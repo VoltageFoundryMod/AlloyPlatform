@@ -26,5 +26,8 @@
     "${env:RACK_DIR}/include",
     "${env:RACK_DIR}/dep/include"
   ],
-  "C_Cpp.default.defines": ["_USE_MATH_DEFINES"]
+  "C_Cpp.default.defines": ["_USE_MATH_DEFINES"],
+  "files.watcherExclude": {
+    "**/target/**": true
+  }
 }
